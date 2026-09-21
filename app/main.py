@@ -37,6 +37,7 @@ from .extractor import (
     scan_paths,
 )
 from .integrations.social import social_blueprint
+from .visual_runtime.routes import studio_blueprint
 from .folder_picker import FolderPickerUnavailable, choose_folder
 from .indexing import index_source_directory
 from .media import (
@@ -92,6 +93,7 @@ app.register_blueprint(comfyui_blueprint)
 app.register_blueprint(editor_blueprint)
 app.register_blueprint(simple_blueprint)
 app.register_blueprint(social_blueprint)
+app.register_blueprint(studio_blueprint)
 
 app.jinja_env.auto_reload = True
 

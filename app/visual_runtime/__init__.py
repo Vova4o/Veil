@@ -14,10 +14,18 @@ from .models import (
     ExecutionPlan,
     FreeModeRequest,
     ReferenceRole,
+    StudioPrimitive,
     VisualAction,
     VisualOperation,
     VisualReference,
     VisualSession,
+)
+from .primitives import (
+    compile_plan,
+    default_policy_for_operation,
+    list_primitives,
+    resolve_primitive,
+    validate_primitive,
 )
 from .store import (
     VisualSessionStoreError,
@@ -44,6 +52,12 @@ __all__ = [
     "ExecutionPlan",
     "FreeModeRequest",
     "ReferenceRole",
+    "StudioPrimitive",
+    "compile_plan",
+    "default_policy_for_operation",
+    "list_primitives",
+    "resolve_primitive",
+    "validate_primitive",
     "VisualAction",
     "VisualOperation",
     "VisualReference",

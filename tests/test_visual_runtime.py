@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app import database
+from app.schemas import AssetInsertRow
 from app.visual_runtime import backend as studio_backend
 from app.visual_runtime.models import (
     EditPolicy,
@@ -17,6 +18,13 @@ from app.visual_runtime.models import (
     VisualSession,
 )
 from app.visual_runtime import store as visual_store
+from app.visual_runtime.primitives import (
+    compile_plan,
+    default_policy_for_operation,
+    list_primitives,
+    resolve_primitive,
+    validate_primitive,
+)
 
 
 @pytest.fixture()
@@ -234,6 +242,182 @@ def test_append_action_rejects_unknown_operation(isolated_db):
     session_id = visual_store.create_session()
     with pytest.raises(Exception):
         visual_store.append_action(session_id, "not_a_real_op", "x")
+
+
+# ── Step 4: primitives ─────────────────────────────────────────────────
+
+
+def test_resolve_primitive_mapping():
+    assert resolve_primitive("generate_scene").value == "moody-generate"
+    assert resolve_primitive("change_pose").value == "moody-edit"
+    assert resolve_primitive("relocate").value == "moody-edit"
+    assert resolve_primitive("typography").value == "moody-edit"
+    # compose_scene starts from generation until a working image exists.
+    assert resolve_primitive("compose_scene").value == "moody-generate"
+    assert (
+        resolve_primitive("compose_scene", has_current_image=True).value
+        == "moody-edit"
+    )
+    with pytest.raises(ValueError):
+        resolve_primitive("not_a_real_op")
+
+
+def test_default_policy_per_operation():
+    assert default_policy_for_operation("change_wardrobe").preserve_pose is True
+    assert default_policy_for_operation("change_wardrobe").preserve_identity is True
+    assert default_policy_for_operation("relocate").preserve_environment is False
+    assert default_policy_for_operation("replace_character").preserve_identity is False
+    assert default_policy_for_operation("adjust_lighting").preserve_pose is True
+
+
+def test_compile_plan_is_pure_and_typed():
+    plan = compile_plan("s1", "relocate", "move to France", has_current_image=True)
+    assert plan.session_id == "s1"
+    assert plan.operation == VisualOperation.RELOCATE
+    assert plan.primitive.value == "moody-edit"
+    assert "moodyKrea2Mix_v40" in plan.reason
+
+
+def test_validate_primitive_is_honestly_pending():
+    pending = validate_primitive("moody-edit", None)
+    assert pending["ready"] is False
+    assert pending["status"] == "pending"
+    assert any("workflow graph" in reason for reason in pending["reasons"])
+    assert {p["id"] for p in list_primitives()} == {"moody-generate", "moody-edit"}
+    with pytest.raises(ValueError):
+        validate_primitive("nope")
+
+
+# ── Step 5: Studio HTTP API ────────────────────────────────────────────
+
+
+def _seed_assets(folder_id: int, names: list[str]) -> list[int]:
+    rows = [AssetInsertRow(rel_path=name, file_name=name) for name in names]
+    database.insert_assets(folder_id, rows)
+    conn = database.get_conn()
+    try:
+        by_name = {
+            str(row["file_name"]): int(row["id"])
+            for row in conn.execute(
+                "SELECT id, file_name FROM images WHERE folder_id = ?",
+                (folder_id,),
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+    return [by_name[name] for name in names]
+
+
+def test_studio_api_session_lifecycle(isolated_db):
+    from app.main import app
+
+    client = app.test_client()
+    folder_id = database.upsert_source("/tmp/studio", name="studio")
+    (asset_a, asset_b) = _seed_assets(folder_id, ["a.png", "b.png"])
+
+    created = client.post(
+        "/api/studio/sessions",
+        json={"instruction": "base scene", "original_asset_id": asset_a},
+    )
+    assert created.status_code == 201, created.get_json()
+    session_id = created.get_json()["session"]["id"]
+
+    fetched = client.get(f"/api/studio/sessions/{session_id}")
+    assert fetched.status_code == 200
+    assert fetched.get_json()["session"]["original_asset_id"] == asset_a
+
+    patched = client.patch(
+        f"/api/studio/sessions/{session_id}",
+        json={"current_asset_id": asset_b, "instruction": "edited"},
+    )
+    assert patched.status_code == 200
+    payload = patched.get_json()["session"]
+    assert payload["current_asset_id"] == asset_b
+    assert payload["instruction"] == "edited"
+    assert payload["original_asset_id"] == asset_a
+
+    missing = client.get("/api/studio/sessions/does-not-exist")
+    assert missing.status_code == 404
+
+
+def test_studio_api_references_and_history(isolated_db):
+    from app.main import app
+
+    client = app.test_client()
+    folder_id = database.upsert_source("/tmp/studio2", name="studio2")
+    (asset_a, asset_b) = _seed_assets(folder_id, ["a.png", "b.png"])
+    session_id = client.post("/api/studio/sessions", json={}).get_json()["session"][
+        "id"
+    ]
+
+    ref = client.post(
+        f"/api/studio/sessions/{session_id}/references",
+        json={"asset_id": asset_a, "role": "character", "label": "hero"},
+    )
+    assert ref.status_code == 201, ref.get_json()
+    assert ref.get_json()["reference"]["role"] == "character"
+
+    bad_role = client.post(
+        f"/api/studio/sessions/{session_id}/references",
+        json={"asset_id": asset_a, "role": "villain"},
+    )
+    assert bad_role.status_code == 400
+
+    action = client.post(
+        f"/api/studio/sessions/{session_id}/actions",
+        json={
+            "operation": "change_pose",
+            "instruction": "new pose",
+            "input_asset_ids": [asset_a],
+            "output_asset_ids": [asset_b],
+        },
+    )
+    assert action.status_code == 201, action.get_json()
+    # Output Asset -> current_asset_id (§6 layer diagram).
+    assert action.get_json()["session"]["current_asset_id"] == asset_b
+
+    history = client.get(f"/api/studio/sessions/{session_id}/history")
+    assert history.status_code == 200
+    actions = history.get_json()["actions"]
+    assert [a["operation"] for a in actions] == ["change_pose"]
+
+    reference_id = ref.get_json()["reference"]["id"]
+    deleted = client.delete(f"/api/studio/references/{reference_id}")
+    assert deleted.status_code == 200
+    assert deleted.get_json() == {"ok": True}
+
+
+def test_studio_api_resolve(isolated_db):
+    from app.main import app
+
+    client = app.test_client()
+    session_id = client.post("/api/studio/sessions", json={}).get_json()["session"][
+        "id"
+    ]
+    resolved = client.post(
+        f"/api/studio/sessions/{session_id}/resolve",
+        json={"operation": "relocate", "instruction": "move to France"},
+    )
+    assert resolved.status_code == 200, resolved.get_json()
+    payload = resolved.get_json()
+    assert payload["plan"]["primitive"] == "moody-edit"
+    assert payload["plan"]["operation"] == "relocate"
+    assert "moodyKrea2Mix_v40" in payload["plan"]["reason"]
+    assert payload["primitive"]["id"] == "moody-edit"
+
+    unknown = client.post(
+        f"/api/studio/sessions/{session_id}/resolve",
+        json={"operation": "teleport"},
+    )
+    assert unknown.status_code == 400
+
+    assert client.get("/api/studio/backend").status_code == 200
+    primitives = client.get("/api/studio/primitives")
+    assert primitives.status_code == 200
+    assert {p["id"] for p in primitives.get_json()["primitives"]} == {
+        "moody-generate",
+        "moody-edit",
+    }
 
 
 def test_cascade_delete_removes_session_graph(isolated_db):
