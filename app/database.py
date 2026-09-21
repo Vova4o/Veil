@@ -448,6 +448,42 @@ _INITIAL_SCHEMA_SQL = """
         UNIQUE(image_id)
     );
 
+    -- Studio VisualSession layer (EDITOR-STUDIO-RUNTIME-PLAN §4, §6).
+    -- Scene state lives here; WorkflowDraft/WorkflowRun stay the execution
+    -- layer underneath. original_asset_id is the stable anchor, while
+    -- current_asset_id tracks the latest working state.
+    CREATE TABLE IF NOT EXISTS visual_sessions (
+        id TEXT PRIMARY KEY,
+        original_asset_id INTEGER REFERENCES images(id) ON DELETE SET NULL,
+        current_asset_id INTEGER REFERENCES images(id) ON DELETE SET NULL,
+        instruction TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS visual_references (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL REFERENCES visual_sessions(id) ON DELETE CASCADE,
+        asset_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        label TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(session_id, asset_id, role)
+    );
+
+    -- Append-only history: no UPDATE/DELETE API is exposed for this table.
+    CREATE TABLE IF NOT EXISTS visual_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL REFERENCES visual_sessions(id) ON DELETE CASCADE,
+        operation TEXT NOT NULL,
+        instruction TEXT NOT NULL DEFAULT '',
+        origin TEXT NOT NULL DEFAULT 'runtime',
+        input_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+        output_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+        workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_images_folder ON images(folder_id);
     CREATE INDEX IF NOT EXISTS idx_images_folder_mtime ON images(folder_id, file_mtime);
     CREATE INDEX IF NOT EXISTS idx_images_mtime_id ON images(file_mtime DESC, id DESC);
@@ -523,6 +559,11 @@ _LATE_INDEXES_SQL = """
     CREATE INDEX IF NOT EXISTS idx_trash_tombstones_image ON trash_tombstones(image_id);
     CREATE INDEX IF NOT EXISTS idx_ai_jobs_asset ON ai_jobs(asset_id);
     CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_visual_references_session ON visual_references(session_id, id);
+    CREATE INDEX IF NOT EXISTS idx_visual_references_asset ON visual_references(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_visual_actions_session ON visual_actions(session_id, id);
+    CREATE INDEX IF NOT EXISTS idx_visual_sessions_original ON visual_sessions(original_asset_id);
+    CREATE INDEX IF NOT EXISTS idx_visual_sessions_current ON visual_sessions(current_asset_id);
 """
 
 
