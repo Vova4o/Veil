@@ -508,7 +508,7 @@ def _custom_scope_members(conn: sqlite3.Connection, scope: str) -> list[int]:
     kind, _, key = scope.partition(":")
     if kind == "folder":
         rows = conn.execute(
-            "SELECT i.id FROM images i WHERE i.folder_id = ? ORDER BY i.id DESC",
+            "SELECT i.id FROM images i WHERE i.folder_id = ? ORDER BY COALESCE(i.file_mtime, 0) DESC, i.id DESC",
             (int(key),),
         ).fetchall()
         return [int(row["id"]) for row in rows]
@@ -519,7 +519,7 @@ def _custom_scope_members(conn: sqlite3.Connection, scope: str) -> list[int]:
     rows = conn.execute(
         "SELECT i.id FROM images i "
         "JOIN folders f ON f.id = i.folder_id "
-        f"WHERE {where} ORDER BY i.id DESC",
+        f"WHERE {where} ORDER BY COALESCE(i.file_mtime, 0) DESC, i.id DESC",
         params,
     ).fetchall()
     return [int(row["id"]) for row in rows]
@@ -730,6 +730,14 @@ def move_custom_order_item(
 
         if pos_before is not None and pos_after is not None:
             if pos_before >= pos_after:
+                conn.execute(
+                    "UPDATE item_positions SET position = position + ? WHERE scope = ? AND position >= ? AND image_id != ?",
+                    (CUSTOM_ORDER_STEP * 2, scope, pos_before, image_id),
+                )
+                conn.execute(
+                    "UPDATE item_positions SET position = ? WHERE scope = ? AND image_id = ?",
+                    (pos_before + CUSTOM_ORDER_STEP * 2, scope, after_id),
+                )
                 _rebalance_scope_conn(conn, scope)
                 positions = {
                     int(row["image_id"]): float(row["position"])
@@ -740,8 +748,6 @@ def move_custom_order_item(
                 }
                 pos_before = positions[before_id]
                 pos_after = positions[after_id]
-                if pos_before >= pos_after:  # pragma: no cover — PK prevents this
-                    raise LibraryConflictError("Unable to order assets in this scope")
             new_position = (pos_before + pos_after) / 2.0
             if new_position == pos_before or new_position == pos_after:
                 _rebalance_scope_conn(conn, scope)

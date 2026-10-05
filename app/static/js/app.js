@@ -27,7 +27,7 @@ import { initSearch } from './components/search-bar.js';
 import { initKeyboardShortcuts } from './features/keyboard.js';
 import { initCentralCollectionShortcuts } from './central-shortcuts.js';
 import { loadBootstrap } from './api.js';
-import { initSorting } from './features/sorting.js';
+import { initSorting, updateSortButtonLabel } from './features/sorting.js';
 import { initRatingFilter } from './features/rating-filter.js';
 import { initMediaTypeFilter } from './features/media-type-filter.js';
 import { waitForInitialMediaReady } from './media-loading.js';
@@ -48,6 +48,7 @@ async function bootstrapApplication() {
     setIsLoading(true);
     resetRuntimeState();
     loadState();
+    updateSortButtonLabel();
     initRatingFilter();
     initMediaTypeFilter();
     const preferredCollection = { type: currentCollection.type, id: currentCollection.id };

@@ -91,10 +91,28 @@ function renderSortMenu(menuElement, currentKey, currentDir, options, onSortSele
     });
 }
 
+export function updateSortButtonLabel() {
+    const sortBtn = document.querySelector('#sort-btn');
+    if (!sortBtn) return;
+    const span = sortBtn.querySelector('span');
+    if (!span) return;
+    const opt = sortOptions.find(o => o.key === sortKey);
+    const label = opt ? opt.label : 'Sort';
+    if (sortKey === 'custom') {
+        span.textContent = 'Custom';
+        sortBtn.title = 'Sort: Custom order';
+    } else {
+        const dirSymbol = sortDir === 'asc' ? '↑' : '↓';
+        span.textContent = `${label} ${dirSymbol}`;
+        sortBtn.title = `Sort: ${label} (${sortDir === 'asc' ? 'Ascending' : 'Descending'})`;
+    }
+}
+
 export function bindCentralSortEvents() {
     const sortBtn = document.querySelector('#sort-btn');
     const sortMenu = document.querySelector('#sort-dropdown-menu');
     if (!sortBtn || !sortMenu) return;
+    updateSortButtonLabel();
     
     sortBtn.onclick = (e) => {
         e.stopPropagation();
@@ -116,6 +134,7 @@ export function bindCentralSortEvents() {
                 async (newKey) => {
                     setSortKey(newKey);
                     saveState();
+                    updateSortButtonLabel();
                     sortMenu.style.display = 'none';
                     sortBtn.setAttribute('aria-expanded', 'false');
                     invalidateApiCache();
@@ -126,6 +145,7 @@ export function bindCentralSortEvents() {
                 async (newDir) => {
                     setSortDir(newDir);
                     saveState();
+                    updateSortButtonLabel();
                     sortMenu.style.display = 'none';
                     sortBtn.setAttribute('aria-expanded', 'false');
                     invalidateApiCache();
@@ -267,6 +287,7 @@ export function initSorting() {
     bindCentralSortEvents();
     bindFoldersSortEvents();
     bindAlbumsSortEvents();
+    updateSortButtonLabel();
     
     document.addEventListener('click', () => {
         const sortMenu = document.querySelector('#sort-dropdown-menu');

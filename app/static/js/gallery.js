@@ -20,7 +20,7 @@ import { skeletonGalleryCard } from './components/skeleton.js';
 import { showImageContextMenu } from './components/image-context-menu.js';
 import { traceSpan } from './tracing.js';
 import { applySearchFilter } from './components/search-bar.js';
-import { bindCentralSortEvents } from './features/sorting.js';
+import { bindCentralSortEvents, updateSortButtonLabel } from './features/sorting.js';
 
 async function fetchJson(url, options) {
     const response = await fetch(url, options);
@@ -73,7 +73,9 @@ function galleryCardHtml(img, index) {
     const hasError = img.error ? '<div class="card-error"><svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>' : '';
     const fmt = img.format || '';
     const dims = img.size ? `${img.size[0]}x${img.size[1]}` : '';
-    const size = img.size && img.size[0] > 0 && img.size[1] > 0 ? img.size : [4, 3];
+    const hasKnownSize = Array.isArray(img.size) && img.size[0] > 0 && img.size[1] > 0;
+    const size = hasKnownSize ? img.size : [4, 3];
+    const fallbackAttr = hasKnownSize ? '' : ' data-fallback-aspect="true"';
     const ratioStyle = ` style="aspect-ratio: ${size[0]} / ${size[1]}; position: relative; width: 100%; background: var(--surface2);"`;
     const imgStyle = ' style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;"';
     const fileName = img.file_name || img.file || '';
@@ -95,9 +97,9 @@ function galleryCardHtml(img, index) {
 
     return `
         <div class="gallery-card${isActive}" data-index="${index}" data-image-id="${img.id ?? ''}">
-            <div class="img-wrapper"${ratioStyle}>
+            <div class="img-wrapper"${ratioStyle}${fallbackAttr}>
                 ${videoPlaceholder}
-                <img src="${src}" alt="${escapeHtml(fileName)}" loading="lazy" decoding="async" draggable="false"${imgStyle} onload="if(this.naturalWidth && !this.parentElement.style.aspectRatio){this.parentElement.style.aspectRatio=this.naturalWidth+'/'+this.naturalHeight;}" onerror="if(this.dataset.mediaType==='video'){this.hidden=true;}" data-media-type="${isVideo ? 'video' : 'image'}">
+                <img src="${src}" alt="${escapeHtml(fileName)}" loading="lazy" decoding="async" draggable="false"${imgStyle} onerror="if(this.dataset.mediaType==='video'){this.hidden=true;}" data-media-type="${isVideo ? 'video' : 'image'}">
                 ${videoPlayOverlay}
                 ${mediaBadge}
             </div>
@@ -125,6 +127,32 @@ function createGalleryCard(img, index) {
 let suppressNextClick = false;
 
 function bindGalleryCard(card) {
+    const imgEl = card.querySelector('img');
+    if (imgEl) {
+        const handleImageLoad = () => {
+            const wrapper = imgEl.parentElement;
+            if (wrapper && wrapper.dataset.fallbackAspect === 'true' && imgEl.naturalWidth && imgEl.naturalHeight) {
+                wrapper.style.aspectRatio = `${imgEl.naturalWidth} / ${imgEl.naturalHeight}`;
+                delete wrapper.dataset.fallbackAspect;
+                const index = Number.parseInt(card.dataset.index, 10);
+                const currentImg = images[index];
+                if (currentImg && (!currentImg.size || !currentImg.size[0])) {
+                    currentImg.size = [imgEl.naturalWidth, imgEl.naturalHeight];
+                    const metaEl = card.querySelector('.card-meta');
+                    if (metaEl) {
+                        metaEl.textContent = `${currentImg.media_type === 'video' ? 'Video · ' : ''}${currentImg.format || ''} ${imgEl.naturalWidth}x${imgEl.naturalHeight}`.trim();
+                    }
+                }
+                resizeAllGridItems([card]);
+            }
+        };
+        if (imgEl.complete && imgEl.naturalWidth) {
+            handleImageLoad();
+        } else {
+            imgEl.addEventListener('load', handleImageLoad, { once: true });
+        }
+    }
+
     card.addEventListener('click', event => {
         if (suppressNextClick) {
             suppressNextClick = false;
@@ -597,6 +625,7 @@ document.addEventListener('pointerup', async event => {
 
             setSortKey('custom');
             saveState();
+            updateSortButtonLabel();
 
             import('./features/sidebar.js').then(({ renderSidebar }) => {
                 renderSidebar({ reconcile: true });

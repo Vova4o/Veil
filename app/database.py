@@ -1440,7 +1440,22 @@ def ensure_image_processed(image_id: int, img_path: str) -> None:
             if abs_path.is_file():
                 try:
                     meta = extract_metadata(abs_path)
-                    _update_image_metadata(conn, image_id, meta)
+                    conn.execute(
+                        """UPDATE images SET
+                            format = ?, width = ?, height = ?, mode = ?, error = ?, metadata_json = ?,
+                            preview_status = 'ready', preview_error = NULL,
+                            created_at = datetime('now')
+                        WHERE id = ?""",
+                        (
+                            meta.format,
+                            meta.size[0] if meta.size else 0,
+                            meta.size[1] if meta.size else 0,
+                            meta.mode,
+                            meta.error,
+                            meta.model_dump_json(),
+                            image_id,
+                        ),
+                    )
                     conn.commit()
                 except Exception as e:
                     import traceback
@@ -1452,6 +1467,45 @@ def ensure_image_processed(image_id: int, img_path: str) -> None:
                     conn.commit()
             else:
                 err_str = f"File not found: {abs_path}"
+                conn.execute(
+                    "UPDATE images SET error = ? WHERE id = ?",
+                    (err_str, image_id),
+                )
+                conn.commit()
+    finally:
+        conn.close()
+
+
+def ensure_upload_image_processed(image_id: int, original_data: bytes) -> None:
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT width, height, metadata_json, error, file_name FROM images WHERE id = ?", (image_id,)
+        ).fetchone()
+        if row and (row["width"] == 0 or row["height"] == 0 or row["metadata_json"] is None) and row["error"] is None:
+            from .extractor import extract_metadata_from_bytes
+            try:
+                meta = extract_metadata_from_bytes(original_data, row["file_name"])
+                conn.execute(
+                    """UPDATE images SET
+                        format = ?, width = ?, height = ?, mode = ?, error = ?, metadata_json = ?,
+                        preview_status = 'ready', preview_error = NULL,
+                        created_at = datetime('now')
+                    WHERE id = ?""",
+                    (
+                        meta.format,
+                        meta.size[0] if meta.size else 0,
+                        meta.size[1] if meta.size else 0,
+                        meta.mode,
+                        meta.error,
+                        meta.model_dump_json(),
+                        image_id,
+                    ),
+                )
+                conn.commit()
+            except Exception as e:
+                import traceback
+                err_str = str(e) + "\n" + traceback.format_exc()
                 conn.execute(
                     "UPDATE images SET error = ? WHERE id = ?",
                     (err_str, image_id),
@@ -1591,10 +1645,10 @@ def get_images_page(
             # the "new items on top" behavior without any client overlay.
             # (SQLite sorts NULLS first in ASC order.)
             subquery_order = (
-                "ORDER BY ip2.position IS NOT NULL, ip2.position ASC, i2.id DESC"
+                "ORDER BY ip2.position IS NOT NULL, ip2.position ASC, COALESCE(i2.file_mtime, 0) DESC, i2.id DESC"
             )
             main_order = (
-                "ORDER BY ip.position IS NOT NULL, ip.position ASC, i.id DESC"
+                "ORDER BY ip.position IS NOT NULL, ip.position ASC, COALESCE(i.file_mtime, 0) DESC, i.id DESC"
             )
         elif sort_by == "name":
             subquery_order = f"ORDER BY i2.file_name COLLATE NOCASE {direction}, i2.id {direction}"

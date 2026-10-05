@@ -31,8 +31,6 @@
     -webkit-user-select: none;
     -webkit-user-drag: none;
     touch-action: none;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 240px;
 }
 
 .gallery-card:hover {

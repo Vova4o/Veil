@@ -155,6 +155,10 @@ export async function loadBootstrap({ preferredCollection = null } = {}) {
         : defaultItem
             ? { type: defaultItem.type, id: defaultItem.item.id, name: defaultItem.item.name }
             : null;
+    if (sortKey === 'custom' && defaultCollection?.type !== 'album') {
+        const { ensureServerCustomOrder } = await import('./custom-order.js');
+        await ensureServerCustomOrder(defaultCollection);
+    }
     const collectionPage = defaultCollection
         ? await fetchJson(collectionImagesUrl(defaultCollection, 1, PAGE_SIZE), { force: true })
         : { images: [], total: 0, page: 0, per_page: PAGE_SIZE };

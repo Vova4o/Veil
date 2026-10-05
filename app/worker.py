@@ -10,7 +10,12 @@ from pathlib import Path
 from PIL import Image
 
 from . import database as db
-from .extractor import extract_metadata, make_thumbnail_bytes
+from .extractor import (
+    extract_metadata,
+    extract_metadata_from_bytes,
+    make_thumbnail_bytes,
+    make_thumbnail_bytes_from_bytes,
+)
 from .media import (
     MediaToolUnavailableError,
     VideoProcessingError,
@@ -185,8 +190,45 @@ def _worker_loop():
             rel_path = row["rel_path"]
             folder_path = row["folder_path"]
 
-            # Uploaded assets are already processed by the import path.
             if folder_path in ("__uploads__", "__uploads_no_metadata__"):
+                orig_data = db.get_asset_original_data(img_id)
+                if orig_data:
+                    try:
+                        meta = extract_metadata_from_bytes(orig_data, rel_path)
+                        thumb_data = make_thumbnail_bytes_from_bytes(orig_data)
+                        preview_status = "ready" if thumb_data else "error"
+                        preview_error = None if thumb_data else "Image preview generation failed"
+                        if thumb_data:
+                            _thumbnail_dir.mkdir(parents=True, exist_ok=True)
+                            (_thumbnail_dir / f"{img_id}.jpg").write_bytes(thumb_data)
+                        with closing(db.get_conn()) as conn:
+                            conn.execute(
+                                """UPDATE images SET format = ?, width = ?, height = ?,
+                                    mode = ?, error = ?, metadata_json = ?,
+                                    preview_status = ?, preview_error = ?,
+                                    created_at = datetime('now')
+                                WHERE id = ?""",
+                                (
+                                    meta.format,
+                                    meta.size[0] if meta.size else 0,
+                                    meta.size[1] if meta.size else 0,
+                                    meta.mode,
+                                    meta.error,
+                                    meta.model_dump_json(),
+                                    preview_status,
+                                    preview_error,
+                                    img_id,
+                                ),
+                            )
+                            conn.commit()
+                    except Exception as e:
+                        tb = str(e) + "\n" + traceback.format_exc()
+                        with closing(db.get_conn()) as conn:
+                            conn.execute(
+                                "UPDATE images SET error = ?, preview_status = 'error' WHERE id = ?",
+                                (tb, img_id),
+                            )
+                            conn.commit()
                 continue
 
             abs_path = Path(folder_path) / rel_path
