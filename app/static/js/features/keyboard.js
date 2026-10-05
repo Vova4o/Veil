@@ -329,20 +329,20 @@ async function refreshDiagnostics() {
 
     try {
         const data = await getDiagnostics();
-        setText(document.getElementById('diag-folders'), data.folders); // eslint-disable-line no-restricted-syntax -- diagnostic IDs
-        setText(document.getElementById('diag-images'), data.images); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-uploads'), data.uploads); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-thumbnails'), data.thumbnail_count); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-previews'), data.preview_count); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-cutouts'), data.cutout_count); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-loaded'), `${data.loaded_images}/${data.total_images || data.loaded_images}`); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-db-path'), data.db_path || '-'); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-upload-dir'), data.upload_dir || '-'); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-thumb-dir'), data.thumbnail_dir || '-'); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-preview-dir'), data.preview_dir || '-'); // eslint-disable-line no-restricted-syntax
-        setText(document.getElementById('diag-cutout-dir'), data.cutout_dir || '-'); // eslint-disable-line no-restricted-syntax
+        setText(document.getElementById('diag-folders'), data.folders);  
+        setText(document.getElementById('diag-images'), data.images);  
+        setText(document.getElementById('diag-uploads'), data.uploads);  
+        setText(document.getElementById('diag-thumbnails'), data.thumbnail_count);  
+        setText(document.getElementById('diag-previews'), data.preview_count);  
+        setText(document.getElementById('diag-cutouts'), data.cutout_count);  
+        setText(document.getElementById('diag-loaded'), `${data.loaded_images}/${data.total_images || data.loaded_images}`);  
+        setText(document.getElementById('diag-db-path'), data.db_path || '-');  
+        setText(document.getElementById('diag-upload-dir'), data.upload_dir || '-');  
+        setText(document.getElementById('diag-thumb-dir'), data.thumbnail_dir || '-');  
+        setText(document.getElementById('diag-preview-dir'), data.preview_dir || '-');  
+        setText(document.getElementById('diag-cutout-dir'), data.cutout_dir || '-');  
     } catch (_e) {
-        setText(document.getElementById('diag-db-path'), 'Diagnostics unavailable'); // eslint-disable-line no-restricted-syntax
+        setText(document.getElementById('diag-db-path'), 'Diagnostics unavailable');  
     }
 }
 

@@ -106,7 +106,7 @@ async function persistLibraryReorder(newOrderIds, draggedIds) {
     queue.sort((left, right) => newOrderIds.indexOf(left) - newOrderIds.indexOf(right));
     for (const id of queue) {
         const idx = newOrderIds.indexOf(id);
-        // eslint-disable-next-line no-await-in-loop -- sequential midpoints must converge in final-DOM order
+        // eslint-disable-next-line no-await-in-loop, no-restricted-syntax -- sequential midpoints must converge in final-DOM order
         await persistCustomOrderMove(
             scope,
             id,

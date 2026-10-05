@@ -1476,6 +1476,7 @@ async function submitProfile(event) {
                 multimodal: (role === 'vision'),
                 roles: [role],
             };
+            // eslint-disable-next-line no-await-in-loop, no-restricted-syntax -- profiles must be created sequentially to maintain exact defaults mapping
             const created = await requestJson('/api/ai/profiles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

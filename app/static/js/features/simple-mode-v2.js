@@ -1,6 +1,5 @@
 const $ = id => document.getElementById(id);
 const MAX_REF = 20 * 1024 * 1024;
-const ROTATE = 5 * 60 * 1000;
 
 const state = {
     models: [],
@@ -616,6 +615,7 @@ async function loadDownloads() {
     } catch {}
 }
 
+// eslint-disable-next-line no-unused-vars
 async function installModel() {
     if (!state.modelId) return;
     const button = $('model-install');
@@ -695,7 +695,7 @@ function refillAmbientDeck() {
 
     const shuffledUnseen = shuffleArray(unseen);
     const shuffledSeen = shuffleArray(seen);
-    let newDeck = [...shuffledUnseen, ...shuffledSeen];
+    const newDeck = [...shuffledUnseen, ...shuffledSeen];
 
     // Avoid immediate repeat with currently shown image
     if (newDeck.length > 1 && (newDeck[0]?.id || newDeck[0]) === state.ambientCurrent) {

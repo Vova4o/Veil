@@ -35,7 +35,6 @@ let tgPollTimer = null;
 let vkPollTimer = null;
 let vkPollStartedAt = 0;
 
-const elements = {};
 let socialStatus = null;
 
 window.cmvSocialStatus = () => socialStatus;
@@ -76,7 +75,7 @@ function showToast(message, isError = false) {
 async function loadSocialStatus() {
     try {
         socialStatus = await requestJson('/api/social/status');
-    } catch (error) {
+    } catch (_error) {
         socialStatus = null;
     }
     return socialStatus;
@@ -422,7 +421,7 @@ async function pollVkStatus() {
             stopVkPolling();
             showToast('VK authorization timed out. Please try again.', true);
         }
-    } catch (error) {
+    } catch (_error) {
         if (Date.now() - vkPollStartedAt > VK_POLL_TIMEOUT_MS) {
             stopVkPolling();
         }

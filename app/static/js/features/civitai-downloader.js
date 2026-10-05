@@ -1,6 +1,6 @@
 /* Civitai model downloader — Create editor. */
 (() => {
-    const $ = (id) => document.getElementById(id); // eslint-disable-line no-restricted-syntax -- module-load cache helper
+    const $ = (id) => document.getElementById(id);  
 
     const dialog = $("civitai-downloader-dialog");
     if (!dialog) return;

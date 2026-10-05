@@ -451,7 +451,7 @@ function attachEventListeners() {
             dom.contentArea.querySelectorAll('.content-tab').forEach(t => t.classList.remove('active'));
             dom.contentArea.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
             tab.classList.add('active');
-            document.getElementById('panel-' + nextTab)?.classList.add('active'); // eslint-disable-line no-restricted-syntax -- dynamic panel ID
+            document.getElementById('panel-' + nextTab)?.classList.add('active');  
         });
     });
 
