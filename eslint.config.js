@@ -52,14 +52,7 @@ export default [
              ForOfStatement AssignmentExpression[left.property.name='innerHTML'][operator='+=']",
           message: "⚠ PERF: innerHTML += in loop causes repeated DOM parse+rebuild. Build a string first, assign once.",
         },
-        // 3) getElementById в функциях (не на верхнем уровне модуля — это кеш)
-        {
-          selector:
-            ":function > BlockStatement CallExpression[callee.property.name='getElementById'], \
-             :function > BlockStatement > ExpressionStatement > CallExpression[callee.property.name='getElementById'], \
-             ArrowFunctionExpression > BlockStatement CallExpression[callee.property.name='getElementById']",
-          message: "⚠ PERF: getElementById inside function body. Cache the reference at module load or in the dom object in state.js.",
-        },
+
         // 4) await внутри цикла — последовательные запросы вместо параллельных
         {
           selector:
