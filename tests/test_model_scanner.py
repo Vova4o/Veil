@@ -1,10 +1,12 @@
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
-from app.comfyui.resource_taxonomy import get_container_format, inventory_resource_matches
 from app.ai.resources import ResourceType
 from app.comfyui.model_scanner import BackgroundModelScanner, compute_quick_hash
+from app.comfyui.resource_taxonomy import (
+    get_container_format,
+    inventory_resource_matches,
+)
 
 
 def test_get_container_format():

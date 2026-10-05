@@ -199,7 +199,7 @@ class PromptAdaptationService:
             "PROTECTED CHECKPOINT TRIGGERS PRESENT IN SOURCE\n"
             + json.dumps(protected_triggers, ensure_ascii=False)
             + "\nPreserve every listed trigger exactly. Do not add unlisted checkpoint triggers.\n\n"
-            f"SOURCE PROMPT JSON\n"
+            "SOURCE PROMPT JSON\n"
             + json.dumps(source.model_dump(mode="json"), ensure_ascii=False)
         )
 

@@ -188,7 +188,7 @@ class PromptEnhancementService:
                 f"name: {checkpoint_resource.display_name or checkpoint_resource.name}",
                 f"family: {checkpoint_resource.prompt_family or 'generic'}",
                 f"architecture: {checkpoint_resource.architecture.value}",
-                f"protected_triggers_in_source: "
+                "protected_triggers_in_source: "
                 + json.dumps(protected_triggers, ensure_ascii=False),
             ]
 

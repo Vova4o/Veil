@@ -4,7 +4,6 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from app.ai.skills import load_skill
 from app.ai.prompting import (
     PromptCompiler,
     PromptFamily,
@@ -12,6 +11,7 @@ from app.ai.prompting import (
     PromptScenario,
     PromptTask,
 )
+from app.ai.skills import load_skill
 
 
 class AISkillsTest(unittest.TestCase):

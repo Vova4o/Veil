@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.ai.secrets import SecretStoreStatus, SystemSecretStore
+from app.ai.secrets import SystemSecretStore
 
 
 class SocialSecretStoreError(RuntimeError):

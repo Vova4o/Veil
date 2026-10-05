@@ -1,6 +1,6 @@
-import unittest
 import struct
 import tempfile
+import unittest
 import zlib
 from pathlib import Path
 
@@ -180,6 +180,7 @@ class ExtractExifTests(unittest.TestCase):
 
     def test_extract_exif_no_exif(self):
         from PIL import Image
+
         from app.extractor import extract_exif
         filepath = self.dir_path / "no_exif.jpg"
         img = Image.new("RGB", (10, 10))
@@ -225,6 +226,7 @@ class ExtractExifTests(unittest.TestCase):
 
     def test_extract_exif_mocked(self):
         from unittest import mock
+
         from app.extractor import extract_exif
 
         with mock.patch("PIL.Image.open") as mock_open:

@@ -139,7 +139,7 @@ class FreeModeRequest(StrictModel):
         return value
 
     @model_validator(mode="after")
-    def require_instruction(self) -> "FreeModeRequest":
+    def require_instruction(self) -> FreeModeRequest:
         if not self.instruction:
             raise ValueError("instruction cannot be empty.")
         return self

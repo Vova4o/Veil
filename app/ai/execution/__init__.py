@@ -3,11 +3,6 @@
 from ..managed_process import run_managed_command
 from . import opencode as _opencode_module
 from . import opencode_judge as _opencode_judge_module
-from .direct import (
-    DirectPromptExecutionError,
-    DirectPromptExecutionResult,
-    DirectPromptExecutor,
-)
 from .adapters import DirectOpenAICompatibleAdapter, OpenCodeAgentHostAdapter
 from .base import (
     AdapterExecutionError,
@@ -17,6 +12,11 @@ from .base import (
     PreparedPromptExecution,
     PromptExecutionAdapter,
     PromptExecutionOutcome,
+)
+from .direct import (
+    DirectPromptExecutionError,
+    DirectPromptExecutionResult,
+    DirectPromptExecutor,
 )
 from .intent_judge_policy import install_intent_judge_policy
 from .opencode import (
@@ -44,22 +44,22 @@ install_intent_judge_policy(OpenCodeIntentJudgeExecutor)
 __all__ = [
     "AdapterExecutionError",
     "AdapterExecutionResult",
+    "DirectOpenAICompatibleAdapter",
     "DirectPromptExecutionError",
     "DirectPromptExecutionResult",
     "DirectPromptExecutor",
-    "DirectOpenAICompatibleAdapter",
     "ExecutionCapabilities",
     "ExecutionMode",
     "ExecutionRouter",
     "ExecutionRouterError",
-    "OpenCodePromptExecutionError",
-    "OpenCodePromptExecutionResult",
-    "OpenCodePromptExecutor",
-    "OpenCodeRawExecutionResult",
     "OpenCodeAgentHostAdapter",
     "OpenCodeIntentJudgeExecutionError",
     "OpenCodeIntentJudgeExecutionResult",
     "OpenCodeIntentJudgeExecutor",
+    "OpenCodePromptExecutionError",
+    "OpenCodePromptExecutionResult",
+    "OpenCodePromptExecutor",
+    "OpenCodeRawExecutionResult",
     "PreparedPromptExecution",
     "PromptExecutionAdapter",
     "PromptExecutionOutcome",

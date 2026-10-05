@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import shlex
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from .detector import ComfyUIDetectionResult
 from .validation import validate_extra_args

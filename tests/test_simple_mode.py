@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
-
-import pytest
 
 from app.ai.prompting import PromptFamily
 from app.comfyui.simple_profiles import (
     APPROVED_PROFILES,
-    ApprovedProfile,
     QualityPresetLevel,
-    check_profile_health,
     compile_simple_workflow,
     load_simple_workflow_json,
     serialize_approved_profile,
@@ -105,7 +99,7 @@ def test_simple_mode_routes(monkeypatch):
 
 def test_simple_assistant_chat(monkeypatch):
     from app.ai.transport import OpenAICompatibleResponse
-    import app.comfyui.simple_routes as simple_routes
+    from app.comfyui import simple_routes
 
     monkeypatch.setattr(
         simple_routes,
@@ -119,7 +113,7 @@ def test_simple_assistant_chat(monkeypatch):
 
     monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: MockAIStore())
 
-    import app.ai.transport as transport
+    from app.ai import transport
     monkeypatch.setattr(
         transport,
         "run_openai_compatible_chat",

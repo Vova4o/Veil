@@ -48,7 +48,7 @@ class PromptDraft(StrictModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def require_content(self) -> "PromptDraft":
+    def require_content(self) -> PromptDraft:
         if not self.positive_prompt and not self.negative_prompt:
             raise ValueError("A prompt draft must contain positive or negative prompt text.")
         return self
@@ -604,7 +604,12 @@ class AIJobStore:
 
     @staticmethod
     def _job_from_row(row: sqlite3.Row) -> AIJob:
-        from .prompting import PromptFamily, PromptModifier, PromptOperation, PromptScenario
+        from .prompting import (
+            PromptFamily,
+            PromptModifier,
+            PromptOperation,
+            PromptScenario,
+        )
 
         modifiers = AIJobStore._load_json(row["modifiers_json"], expected=list)
         bundle_metadata = (

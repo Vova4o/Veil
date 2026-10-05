@@ -38,7 +38,6 @@ from .prompting.registry import get_family_profile
 from .secrets import SecretStoreError
 from .smoke import SmokeRunnerError
 
-
 IntentStatus = Literal["pass", "warn", "fail"]
 _WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9]+(?:[-'][A-Za-zА-Яа-яЁё0-9]+)*")
 _SENTENCE_RE = re.compile(r"[.!?](?:\s|$)")

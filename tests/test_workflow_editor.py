@@ -20,6 +20,7 @@ from app.ai.resources import (
     ResourceType,
 )
 from app.comfyui.client import ComfyUIClientError
+from app.comfyui.sampling_options import CORE_SAMPLER_OPTIONS, CORE_SCHEDULER_OPTIONS
 from app.comfyui.workflow_compiler import (
     WorkflowCompiler,
     WorkflowCompilerError,
@@ -29,13 +30,15 @@ from app.comfyui.workflow_compiler import (
 from app.comfyui.workflow_errors import normalize_comfyui_error
 from app.comfyui.workflow_execution import WorkflowExecutionService
 from app.comfyui.workflow_models import RuntimeInventory, WorkflowTemplateManifest
-from app.comfyui.workflow_registry import WorkflowTemplateError, WorkflowTemplateRegistry
+from app.comfyui.workflow_registry import (
+    WorkflowTemplateError,
+    WorkflowTemplateRegistry,
+)
 from app.comfyui.workflow_registry_status import (
     WorkflowRegistryStatusStore,
     inventory_fingerprint,
     validate_registry_template,
 )
-from app.comfyui.sampling_options import CORE_SAMPLER_OPTIONS, CORE_SCHEDULER_OPTIONS
 from app.comfyui.workflow_store import WorkflowStore
 from app.comfyui.workflow_ui_conversion import (
     convert_ui_workflow,
@@ -43,7 +46,6 @@ from app.comfyui.workflow_ui_conversion import (
 )
 from app.config_store import ConfigStore
 from app.main import app
-
 
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z1XcAAAAASUVORK5CYII="

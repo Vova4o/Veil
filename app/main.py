@@ -4,13 +4,12 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 import traceback
 import webbrowser
-import threading
 from pathlib import Path
 
-from pydantic import ValidationError
 from flask import (
     Flask,
     Response,
@@ -20,33 +19,32 @@ from flask import (
     send_file,
     stream_with_context,
 )
+from pydantic import ValidationError
 
 from . import database as db
 from . import file_actions
 from . import library as media_library
 from .ai import ai_blueprint
 from .comfyui import comfyui_blueprint, editor_blueprint, simple_blueprint
-from .cutout import clear_cutout, get_cutout_path, make_cutout_png
 from .config_store import ConfigStore, ConfigStoreError
-from .tracing import setup_tracing, get_tracer
+from .cutout import clear_cutout, get_cutout_path, make_cutout_png
 from .extractor import (
     has_generation_metadata,
+    make_thumbnail_b64,
     make_thumbnail_bytes,
     make_thumbnail_bytes_from_bytes,
-    make_thumbnail_b64,
     scan_paths,
 )
-from .integrations.social import social_blueprint
-from .visual_runtime.routes import studio_blueprint
 from .folder_picker import FolderPickerUnavailable, choose_folder
 from .indexing import index_source_directory
+from .integrations.social import social_blueprint
 from .media import (
-    MediaToolUnavailableError,
     SUPPORTED_MEDIA_EXTENSIONS,
+    MediaToolUnavailableError,
     VideoProcessingError,
     make_video_thumbnail,
-    media_type_for_path,
     media_tool_status,
+    media_type_for_path,
     probe_video,
     temporary_media_file,
 )
@@ -58,7 +56,6 @@ from .paths import (
     portable_filename,
 )
 from .preview import (
-    PreviewBusyError,
     clear_preview_cache,
     get_or_create_preview,
     preview_mimetype,
@@ -78,6 +75,8 @@ from .schemas import (
     ScanResponse,
     SourceUpdateRequest,
 )
+from .tracing import get_tracer, setup_tracing
+from .visual_runtime.routes import studio_blueprint
 
 app = Flask(__name__)
 
@@ -1226,12 +1225,13 @@ def main():
     if "--no-browser" not in sys.argv:
         open_browser(port)
 
-    print(f"  ComfyUI Meta Viewer")
+    print("  ComfyUI Meta Viewer")
     print(f"  http://127.0.0.1:{port}")
     print()
 
-    from .comfyui.manager import comfy_manager
     import atexit
+
+    from .comfyui.manager import comfy_manager
     atexit.register(comfy_manager.stop_managed)
 
     def _signal_handler(signum, frame):

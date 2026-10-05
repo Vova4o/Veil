@@ -9,7 +9,6 @@ from pydantic import Field, field_validator, model_validator
 from app.ai.prompting.models import StrictModel
 from app.ai.resources import CompatibilityStatus, ModelEcosystem, ResourceType
 
-
 CURRENT_WORKFLOW_MANIFEST_SCHEMA_VERSION = "2"
 
 
@@ -23,7 +22,7 @@ class WorkflowCategory(str, Enum):
     UPSCALE = "upscale"
 
     @classmethod
-    def _missing_(cls, value: object) -> "WorkflowCategory":
+    def _missing_(cls, value: object) -> WorkflowCategory:
         normalized = str(value).strip().casefold()
         aliases = {
             "inpaint": cls.INPAINT,
@@ -74,7 +73,7 @@ class ResourceBinding(StrictModel):
     clip_output: int = Field(default=1, ge=0, le=32)
 
     @model_validator(mode="after")
-    def validate_binding(self) -> "ResourceBinding":
+    def validate_binding(self) -> ResourceBinding:
         if self.kind == "node_input" and (not self.node_id or not self.input):
             raise ValueError("node_input resource binding requires node_id and input")
         if self.kind == "lora_chain" and not self.source_node_id:
@@ -113,7 +112,7 @@ class EditorFieldManifest(StrictModel):
     bindings: list[NodeInputBinding] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_field(self) -> "EditorFieldManifest":
+    def validate_field(self) -> EditorFieldManifest:
         if self.kind == "select" and not self.options:
             raise ValueError(f"select field '{self.id}' requires options")
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
@@ -161,7 +160,7 @@ class WorkflowTemplateManifest(StrictModel):
         return list(dict.fromkeys(value))
 
     @model_validator(mode="after")
-    def validate_unique_fields(self) -> "WorkflowTemplateManifest":
+    def validate_unique_fields(self) -> WorkflowTemplateManifest:
         field_ids = [field.id for field in self.fields]
         if len(field_ids) != len(set(field_ids)):
             raise ValueError("workflow template field IDs must be unique")
@@ -404,8 +403,8 @@ __all__ = [
     "WorkflowCategory",
     "WorkflowDraft",
     "WorkflowMediaType",
-    "WorkflowRun",
     "WorkflowRegistryValidation",
+    "WorkflowRun",
     "WorkflowTemplate",
     "WorkflowTemplateManifest",
     "migrate_workflow_manifest",

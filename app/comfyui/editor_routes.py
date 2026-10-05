@@ -3,7 +3,6 @@
 # Retained for possible future Advanced Mode/workflow tooling reuse.
 from __future__ import annotations
 
-
 import hashlib
 import json
 import time
@@ -11,7 +10,16 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, Response, current_app, jsonify, render_template, request, send_file, stream_with_context
+from flask import (
+    Blueprint,
+    Response,
+    current_app,
+    jsonify,
+    render_template,
+    request,
+    send_file,
+    stream_with_context,
+)
 from pydantic import ValidationError
 
 from app import database
@@ -26,17 +34,23 @@ from app.extractor import make_display_preview_from_bytes
 from app.media import media_type_for_path
 from app.paths import portable_filename
 
-from .client import ComfyUIClientError
 from .civitai_downloader import (
     CIVITAI_FILTER_TYPES,
     CivitaiDownloaderError,
     CivitaiDownloaderService,
     fetch_civitai_image,
 )
+from .client import ComfyUIClientError
 from .model_inspector import inspect_model_file, register_model_file
 from .model_recommendations import (
     CivitaiModelRecommendationService,
     ModelRecommendationError,
+)
+from .model_scanner import get_model_scanner
+from .resource_taxonomy import (
+    RESOURCE_MODEL_FOLDERS,
+    get_container_format,
+    inventory_resource_matches,
 )
 from .workflow_compiler import (
     WorkflowCompiler,
@@ -45,12 +59,6 @@ from .workflow_compiler import (
     default_field_values,
     evaluate_template_resource,
 )
-from .resource_taxonomy import (
-    RESOURCE_MODEL_FOLDERS,
-    get_container_format,
-    inventory_resource_matches,
-)
-from .model_scanner import BackgroundModelScanner, get_model_scanner
 from .workflow_execution import WorkflowExecutionError, WorkflowExecutionService
 from .workflow_inventory import cached_runtime_inventory, client_from_store
 from .workflow_models import RuntimeInventory, WorkflowRun, WorkflowTemplate
@@ -65,7 +73,6 @@ from .workflow_registry_status import (
 )
 from .workflow_store import WorkflowStore, WorkflowStoreError
 from .workflow_ui_conversion import ui_workflow_needs_object_info, unwrap_ui_workflow
-
 
 editor_blueprint = Blueprint("workflow_editor", __name__)
 
@@ -142,8 +149,6 @@ def _inventory() -> RuntimeInventory:
         catalog=ModelResourceCatalog(),
     )
 
-from .workflow_store import WorkflowStore, WorkflowStoreError
-from .workflow_ui_conversion import ui_workflow_needs_object_info, unwrap_ui_workflow
 
 
 editor_blueprint = Blueprint("workflow_editor", __name__)
@@ -262,8 +267,6 @@ def _remix_template_options(source: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 
-from .workflow_store import WorkflowStore, WorkflowStoreError
-from .workflow_ui_conversion import ui_workflow_needs_object_info, unwrap_ui_workflow
 
 
 editor_blueprint = Blueprint("workflow_editor", __name__)

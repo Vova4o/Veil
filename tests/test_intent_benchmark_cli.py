@@ -5,13 +5,13 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
+from app.ai.execution import OpenCodeIntentJudgeExecutor
 from app.ai.intent_benchmark_core import (
     BENCHMARKS,
     _interactive_selection,
     build_parser,
     evaluate_intent_heuristics,
 )
-from app.ai.execution import OpenCodeIntentJudgeExecutor
 from app.ai.profiles import AIProfileStore
 from app.ai.prompting import PromptCompiler, PromptFamily, PromptResult, PromptScenario
 from app.ai.secrets import SecretStoreStatus

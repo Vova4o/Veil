@@ -1,5 +1,7 @@
 import unittest
+
 from PIL import Image
+
 from app.cutout import image_has_useful_alpha
 
 

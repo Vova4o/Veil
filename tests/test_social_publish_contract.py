@@ -15,7 +15,6 @@ from app.integrations.social.contract import (
     SocialContractError,
     validate_publish_payload,
 )
-
 from app.main import app
 
 

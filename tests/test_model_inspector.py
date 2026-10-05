@@ -1,7 +1,8 @@
 import json
-from pathlib import Path
 import struct
 import sys
+from pathlib import Path
+
 import pytest
 
 from app.ai.resources import ModelEcosystem, ResourceType

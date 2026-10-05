@@ -5,11 +5,11 @@ import os
 import re
 import sqlite3
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from . import database as db
-
 
 SYSTEM_COLLECTIONS = (
     {"id": "all", "name": "All assets"},

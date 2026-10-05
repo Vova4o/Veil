@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .paths import normalize_path
-
 
 CONFIG_VERSION = 3
 _config_lock = threading.RLock()

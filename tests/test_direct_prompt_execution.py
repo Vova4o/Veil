@@ -16,9 +16,9 @@ from app.ai.prompting import (
     PromptTask,
 )
 from app.ai.transport import (
+    TEST_PNG_BASE64,
     AIProviderRequestError,
     OpenAICompatibleResponse,
-    TEST_PNG_BASE64,
     run_openai_compatible_chat,
 )
 
@@ -152,14 +152,13 @@ class DirectPromptExecutorTest(unittest.TestCase):
                 text='```json\n{"positive_prompt":"portrait"}\n```',
                 latency_ms=8,
             ),
-        ):
-            with self.assertRaises(DirectPromptExecutionError) as caught:
-                self.executor.execute(
-                    profile=direct_profile(),
-                    api_key=None,
-                    task=portrait_task(),
-                    user_input="Create a portrait.",
-                )
+        ), self.assertRaises(DirectPromptExecutionError) as caught:
+            self.executor.execute(
+                profile=direct_profile(),
+                api_key=None,
+                task=portrait_task(),
+                user_input="Create a portrait.",
+            )
         self.assertEqual(caught.exception.code, "markdown_wrapped_json")
         self.assertEqual(caught.exception.stage, "contract")
 
@@ -171,14 +170,13 @@ class DirectPromptExecutorTest(unittest.TestCase):
                 code="timeout",
                 technical_error="socket timeout",
             ),
-        ):
-            with self.assertRaises(DirectPromptExecutionError) as caught:
-                self.executor.execute(
-                    profile=direct_profile(),
-                    api_key=None,
-                    task=portrait_task(),
-                    user_input="Create a portrait.",
-                )
+        ), self.assertRaises(DirectPromptExecutionError) as caught:
+            self.executor.execute(
+                profile=direct_profile(),
+                api_key=None,
+                task=portrait_task(),
+                user_input="Create a portrait.",
+            )
         self.assertEqual(caught.exception.code, "timeout")
         self.assertEqual(caught.exception.stage, "transport")
         self.assertEqual(caught.exception.technical_error, "socket timeout")

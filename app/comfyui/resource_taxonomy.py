@@ -4,7 +4,6 @@ from pathlib import Path
 
 from app.ai.resources import ResourceType
 
-
 # Folder names are the public names exposed by ComfyUI's model inventory API.
 # Core ComfyUI exposes the physical folders, while ComfyUI-GGUF also registers
 # virtual ``unet_gguf`` and ``clip_gguf`` folder names for its loader choices.

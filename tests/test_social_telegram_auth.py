@@ -21,7 +21,6 @@ from telethon.errors import (
 from app.integrations.social.telegram import (
     CODE_REQUESTED,
     CONNECTED,
-    ERROR,
     IDLE,
     PASSWORD_REQUIRED,
     QR_WAITING,

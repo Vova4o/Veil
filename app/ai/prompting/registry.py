@@ -12,7 +12,6 @@ from .models import (
     PromptTask,
 )
 
-
 CONTENT_DIR = Path(__file__).parent / "content"
 
 

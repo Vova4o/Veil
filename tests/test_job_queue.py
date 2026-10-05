@@ -9,9 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app import database
+from app import database, job_worker
 from app import library as media_library
-from app import job_worker
 from app.indexing import index_source_directory
 from app.main import app
 from app.schemas import AssetInsertRow

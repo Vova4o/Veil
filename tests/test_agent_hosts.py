@@ -1,12 +1,17 @@
-from unittest.mock import MagicMock, patch
 import pytest
 
 from app.ai.execution.adapters import (
     AntigravityAgentHostAdapter,
     ClaudeCodeAgentHostAdapter,
 )
-from app.ai.execution.antigravity import AntigravityPromptExecutionError, AntigravityPromptExecutor
-from app.ai.execution.claude_code import ClaudeCodePromptExecutionError, ClaudeCodePromptExecutor
+from app.ai.execution.antigravity import (
+    AntigravityPromptExecutionError,
+    AntigravityPromptExecutor,
+)
+from app.ai.execution.claude_code import (
+    ClaudeCodePromptExecutionError,
+    ClaudeCodePromptExecutor,
+)
 from app.ai.execution.router import ExecutionRouter
 from app.ai.prompting import PromptFamily, PromptOperation, PromptScenario, PromptTask
 

@@ -20,7 +20,6 @@ from ..prompting import (
     parse_prompt_result,
 )
 
-
 MAX_USER_INPUT_CHARS = 100_000
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}

@@ -79,7 +79,7 @@ class PromptTask(StrictModel):
         return cleaned
 
     @model_validator(mode="after")
-    def validate_modifiers(self) -> "PromptTask":
+    def validate_modifiers(self) -> PromptTask:
         if len(set(self.modifiers)) != len(self.modifiers):
             raise ValueError("Prompt modifiers cannot be duplicated.")
         if {

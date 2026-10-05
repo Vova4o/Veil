@@ -7,7 +7,6 @@ import pytest
 from PIL import Image
 
 from app import database
-from app.ai.profiles import AIProfileStore
 from app.ai.ranking import AIRankingService
 from app.comfyui.workflow_execution import WorkflowExecutionService
 from app.comfyui.workflow_store import WorkflowStore

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
-import base64
 import sys
 import tempfile
 import time
@@ -12,28 +12,29 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image
+
 from app.ai.cli import (
+    VISION_TEST_IMAGE,
     CLIIntegrationError,
     CommandResult,
-    VISION_TEST_IMAGE,
     cli_catalog,
     detect_ide_installation,
     find_executable,
     list_cli_models,
     probe_cli,
-    run_command,
     run_cli_test,
+    run_command,
 )
 from app.ai.profiles import AIProfileStore, AIProfileStoreError
 from app.ai.secrets import SecretStoreStatus
 from app.ai.transport import (
-    AIProviderRequestError,
     CONTENT_REJECTED_MESSAGE,
-    run_openai_compatible_test,
     TEST_PNG_BASE64,
+    AIProviderRequestError,
+    run_openai_compatible_test,
 )
 from app.main import app
-from PIL import Image
 
 
 class MemorySecretStore:

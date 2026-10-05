@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from .editor_routes import editor_blueprint
 from .routes import comfyui_blueprint
-from .simple_routes import simple_blueprint
 from .simple_download_probe import install_simple_download_probe
+from .simple_routes import simple_blueprint
 
 install_simple_download_probe()
 

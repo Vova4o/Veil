@@ -9,7 +9,6 @@ from typing import Any
 from .sampling_options import CORE_SAMPLER_OPTIONS, CORE_SCHEDULER_OPTIONS
 from .workflow_models import WorkflowTemplateManifest
 
-
 SAMPLER_NODE_TYPES = {"KSampler", "KSamplerAdvanced"}
 IMAGE_OUTPUT_NODE_TYPES = {"SaveImage", "PreviewImage"}
 VIDEO_OUTPUT_NODE_TYPES = {

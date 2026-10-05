@@ -1,15 +1,15 @@
 import tempfile
 from pathlib import Path
-from PIL import Image
 
 import pytest
+from PIL import Image
+
 from app import database as db
+from app.ai.remix import RemixPromptSource, RemixRequest, RemixService
+from app.comfyui.workflow_store import WorkflowStore
 from app.indexing import index_source_directory
-from app.main import app
 from app.paths import build_runtime_paths
 from app.reset_service import reset_application_index
-from app.comfyui.workflow_store import WorkflowStore
-from app.ai.remix import RemixService, RemixRequest, RemixPromptSource
 
 
 @pytest.fixture

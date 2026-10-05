@@ -9,9 +9,9 @@ from typing import Any
 
 from pydantic import Field
 
+from .execution import ExecutionRouter, PromptExecutionOutcome
 from .execution.direct import DirectPromptExecutionError, DirectPromptExecutor
 from .execution.opencode import OpenCodePromptExecutionError, OpenCodePromptExecutor
-from .execution import ExecutionRouter, PromptExecutionOutcome
 from .job_store import AIJobStore, AIJobStoreError
 from .prompting import (
     PromptContractError,
@@ -26,7 +26,6 @@ from .transport import (
     OpenAICompatibleResponse,
     run_openai_compatible_chat,
 )
-
 
 SCENE_ANALYSIS_INSTRUCTIONS = """You analyze one image for prompt reconstruction.
 Return only one strict JSON object matching this SceneSpec contract:

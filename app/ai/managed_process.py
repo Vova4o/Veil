@@ -12,7 +12,6 @@ from typing import Any
 
 from .cli import CLIIntegrationError, CommandResult, sanitize_output
 
-
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 

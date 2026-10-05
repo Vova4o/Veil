@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,8 +20,8 @@ from .secrets import SecretStoreError
 from .smoke import (
     SCENARIOS,
     LoadedSmokeImage,
-    SmokeRunReport,
     SmokeRunnerError,
+    SmokeRunReport,
     _print_report,
     _print_scenarios,
     _write_json_report,

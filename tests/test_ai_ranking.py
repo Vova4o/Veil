@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 
 from app import database
-from app.main import app
 from app.ai.execution import (
     AdapterExecutionResult,
     ExecutionCapabilities,
@@ -17,10 +16,10 @@ from app.ai.ranking import (
     AIRank,
     AIRankingService,
     AIRatingResult,
-    AIRatingService,
     AIRatingStatus,
     AIRatingStore,
 )
+from app.main import app
 
 
 class DummyVisionAdapter:

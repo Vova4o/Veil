@@ -18,7 +18,6 @@ from ..prompting import (
 )
 from ..transport import AIProviderRequestError, run_openai_compatible_chat
 
-
 MAX_USER_INPUT_CHARS = 100_000
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 _IMAGE_DATA_URL_RE = re.compile(

@@ -4,7 +4,6 @@ from typing import Any
 
 from .workflow_models import WorkflowTemplate
 
-
 MODEL_INPUT_NAMES = {
     "ckpt_name",
     "unet_name",

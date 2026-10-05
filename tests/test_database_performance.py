@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import time
-import pytest
 from pathlib import Path
+
+import pytest
+
 from app import database as db
 
 

@@ -7,9 +7,9 @@ if TYPE_CHECKING:
 
 
 def strict_intent_status(
-    report: "IntentBenchmarkReport",
+    report: IntentBenchmarkReport,
     minimum_score: int,
-) -> "IntentStatus":
+) -> IntentStatus:
     """Return a conservative benchmark status without changing numeric scores.
 
     A clean PASS requires the full core intent and every scenario-specific coverage

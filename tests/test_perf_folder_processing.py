@@ -1,8 +1,9 @@
 import sqlite3
 import tempfile
 import time
-from pathlib import Path
 from contextlib import closing
+from pathlib import Path
+
 
 # Let's define the original baseline function
 def run_baseline(db_path: str):

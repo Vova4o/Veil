@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 import os
-from pathlib import Path
 import shutil
 import struct
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from app.ai.resources import ModelEcosystem, ModelResourceCatalog, ResourceType
 from app.config_store import ConfigStore
+
 from .detector import detect_comfyui
 from .resource_taxonomy import FOLDER_RESOURCE_TYPES
-from .workflow_inventory import collect_runtime_inventory, _infer_architecture
-
+from .workflow_inventory import _infer_architecture, collect_runtime_inventory
 
 TARGET_FOLDERS_BY_TYPE: dict[ResourceType, str] = {
     ResourceType.CHECKPOINT: "checkpoints",

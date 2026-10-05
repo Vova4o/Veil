@@ -16,7 +16,10 @@ def setup_tracing(service_name: str = "comfy-meta-viewer", level: str = "INFO") 
         from opentelemetry import trace
         from opentelemetry.sdk.resources import SERVICE_NAME, Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+        from opentelemetry.sdk.trace.export import (
+            BatchSpanProcessor,
+            ConsoleSpanExporter,
+        )
         from opentelemetry.sdk.trace.sampling import ALWAYS_ON
     except ImportError:
         logger.debug("opentelemetry not installed; tracing disabled")

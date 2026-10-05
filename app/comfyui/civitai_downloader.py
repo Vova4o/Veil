@@ -772,8 +772,8 @@ def _clean_description(value: Any) -> str:
 
 
 __all__ = [
-    "CIVITAI_FOLDER_MAP",
     "CIVITAI_FILTER_TYPES",
+    "CIVITAI_FOLDER_MAP",
     "CivitaiDownloaderError",
     "CivitaiDownloaderService",
     "fetch_civitai_image",

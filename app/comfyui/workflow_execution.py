@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app import database
-from app.extractor import extract_metadata_from_bytes, _generate_params_from_api
+from app.extractor import _generate_params_from_api, extract_metadata_from_bytes
 from app.media import (
     MediaToolUnavailableError,
     VideoProcessingError,

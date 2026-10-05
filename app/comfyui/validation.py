@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def validate_extra_args(extra_args: str | Sequence[str] | None) -> list[str]:
@@ -34,7 +34,7 @@ def validate_extra_args(extra_args: str | Sequence[str] | None) -> list[str]:
     for token in tokens:
         if not safe_pattern.match(token):
             raise ValueError(
-                f"Unsafe character detected in extra argument token: {repr(token)}. "
+                f"Unsafe character detected in extra argument token: {token!r}. "
                 "Only alphanumeric characters and basic symbols (-_./\\:=+, @~) are allowed."
             )
 

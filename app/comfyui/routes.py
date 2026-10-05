@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.config_store import ConfigStore
+
 from .detector import detect_comfyui
 from .launcher import generate_launcher_script
 from .manager import ComfyUIMode, comfy_manager

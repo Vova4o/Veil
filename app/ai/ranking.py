@@ -54,7 +54,7 @@ class AIRatingResult(StrictModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def validate_rated_result(self) -> "AIRatingResult":
+    def validate_rated_result(self) -> AIRatingResult:
         if self.status == AIRatingStatus.RATED:
             missing = [
                 name
@@ -384,10 +384,10 @@ AIRatingService = AIRankingService
 
 __all__ = [
     "AIRank",
-    "AIRating",
-    "AIRatingResult",
     "AIRankingError",
     "AIRankingService",
+    "AIRating",
+    "AIRatingResult",
     "AIRatingService",
     "AIRatingStatus",
     "AIRatingStore",

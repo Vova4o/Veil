@@ -5,13 +5,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from .extractor import SUPPORTED as IMAGE_EXTENSIONS
-
 
 VIDEO_MIME_TYPES = {
     ".mp4": "video/mp4",

@@ -11,10 +11,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..config_store import ConfigStore
-from .secrets import SecretStore, SecretStoreError, SystemSecretStore
-
-
 from .cli import CLI_SPECS
+from .secrets import SecretStore, SecretStoreError, SystemSecretStore
 
 PROFILE_KINDS = {"openai_compatible", "cli"}
 CLI_TYPES = {"opencode", "claude", "antigravity"}

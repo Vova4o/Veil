@@ -53,7 +53,7 @@ class PublishRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_batch(self) -> "PublishRequest":
+    def _validate_batch(self) -> PublishRequest:
         if not self.assets:
             raise ValueError("assets must contain at least one item")
         if len(self.assets) > MAX_ASSETS:
@@ -90,7 +90,7 @@ class PublishResult(BaseModel):
         target: PublishTarget,
         published: list[str],
         external_url: str | None = None,
-    ) -> "PublishResult":
+    ) -> PublishResult:
         return cls(
             status="ok",
             provider=provider,
@@ -108,7 +108,7 @@ class PublishResult(BaseModel):
         published: list[str],
         failed: list[FailedAsset],
         external_url: str | None = None,
-    ) -> "PublishResult":
+    ) -> PublishResult:
         return cls(
             status="partial",
             provider=provider,
@@ -126,7 +126,7 @@ class PublishResult(BaseModel):
         target: PublishTarget,
         error: str,
         failed: list[FailedAsset] | None = None,
-    ) -> "PublishResult":
+    ) -> PublishResult:
         return cls(
             status="failed",
             provider=provider,

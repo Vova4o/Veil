@@ -16,7 +16,6 @@ from ..judging import (
 from ..prompting import PromptResult
 from .opencode import OpenCodePromptExecutor
 
-
 OPENCODE_JUDGE_AGENT_NAME = "cmv-intent-judge"
 MAX_JUDGE_INPUT_CHARS = 120_000
 
@@ -76,8 +75,8 @@ class OpenCodeIntentJudgeExecutor:
             if hasattr(exc, "code") and hasattr(exc, "stage"):
                 raise OpenCodeIntentJudgeExecutionError(
                     str(exc),
-                    code=getattr(exc, "code"),
-                    stage=getattr(exc, "stage"),
+                    code=exc.code,
+                    stage=exc.stage,
                     technical_error=getattr(exc, "technical_error", None),
                 ) from exc
             raise

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 FRONTEND_ONLY_NODE_TYPES = {"MarkdownNote", "Note", "PrimitiveNode", "Reroute"}
 DISABLED_NODE_MODE = 2
 BYPASS_NODE_MODE = 4

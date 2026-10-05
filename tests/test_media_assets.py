@@ -11,9 +11,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app import database as db
-from app import library
-from app import job_worker
-from app import worker
+from app import job_worker, library, worker
 from app.indexing import index_source_directory
 from app.main import app
 from app.media import (

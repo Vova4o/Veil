@@ -11,7 +11,6 @@ from typing import Any
 from .cli import CLIIntegrationError, run_cli_test, sanitize_output
 from .profiles import AIProfileStore
 
-
 TEST_PNG_BASE64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mOQaMgD"
     "AAG6AQf4Lfx6AAAAAElFTkSuQmCC"
@@ -201,7 +200,7 @@ def run_openai_compatible_chat(
             code=code,
             technical_error=f"HTTP {exc.code}: {message}"[:16_000],
         ) from exc
-    except (TimeoutError, socket.timeout) as exc:
+    except TimeoutError as exc:
         raise AIProviderRequestError(
             f"The provider did not respond within {profile['timeout_seconds']} seconds.",
             code="timeout",

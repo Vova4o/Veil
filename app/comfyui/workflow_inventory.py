@@ -149,7 +149,7 @@ def _sync_catalog(catalog: ModelResourceCatalog, models: dict[str, list[str]]) -
             resource_type = classify_inventory_resource(folder, name)
             if resource_type is None:
                 continue
-            identity = hashlib.sha256(f"comfyui:{folder}:{name}".encode("utf-8")).hexdigest()
+            identity = hashlib.sha256(f"comfyui:{folder}:{name}".encode()).hexdigest()
             discovered_hashes.add(identity)
             architecture = _infer_architecture(name)
             try:

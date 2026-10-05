@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
+from collections.abc import Sequence
 from enum import Enum
-from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -34,7 +33,7 @@ class ResourceType(str, Enum):
     UNKNOWN = "unknown"
 
     @classmethod
-    def _missing_(cls, value: object) -> "ResourceType | None":
+    def _missing_(cls, value: object) -> ResourceType | None:
         """Read legacy manifest names while always serializing canonical values."""
         normalized = str(value).strip().casefold()
         aliases = {

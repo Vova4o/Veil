@@ -12,7 +12,6 @@ from app.ai.resources import (
     ModelEcosystem,
     ModelResource,
     ModelResourceCatalog,
-    ModelResourceError,
     ResourceType,
 )
 from app.comfyui.workflow_inventory import _sync_catalog
@@ -120,7 +119,7 @@ class ModelResourcesTest(unittest.TestCase):
 
     def test_inventory_sync_preserves_curated_compatibility_status(self) -> None:
         name = "flux1-dev.safetensors"
-        identity = hashlib.sha256(f"comfyui:checkpoints:{name}".encode("utf-8")).hexdigest()
+        identity = hashlib.sha256(f"comfyui:checkpoints:{name}".encode()).hexdigest()
         self.catalog.register(ModelResource(
             content_hash=identity,
             file_path=name,
@@ -142,8 +141,8 @@ class ModelResourcesTest(unittest.TestCase):
 
     def test_inventory_sync_does_not_misclassify_t5xxl_as_sdxl(self) -> None:
         name = "t5xxl_fp16.safetensors"
-        identity = hashlib.sha256(f"comfyui:text_encoders:{name}".encode("utf-8")).hexdigest()
-        stale_identity = hashlib.sha256(f"comfyui:clip:{name}".encode("utf-8")).hexdigest()
+        identity = hashlib.sha256(f"comfyui:text_encoders:{name}".encode()).hexdigest()
+        stale_identity = hashlib.sha256(f"comfyui:clip:{name}".encode()).hexdigest()
         self.catalog.register(ModelResource(
             content_hash=identity,
             file_path=name,

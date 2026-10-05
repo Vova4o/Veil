@@ -5,7 +5,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 

@@ -7,7 +7,6 @@ from pydantic import BaseModel, ValidationError
 
 from .models import PromptResult, SceneSpec
 
-
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 

@@ -567,7 +567,7 @@ __all__ = [
     "WorkflowCompiler",
     "WorkflowCompilerError",
     "WorkflowDependencyValidator",
-    "evaluate_template_resource",
     "default_field_values",
+    "evaluate_template_resource",
     "normalize_resource_selections",
 ]

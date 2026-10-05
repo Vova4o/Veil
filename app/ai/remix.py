@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from enum import Enum
 import json
 import sqlite3
+from enum import Enum
 from typing import Any
 
 from pydantic import Field, field_validator, model_validator
@@ -16,7 +16,13 @@ from .job_store import (
     PromptDraftSource,
     StoredPromptDraft,
 )
-from .prompting import PromptFamily, PromptOperation, PromptResult, PromptScenario, PromptTask
+from .prompting import (
+    PromptFamily,
+    PromptOperation,
+    PromptResult,
+    PromptScenario,
+    PromptTask,
+)
 from .prompting.models import StrictModel
 
 
@@ -60,7 +66,7 @@ class RemixRequest(StrictModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def validate_source_selection(self) -> "RemixRequest":
+    def validate_source_selection(self) -> RemixRequest:
         if self.base_prompt_source is RemixPromptSource.USER_EDITED:
             raise ValueError("base_prompt_source cannot be user_edited.")
         if self.prompt_source is RemixPromptSource.USER_EDITED:
@@ -521,8 +527,8 @@ class RemixService:
 __all__ = [
     "RemixDraftOutcome",
     "RemixError",
-    "RemixPromptSource",
     "RemixPromptOption",
+    "RemixPromptSource",
     "RemixRequest",
     "RemixService",
 ]

@@ -220,7 +220,7 @@ class ComfyUIClient:
         safe_filename = filename.replace('"', "_").replace("\r", "_").replace("\n", "_")
         parts.extend([
             f"--{boundary}\r\n".encode("ascii"),
-            f'Content-Disposition: form-data; name="image"; filename="{safe_filename}"\r\n'.encode("utf-8"),
+            f'Content-Disposition: form-data; name="image"; filename="{safe_filename}"\r\n'.encode(),
             f"Content-Type: {content_type}\r\n\r\n".encode("ascii"),
             data,
             b"\r\n",

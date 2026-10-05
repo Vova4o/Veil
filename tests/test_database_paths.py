@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from app import database as db
 

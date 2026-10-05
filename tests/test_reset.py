@@ -14,7 +14,7 @@ from app.ai.profiles import AIProfileStore
 from app.config_store import ConfigStore, ConfigStoreError
 from app.indexing import index_source_directory
 from app.main import app, configure_runtime
-from app.paths import RuntimePaths, build_runtime_paths
+from app.paths import build_runtime_paths
 from app.reset_service import (
     ResetOperationError,
     ResetResult,

@@ -29,7 +29,6 @@ from app.visual_runtime.models import (
     VisualOperation,
 )
 
-
 #: Operations served by the text-to-image primitive (no source image needed).
 GENERATE_OPERATIONS: tuple[VisualOperation, ...] = (
     VisualOperation.GENERATE_SCENE,

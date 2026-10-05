@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from app.ai.cli import CommandResult
 from app.ai.execution import (
@@ -270,14 +270,13 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
                     stderr="",
                     elapsed_ms=20,
                 ),
-            ),
+            ),self.assertRaises(OpenCodePromptExecutionError) as caught
         ):
-            with self.assertRaises(OpenCodePromptExecutionError) as caught:
-                OpenCodePromptExecutor().execute(
-                    profile=opencode_profile(multimodal=False),
-                    task=portrait_task(),
-                    user_input="Create a portrait.",
-                )
+            OpenCodePromptExecutor().execute(
+                profile=opencode_profile(multimodal=False),
+                task=portrait_task(),
+                user_input="Create a portrait.",
+            )
         self.assertEqual(caught.exception.code, "markdown_wrapped_json")
         self.assertEqual(caught.exception.stage, "contract")
 
@@ -295,14 +294,13 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
                     stderr="Authentication required: run opencode auth login",
                     elapsed_ms=12,
                 ),
-            ),
+            ),self.assertRaises(OpenCodePromptExecutionError) as caught
         ):
-            with self.assertRaises(OpenCodePromptExecutionError) as caught:
-                OpenCodePromptExecutor().execute(
-                    profile=opencode_profile(multimodal=False),
-                    task=portrait_task(),
-                    user_input="Create a portrait.",
-                )
+            OpenCodePromptExecutor().execute(
+                profile=opencode_profile(multimodal=False),
+                task=portrait_task(),
+                user_input="Create a portrait.",
+            )
         self.assertEqual(caught.exception.code, "cli_authentication")
         self.assertEqual(caught.exception.stage, "host")
 

@@ -13,7 +13,6 @@ from .indexing import index_source_directory
 from .paths import PathValidationError, RuntimePaths, normalize_existing_directory
 from .worker import stop_worker
 
-
 _reset_lock = threading.Lock()
 
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -13,7 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 SECRET_PATTERNS = (

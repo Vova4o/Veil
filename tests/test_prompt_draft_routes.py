@@ -12,13 +12,18 @@ from app.ai.job_store import AIJobStore, PromptDraft, PromptDraftSource
 from app.ai.prompting import (
     PromptFamily,
     PromptOperation,
+    PromptResult,
     PromptScenario,
     PromptTask,
-    PromptResult,
     SceneSpec,
 )
 from app.ai.reconstruction import SceneAnalysisOutcome
-from app.ai.resources import ModelEcosystem, ModelResource, ModelResourceCatalog, ResourceType
+from app.ai.resources import (
+    ModelEcosystem,
+    ModelResource,
+    ModelResourceCatalog,
+    ResourceType,
+)
 from app.ai.translation import PromptText, PromptTranslationStore
 from app.main import app
 

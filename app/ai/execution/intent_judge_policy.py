@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _PRODUCT_POLICY = """PRODUCT-OBJECT BENCHMARK POLICY
 - Preserve an explicit advertising, commercial, packshot, or product-photography purpose when the original request asks for one. A product description without that medium is incomplete intent fidelity.
 - Shallow depth of field alone is not a camera or composition strategy. A score above 6/10 for composition_and_camera requires an explicit shot size, framing, viewpoint, angle, centering, symmetry, or three-quarter presentation.

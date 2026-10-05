@@ -29,7 +29,6 @@ from .prompting import (
 from .secrets import SecretStoreError
 from .smoke import SmokeRunnerError
 
-
 QualityStatus = Literal["pass", "warn", "fail"]
 _WORD_RE = re.compile(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*")
 _SENTENCE_RE = re.compile(r"[.!?](?:\s|$)")

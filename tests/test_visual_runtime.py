@@ -7,6 +7,7 @@ import pytest
 from app import database
 from app.schemas import AssetInsertRow
 from app.visual_runtime import backend as studio_backend
+from app.visual_runtime import store as visual_store
 from app.visual_runtime.models import (
     EditPolicy,
     ExecutionOrigin,
@@ -17,7 +18,6 @@ from app.visual_runtime.models import (
     VisualReference,
     VisualSession,
 )
-from app.visual_runtime import store as visual_store
 from app.visual_runtime.primitives import (
     compile_plan,
     default_policy_for_operation,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Keep the order aligned with comfy.samplers.KSampler in the bundled ComfyUI.
 CORE_SAMPLER_OPTIONS: tuple[tuple[str, str], ...] = (
     ("euler", "Euler"),

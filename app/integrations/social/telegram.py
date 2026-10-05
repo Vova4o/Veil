@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from flask import current_app
-
 from telethon import TelegramClient
 from telethon.errors import (
     ApiIdInvalidError,
