@@ -1,20 +1,17 @@
-﻿<#
+<#
 .SYNOPSIS
-    Единый гейт качества comfy-meta-viewer: ESLint, Node-тесты, контракты OpenAPI, pytest.
+    Единый гейт качества comfy-meta-viewer: ESLint, Node-тесты, Ruff, Pyrefly, Pydantic, Контракты OpenAPI, pytest.
 
 .DESCRIPTION
     Прогоняет все проверки, которые раньше делались вручную по отдельности:
       1. Web: eslint (npm run lint — app/static/js).
       2. Web: node-тесты (npm test — tests/test_*.mjs).
-      3. Контракты: sync_contracts.ps1 -CheckOnly
-         (Flask-маршруты app/main.py, app/ai/routes.py, app/comfyui/routes.py,
-          app/comfyui/simple_routes.py, app/integrations/social/routes.py
-          против site/api/openapi.json; проверка через
-          tests/test_openapi_contract.py, ручная синхронизация).
-      4. Полный pytest (tests/ через poetry).
+      3. Python Lint: ruff check (app/, tests/).
+      4. Python Type Check: pyrefly (если установлена системно или в venv).
+      5. Pydantic & Контракты: sync_contracts.ps1 -CheckOnly (OpenAPI) и pydantic-валидация схем.
+      6. Полный pytest (tests/ через poetry).
 
-    Гейт только проверяет и ничего не правит: openapi.json правится вручную
-    (генератора нет), JS/питон-фиксы — осознанно по одному файлу.
+    Гейт только проверяет и ничего не правит.
 
     Совместим с Windows PowerShell 5.1 и PowerShell 7+.
     Нативные команды вызываются напрямую в теле скрипта (не в функциях):
@@ -22,9 +19,9 @@
     код выхода. $LASTEXITCODE считывается сразу после вызова, без пайпов.
 
 .EXAMPLE
-    .\lint.ps1                    # полная проверка (в основном pytest)
+    .\lint.ps1                    # полная проверка
     .\lint.ps1 -SkipTests         # только линтеры, node-тесты и контракты
-    .\lint.ps1 -SkipWeb           # только Python-контур (контракты + pytest)
+    .\lint.ps1 -SkipWeb           # только Python-контур (ruff, pyrefly, pydantic/контракты + pytest)
 #>
 
 param(
@@ -53,7 +50,7 @@ function Write-StepHeader($text) {
 
 function Register-Result($name, $status, $detail) {
     $script:Results += [PSCustomObject]@{
-        Step = $name
+        Step   = $name
         Status = $status
         Detail = $detail
     }
@@ -77,7 +74,7 @@ if ($SkipWeb) {
     Register-Result "eslint" "SKIPPED" "нет node_modules — выполнить npm ci"
     Register-Result "node tests" "SKIPPED" "нет node_modules — выполнить npm ci"
 } else {
-    Write-StepHeader "[1/4] ESLint (npm run lint)"
+    Write-StepHeader "[1/6] ESLint (npm run lint)"
     Push-Location $ProjectRoot
     try {
         npm run lint
@@ -92,7 +89,7 @@ if ($SkipWeb) {
         Register-Result "eslint" "FAIL" "exit $code — чинить errors; warnings по мере чистки (см. eslint.config.js)"
     }
 
-    Write-StepHeader "[2/4] Node-тесты (npm test)"
+    Write-StepHeader "[2/6] Node-тесты (npm test)"
     Push-Location $ProjectRoot
     try {
         npm test
@@ -108,24 +105,98 @@ if ($SkipWeb) {
     }
 }
 
-# ── 3. Контракты (только проверка, без автообновления) ─────────────
-Write-StepHeader "[3/4] Контракты (sync_contracts -CheckOnly)"
-& (Join-Path $ProjectRoot "sync_contracts.ps1") -CheckOnly
-$code = $LASTEXITCODE
-if ($null -eq $code) { $code = 0 }
-if ($code -eq 0) {
-    Register-Result "contracts" "OK" ""
+# ── 3. Python Lint: Ruff ───────────────────────────────────────────
+Write-StepHeader "[3/6] Python Lint (Ruff)"
+if (-not $poetryCmd) {
+    Register-Result "ruff" "SKIPPED" "poetry не найден в PATH"
 } else {
-    Register-Result "contracts" "FAIL" "exit $code — внести маршрут в site/api/openapi.json вручную (см. подсказку sync_contracts.ps1)"
+    Push-Location $ProjectRoot
+    try {
+        poetry run ruff check app tests
+        $code = $LASTEXITCODE
+        if ($null -eq $code) { $code = 0 }
+    } finally {
+        Pop-Location
+    }
+    if ($code -eq 0) {
+        Register-Result "ruff" "OK" ""
+    } else {
+        Register-Result "ruff" "FAIL" "exit $code — запустите 'poetry run ruff check app tests --fix' или исправьте ошибки ruff вручную"
+    }
 }
 
-# ── 4. Полный pytest ───────────────────────────────────────────────
+# ── 4. Python Type Check: Pyrefly ──────────────────────────────────
+Write-StepHeader "[4/6] Python Type Check (Pyrefly)"
+$pyreflyCmd = Get-Command "pyrefly" -ErrorAction SilentlyContinue
+if (-not $pyreflyCmd -and $poetryCmd) {
+    # Пробуем вызвать через poetry run pyrefly
+    Push-Location $ProjectRoot
+    try {
+        poetry run pyrefly --version *>$null
+        if ($LASTEXITCODE -eq 0) {
+            $pyreflyCmd = "poetry run pyrefly"
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($pyreflyCmd) {
+    Push-Location $ProjectRoot
+    try {
+        if ($pyreflyCmd -is [string]) {
+            poetry run pyrefly check app
+        } else {
+            pyrefly check app
+        }
+        $code = $LASTEXITCODE
+        if ($null -eq $code) { $code = 0 }
+    } finally {
+        Pop-Location
+    }
+    if ($code -eq 0) {
+        Register-Result "pyrefly" "OK" ""
+    } else {
+        Register-Result "pyrefly" "FAIL" "exit $code — найдена ошибка типов в pyrefly"
+    }
+} else {
+    Register-Result "pyrefly" "SKIPPED" "pyrefly не установлен в системе/ poetry venv"
+}
+
+# ── 5. Pydantic & OpenAPI Контракты ────────────────────────────────
+Write-StepHeader "[5/6] Pydantic и OpenAPI контракты"
+if (-not $poetryCmd) {
+    Register-Result "contracts & pydantic" "SKIPPED" "poetry не найден в PATH"
+} else {
+    Push-Location $ProjectRoot
+    try {
+        # Сначала прогоняем sync_contracts.ps1
+        & (Join-Path $ProjectRoot "sync_contracts.ps1") -CheckOnly
+        $contractCode = $LASTEXITCODE
+        if ($null -eq $contractCode) { $contractCode = 0 }
+
+        # Прогоняем тесты Pydantic и контрактов
+        poetry run pytest tests/test_openapi_contract.py tests/test_social_publish_contract.py -q
+        $pydanticCode = $LASTEXITCODE
+        if ($null -eq $pydanticCode) { $pydanticCode = 0 }
+    } finally {
+        Pop-Location
+    }
+
+    if ($contractCode -eq 0 -and $pydanticCode -eq 0) {
+        Register-Result "contracts & pydantic" "OK" ""
+    } else {
+        Register-Result "contracts & pydantic" "FAIL" "ошибка проверки OpenAPI контрактов или Pydantic схем"
+    }
+}
+
+# ── 6. Полный pytest ───────────────────────────────────────────────
 if ($SkipTests) {
     Register-Result "pytest" "SKIPPED" "-SkipTests"
 } elseif (-not $poetryCmd) {
     Register-Result "pytest" "SKIPPED" "poetry не найден в PATH — установить poetry и выполнить poetry install --no-root --with dev"
 } else {
-    Write-StepHeader "[4/4] Полный pytest (tests/)"
+    Write-StepHeader "[6/6] Полный pytest (tests/)"
     Push-Location $ProjectRoot
     try {
         poetry run python -m pytest tests -q
@@ -151,3 +222,4 @@ if ($failed -gt 0) {
 }
 Write-Host "  Гейт пройден: все проверки OK (SKIP — только явно пропущенные)." -ForegroundColor Green
 exit 0
+
