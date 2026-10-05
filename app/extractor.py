@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps
+
 Image.MAX_IMAGE_PIXELS = None
 from PIL.ExifTags import TAGS
 
@@ -424,7 +425,7 @@ def _parse_params_text(text: str) -> dict[str, Any]:
             else:
                 result["positive_prompt"] = prompt_part.strip()
 
-    settings_text = text[settings_match.start():] if settings_match else text
+    _settings_text = text[settings_match.start():] if settings_match else text
 
     patterns = {
         "Steps": r"Steps:\s*(\d+)",
@@ -660,7 +661,7 @@ def _parse_api_workflow(prompt_json: dict) -> dict[str, Any]:
         return {}
 
     categories: dict[str, list[dict]] = {}
-    visited: set[str] = set()
+    _visited: set[str] = set()
 
     for nid, node in nodes_map.items():
         class_type = node.get("class_type", "")

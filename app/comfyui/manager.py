@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import os
-import shlex
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
+from collections.abc import Sequence
 from enum import Enum
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from .client import ComfyUIClient, ComfyUIClientError
 from .detector import ComfyUIDetectionResult, detect_comfyui
@@ -296,7 +296,7 @@ class ComfyUIManager:
         client = ComfyUIClient(host=host, port=port)
         try:
             health = client.check_health()
-            online = health.get("online", False)
+            _online = health.get("online", False)
             queue_info = health.get("queue_info", {})
             is_busy = queue_info.get("is_busy", False)
 

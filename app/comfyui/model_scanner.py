@@ -4,12 +4,12 @@ import hashlib
 import json
 import logging
 import os
-from pathlib import Path
-from threading import Thread, Lock
 import time
-import urllib.request
 import urllib.error
-from typing import Any, Mapping
+import urllib.request
+from pathlib import Path
+from threading import Lock, Thread
+from typing import Any
 
 from app.ai.resources import (
     CompatibilityStatus,
@@ -19,9 +19,9 @@ from app.ai.resources import (
     ResourceType,
 )
 from app.config_store import ConfigStore
+
 from .detector import detect_comfyui
 from .resource_taxonomy import (
-    FOLDER_RESOURCE_TYPES,
     RESOURCE_MODEL_FOLDERS,
     classify_inventory_resource,
     get_container_format,
@@ -173,8 +173,8 @@ class BackgroundModelScanner:
 
     def _scan_single_file(self, folder: str, name: str, path: Path) -> None:
         resource_type = classify_inventory_resource(folder, name) or ResourceType.CHECKPOINT
-        identity = hashlib.sha256(f"comfyui:{folder}:{name}".encode("utf-8")).hexdigest()
-        container_format = get_container_format(name)
+        identity = hashlib.sha256(f"comfyui:{folder}:{name}".encode()).hexdigest()
+        _container_format = get_container_format(name)
 
         existing = None
         try:
@@ -189,7 +189,7 @@ class BackgroundModelScanner:
         civitai_meta = fetch_civitai_model_by_hash(file_hash) if file_hash else None
 
         lowered_name = name.casefold()
-        is_video = (
+        _is_video = (
             any(kw in lowered_name for kw in ("hunyuan", "animate", "wan", "cogvideo", "svd", "mochi", "ltx"))
             or (civitai_meta and "video" in str(civitai_meta).casefold())
         )

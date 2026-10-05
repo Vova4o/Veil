@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import re
-import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -232,7 +231,7 @@ class CivitaiModelRecommendationService:
             return
         if not math.isfinite(number):
             return
-        target.append(int(round(number)) if integer else round(number, 3))
+        target.append(round(number) if integer else round(number, 3))
 
     @staticmethod
     def _mode(values: list[Any]) -> Any | None:

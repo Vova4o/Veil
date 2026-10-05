@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -9,10 +8,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from app.comfyui.client import ComfyUIClient, ComfyUIClientError
-from app.comfyui.detector import ComfyUIDetectionResult, detect_comfyui, find_python_interpreter
-from app.comfyui.validation import validate_extra_args
+from app.comfyui.detector import (
+    ComfyUIDetectionResult,
+    detect_comfyui,
+)
 from app.comfyui.launcher import generate_launcher_script
-from app.comfyui.manager import ComfyUIMode, ComfyUIStatus, ComfyUIManager
+from app.comfyui.manager import ComfyUIManager, ComfyUIMode, ComfyUIStatus
+from app.comfyui.validation import validate_extra_args
 from app.config_store import ConfigStore
 from app.main import app
 
@@ -212,7 +214,7 @@ class ComfyUIManagerTest(unittest.TestCase):
         (self.base_path / "main.py").write_text("import time; time.sleep(10)", encoding="utf-8")
 
         # Fake interpreter script that runs python
-        py_exe = Path(sys.executable)
+        _py_exe = Path(sys.executable)
         self.mgr = ComfyUIManager()
 
     def tearDown(self) -> None:
@@ -353,9 +355,8 @@ class ComfyUIValidationTest(unittest.TestCase):
             ["--lowvram", "^"],
         ]
         for inp in unsafe_inputs:
-            with self.subTest(inp=inp):
-                with self.assertRaises(ValueError):
-                    validate_extra_args(inp)
+            with self.subTest(inp=inp), self.assertRaises(ValueError):
+                validate_extra_args(inp)
 
 
 if __name__ == "__main__":

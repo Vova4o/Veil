@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 import base64
-from pathlib import Path
-
+import json
 import queue
 import threading
+from pathlib import Path
+from typing import Any
 
-from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
+from flask import (
+    Blueprint,
+    Response,
+    current_app,
+    jsonify,
+    render_template,
+    request,
+    stream_with_context,
+)
 from pydantic import ValidationError
 
 from app import database
 
 from .adaptation import PromptAdaptationError, PromptAdaptationService
-from .enhancement import (
-    PromptEnhancementError,
-    PromptEnhancementService,
-)
 from .cli import (
     CLI_SPECS,
     CLIIntegrationError,
@@ -24,18 +29,27 @@ from .cli import (
     list_cli_models,
     probe_cli,
 )
+from .enhancement import (
+    PromptEnhancementError,
+    PromptEnhancementService,
+)
 from .execution import ExecutionRouter, ExecutionRouterError
 from .job_store import AIJobStatus, AIJobStore, AIJobStoreError
 from .profiles import AIProfileStore, AIProfileStoreError
-from .prompting import PromptFamily, PromptOperation, PromptScenario, PromptTask, SceneSpec
+from .prompting import (
+    PromptFamily,
+    PromptOperation,
+    PromptTask,
+    SceneSpec,
+)
 from .prompting.registry import FAMILY_PROFILES, SCENARIO_MANIFESTS
-from .ranking import AIRank, AIRankingError, AIRankingService, AIRatingStore
+from .ranking import AIRankingError, AIRankingService, AIRatingStore
 from .reconstruction import (
     PromptReconstructionError,
     PromptReconstructionService,
     SceneAnalysisService,
 )
-from .remix import RemixError, RemixPromptSource, RemixRequest, RemixService
+from .remix import RemixError, RemixRequest, RemixService
 from .resources import (
     CapabilityResolver,
     ModelEcosystem,
@@ -45,9 +59,8 @@ from .resources import (
     ResourceType,
 )
 from .secrets import SecretStoreError
-from .transport import AIProviderRequestError, test_profile
 from .translation import PromptText, PromptTranslationError, PromptTranslationService
-
+from .transport import AIProviderRequestError, test_profile
 
 ai_blueprint = Blueprint("ai", __name__)
 MAX_RECONSTRUCTION_IMAGE_BYTES = 20 * 1024 * 1024
@@ -227,12 +240,6 @@ def ai_validation_error(error: ValidationError):
         "error": first.get("msg", str(error)),
         "code": "invalid_prompt_task",
     }), 422
-
-
-@ai_blueprint.errorhandler(AIRankingError)
-def ai_ranking_error(error: AIRankingError):
-    status = 404 if "not found" in str(error) else 422
-    return jsonify({"error": str(error), "code": "ai_ranking_error"}), status
 
 
 @ai_blueprint.route("/settings/ai")

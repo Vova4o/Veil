@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,7 +20,7 @@ def _make_assets(folder_id: int, names: list[str]) -> list[int]:
     database.insert_assets(folder_id, rows)
     conn = database.get_conn()
     try:
-        ids = [
+        _ids = [
             int(row["id"])
             for row in conn.execute(
                 "SELECT id FROM images WHERE folder_id = ? ORDER BY rel_path",

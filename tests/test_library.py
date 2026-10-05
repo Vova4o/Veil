@@ -10,8 +10,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app import database as db
-from app import library
-from app import job_worker
+from app import job_worker, library
 from app.ai.ranking import AIRank, AIRatingResult, AIRatingStatus, AIRatingStore
 from app.indexing import index_source_directory
 from app.main import app
@@ -75,7 +74,7 @@ class VirtualOrganizationTest(LibraryTestCase):
         self.make_image("rated.png")
         self.make_image("rejected.png", "blue")
         self.make_image("untouched.png", "red")
-        result = self.index()
+        _result = self.index()
         records = {
             asset["file_name"]: asset
             for asset in library.get_assets(per_page=10)["assets"]
