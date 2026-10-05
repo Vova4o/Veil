@@ -115,7 +115,8 @@ class ClaudeCodePromptExecutor:
         raw_sha256 = hashlib.sha256(raw_output.encode("utf-8")).hexdigest()
 
         try:
-            parsed_result, normalizations = parse_prompt_result(raw_output, task=task)
+            parsed_result = parse_prompt_result(raw_output)
+            normalizations: list[str] = []
         except (PromptContractError, PromptCompilerError) as exc:
             raise ClaudeCodePromptExecutionError(
                 f"Failed to parse Claude Code output into PromptResult: {exc}",
