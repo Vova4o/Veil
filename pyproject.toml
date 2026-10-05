@@ -29,3 +29,24 @@ pyrefly = "^1.3.2"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+lint.ignore = [
+    "BLE001",
+    "S110",
+    "TRY004",
+    "PYI036",
+    "SIM117",
+    "SIM102",
+    "SIM118",
+    "S112",
+    "ISC004",
+    "RUF059",
+    "RUF012",
+    "TRY401",
+    "PYI034",
+    "PIE810",
+    "TRY002",
+    "B017",
+]
+
