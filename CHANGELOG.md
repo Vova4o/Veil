@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Offline Lucide SVG icon sprite (`viewer.svg`) for viewer navigation, rating, and theme toggles (`app/static/icons/viewer.svg`, `app/templates/components/viewer-icons.html`).
+- Native popover action menus for source folders with keyboard accessibility, Escape dismissal, and focus restoration during SSE reconciliation (`app/static/js/components/viewer-collections.js`).
+- Mixed media support in collection counters (`items`, `images`, and `videos`) and enriched `/api/folders/events` SSE payloads with `video_count`, `asset_count`, and `processed_asset_count` (`app/main.py:430`).
+- Accessible keyboard navigation (`Enter` / `Space`) and high-contrast visible focus rings for gallery cards (`app/static/js/gallery.js`, `app/static/css/features/gallery.css`).
+- Manual search pagination ("Load more media to search") and empty search state in the central gallery (`app/static/js/components/search-bar.js`).
+- One-click filter reset action on empty gallery states and within the sidebar Library section.
 - Unicode-aware cross-platform path handling and configurable data/cache
   directories via `COMFY_META_DATA_DIR` / `COMFY_META_CACHE_DIR` (`f9d19f2`,
   `app/database.py:1`, `docs/core/configuration.md`).
@@ -115,6 +121,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Streamlined sidebar navigation: removed redundant secondary media strip
+  (`#image-list`, `#panel-images`) and its thumbnail observer, reducing DOM
+  overhead and memory consumption (`app/templates/index.html`, `app/static/js/features/sidebar.js`).
+- Reorganized sidebar into collapsable accordion sections (`Library`, `Sources`,
+  `Albums`) with consistent styling, counts, and 44px mobile touch targets.
+- Replaced emoji across sidebar navigation, status dialogs, and empty states
+  with crisp SVG icons.
+- Paused automated infinite-scroll sentinel during active searches to prevent
+  unnecessary background loads of the entire library (`app/static/js/components/search-bar.js`).
+- Simplified album cards: removed decorative 3D tilt, gradient stacking, and image
+  zoom on hover for a calm, responsive presentation.
+- Clarified rating filter labels, replacing ambiguous count-like badges with
+  explicit star descriptions ("Top rated (5 stars)").
 - Consolidated CSS/JS modules and removed unused styles (`f7ab0f4`).
 - Canonicalized the prompt registry while preserving `load_skill()` and moved
   family bases into `app/ai/prompting/content/profiles/` (`6b8c501`).
@@ -137,6 +156,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Synchronized collection pickers, counts, and `aria-current` indicators when
+  transitioning between sources, albums, and global media.
+- Prevented source status and progress SSE events from dismissing open action
+  popovers or stealing active keyboard focus (`app/static/js/components/viewer-collections.js`).
+- Filter reset coordinated across search query, rating, and media type filters in
+  a single atomic reload.
+- Deleting an indexed source now thoroughly purges associated ratings, album
+  associations, and custom item orders from the database (`tests/test_library.py`).
 - Sidebar collapse after resize (`c7efa9e`).
 - Infinite gallery skeletons when empty after a hard reset (`c452118`).
 - Empty-folder layout and folder-list refresh on upload (`32d0a7d`).
