@@ -938,6 +938,29 @@ def update_image_fingerprints(fingerprints: list[tuple[int, str]]) -> None:
         conn.close()
 
 
+def batch_rename_assets(
+    renames: list[tuple[str, str, int, float, str, str, str, int]],
+) -> None:
+    """Move indexed identities to new relative paths in a single batch using executemany."""
+    if not renames:
+        return
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN")
+        conn.executemany(
+            """UPDATE images SET rel_path = ?, file_name = ?, file_size = ?,
+                file_mtime = ?, content_fingerprint = ?, media_type = ?, mime_type = ?
+            WHERE id = ?""",
+            renames,
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def rename_asset_record(
     asset_id: int,
     *,
@@ -950,12 +973,8 @@ def rename_asset_record(
     mime_type: str,
 ) -> None:
     """Move an indexed identity to a new relative path without losing virtual links."""
-    conn = get_conn()
-    try:
-        conn.execute(
-            """UPDATE images SET rel_path = ?, file_name = ?, file_size = ?,
-                file_mtime = ?, content_fingerprint = ?, media_type = ?, mime_type = ?
-            WHERE id = ?""",
+    batch_rename_assets(
+        [
             (
                 rel_path,
                 file_name,
@@ -965,11 +984,9 @@ def rename_asset_record(
                 media_type,
                 mime_type,
                 asset_id,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+            )
+        ]
+    )
 
 
 def rename_image_record(image_id: int, **fields: Any) -> None:
@@ -982,50 +999,53 @@ def insert_assets(folder_id: int, assets: list[AssetInsertRow]) -> None:
         return
     conn = get_conn()
     try:
-        conn.execute("BEGIN")
-        for asset in assets:
-            conn.execute(
-                """INSERT INTO images (folder_id, rel_path, file_name, file_size, file_mtime,
-                    media_type, mime_type, format, width, height, mode, duration,
-                    frame_rate, codec, error, metadata_json,
-                    content_fingerprint, preview_status, preview_error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(folder_id, rel_path) DO UPDATE SET
-                    file_name=excluded.file_name,
-                    file_size=excluded.file_size, file_mtime=excluded.file_mtime,
-                    media_type=excluded.media_type, mime_type=excluded.mime_type,
-                    format=excluded.format, width=excluded.width, height=excluded.height,
-                    mode=excluded.mode, duration=excluded.duration,
-                    frame_rate=excluded.frame_rate, codec=excluded.codec,
-                    error=excluded.error,
-                    metadata_json=excluded.metadata_json,
-                    ai_annotations_json=NULL,
-                    content_fingerprint=excluded.content_fingerprint,
-                    preview_status=excluded.preview_status,
-                    preview_error=excluded.preview_error,
-                    created_at=datetime('now')""",
-                (
-                    folder_id,
-                    asset.rel_path,
-                    asset.file_name,
-                    asset.file_size,
-                    asset.file_mtime,
-                    asset.media_type,
-                    asset.mime_type,
-                    asset.format,
-                    asset.width,
-                    asset.height,
-                    asset.mode,
-                    asset.duration,
-                    asset.frame_rate,
-                    asset.codec,
-                    asset.error,
-                    asset.metadata_json,
-                    asset.content_fingerprint,
-                    asset.preview_status,
-                    asset.preview_error,
-                ),
+        params = [
+            (
+                folder_id,
+                asset.rel_path,
+                asset.file_name,
+                asset.file_size,
+                asset.file_mtime,
+                asset.media_type,
+                asset.mime_type,
+                asset.format,
+                asset.width,
+                asset.height,
+                asset.mode,
+                asset.duration,
+                asset.frame_rate,
+                asset.codec,
+                asset.error,
+                asset.metadata_json,
+                asset.content_fingerprint,
+                asset.preview_status,
+                asset.preview_error,
             )
+            for asset in assets
+        ]
+        conn.execute("BEGIN")
+        conn.executemany(
+            """INSERT INTO images (folder_id, rel_path, file_name, file_size, file_mtime,
+                media_type, mime_type, format, width, height, mode, duration,
+                frame_rate, codec, error, metadata_json,
+                content_fingerprint, preview_status, preview_error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(folder_id, rel_path) DO UPDATE SET
+                file_name=excluded.file_name,
+                file_size=excluded.file_size, file_mtime=excluded.file_mtime,
+                media_type=excluded.media_type, mime_type=excluded.mime_type,
+                format=excluded.format, width=excluded.width, height=excluded.height,
+                mode=excluded.mode, duration=excluded.duration,
+                frame_rate=excluded.frame_rate, codec=excluded.codec,
+                error=excluded.error,
+                metadata_json=excluded.metadata_json,
+                ai_annotations_json=NULL,
+                content_fingerprint=excluded.content_fingerprint,
+                preview_status=excluded.preview_status,
+                preview_error=excluded.preview_error,
+                created_at=datetime('now')""",
+            params,
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1484,6 +1504,120 @@ def update_asset_preview_status(
             (status, error, asset_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _fallback_commit_worker_items(
+    conn: sqlite3.Connection,
+    *,
+    image_updates: list[tuple] | None = None,
+    video_updates: list[tuple] | None = None,
+    error_updates: list[tuple[str, int]] | None = None,
+) -> None:
+    for u in (image_updates or []):
+        try:
+            conn.execute("BEGIN")
+            conn.execute(
+                """UPDATE images SET format = ?, width = ?, height = ?,
+                    mode = ?, error = ?, metadata_json = ?,
+                    preview_status = ?, preview_error = ?,
+                    created_at = datetime('now')
+                WHERE id = ?""",
+                u,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            try:
+                conn.execute(
+                    "UPDATE images SET error = 'Batch commit failed', preview_status = 'error' WHERE id = ?",
+                    (u[-1],),
+                )
+                conn.commit()
+            except Exception:
+                pass
+    for v in (video_updates or []):
+        try:
+            conn.execute("BEGIN")
+            conn.execute(
+                """UPDATE images SET format = ?, width = ?, height = ?, mode = ?,
+                    duration = ?, frame_rate = ?, codec = ?, error = NULL,
+                    metadata_json = ?, preview_status = ?, preview_error = ?,
+                    created_at = datetime('now')
+                WHERE id = ?""",
+                v,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+    for e in (error_updates or []):
+        try:
+            conn.execute("BEGIN")
+            conn.execute(
+                "UPDATE images SET error = ?, preview_status = 'error' WHERE id = ?",
+                e,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+
+def commit_worker_batch(
+    *,
+    image_updates: list[tuple] | None = None,
+    video_updates: list[tuple] | None = None,
+    error_updates: list[tuple[str, int]] | None = None,
+) -> None:
+    """Batch-commit processed assets and errors from the background worker in a single transaction."""
+    if not image_updates and not video_updates and not error_updates:
+        return
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN")
+        if image_updates:
+            conn.executemany(
+                """UPDATE images SET format = ?, width = ?, height = ?,
+                    mode = ?, error = ?, metadata_json = ?,
+                    preview_status = ?, preview_error = ?,
+                    created_at = datetime('now')
+                WHERE id = ?""",
+                image_updates,
+            )
+        if video_updates:
+            conn.executemany(
+                """UPDATE images SET format = ?, width = ?, height = ?, mode = ?,
+                    duration = ?, frame_rate = ?, codec = ?, error = NULL,
+                    metadata_json = ?, preview_status = ?, preview_error = ?,
+                    created_at = datetime('now')
+                WHERE id = ?""",
+                video_updates,
+            )
+        if error_updates:
+            conn.executemany(
+                "UPDATE images SET error = ?, preview_status = 'error' WHERE id = ?",
+                error_updates,
+            )
+        conn.execute(
+            """UPDATE folders
+            SET status = 'completed'
+            WHERE status = 'processing'
+              AND NOT EXISTS (
+                  SELECT 1 FROM images
+                  WHERE images.folder_id = folders.id
+                    AND images.metadata_json IS NULL
+                    AND images.error IS NULL
+              )"""
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        _fallback_commit_worker_items(
+            conn,
+            image_updates=image_updates,
+            video_updates=video_updates,
+            error_updates=error_updates,
+        )
     finally:
         conn.close()
 

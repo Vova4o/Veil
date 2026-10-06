@@ -221,6 +221,7 @@ def index_source_directory(
 
     renamed_old: set[str] = set()
     renamed_new: set[str] = set()
+    renames: list[tuple[str, str, int, float, str, str, str, int]] = []
     for identity, old_paths in old_by_identity.items():
         new_paths = new_by_identity.get(identity, [])
         if len(old_paths) != 1 or len(new_paths) != 1:
@@ -228,23 +229,29 @@ def index_source_directory(
         old_path = old_paths[0]
         new_path = new_paths[0]
         file = current.files[new_path]
-        db.rename_asset_record(
+        renames.append((
+            new_path,
+            file.path.name,
+            file.size,
+            file.mtime,
+            fingerprints[new_path],
+            file.media_type,
+            file.mime_type,
             int(old_records[old_path]["id"]),
-            rel_path=new_path,
-            file_name=file.path.name,
-            file_size=file.size,
-            file_mtime=file.mtime,
-            content_fingerprint=fingerprints[new_path],
-            media_type=file.media_type,
-            mime_type=file.mime_type,
-        )
+        ))
         renamed_old.add(old_path)
         renamed_new.add(new_path)
+    if renames:
+        db.batch_rename_assets(renames)
 
     deleted_ids: list[int] = []
     if not current.errors:
         deleted_files = [path for path in deleted_files if path not in renamed_old]
-        deleted_ids = db.get_image_ids_by_rel_paths(folder_id, deleted_files)
+        deleted_ids = [
+            int(old_records[path]["id"])
+            for path in deleted_files
+            if path in old_records
+        ]
         db.delete_images_by_ids(deleted_ids)
         for image_id in deleted_ids:
             (thumbnail_dir / f"{image_id}.jpg").unlink(missing_ok=True)
@@ -272,11 +279,10 @@ def index_source_directory(
             continue
 
         if previous is not None:
-            image_ids = db.get_image_ids_by_rel_paths(folder_id, [rel_path])
-            for image_id in image_ids:
-                (thumbnail_dir / f"{image_id}.jpg").unlink(missing_ok=True)
-                clear_cutout(cutout_dir, image_id)
-                clear_preview_cache(preview_dir, image_id)
+            image_id = int(previous["id"])
+            (thumbnail_dir / f"{image_id}.jpg").unlink(missing_ok=True)
+            clear_cutout(cutout_dir, image_id)
+            clear_preview_cache(preview_dir, image_id)
 
         new_assets.append(AssetInsertRow(
             rel_path=rel_path,

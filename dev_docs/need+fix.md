@@ -91,10 +91,13 @@
   2. Генерируется превью.
   3. Берётся соединение, делается `UPDATE`, выполняется `commit()`.
   На 1,000 картинок это 2,000 открытий/закрытий соединений SQLite и 1,000 дисковых синхронизаций (fsync) коммитов WAL.
+  * **Решение (✅ Реализовано):** Реализована выборка пачками `_next_asset_batch(batch_size=50)` за 1 запрос. Добавлена пакетная фиксация `commit_worker_batch(image_updates=..., video_updates=..., error_updates=...)`, использующая `conn.executemany` в рамках одной SQLite-транзакции. Добавлен автоматический отказоустойчивый построчный фоллбек `_fallback_commit_worker_items`, предотвращающий отравление батча единичной ошибкой. Убран искусственный сон 10 мс на каждый файл.
 * **Проблема: N+1 при реконсиляции в `indexing.py`.**  
-  В [indexing.py (строка 275)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/indexing.py#L275) для каждого измененного файла вызывается `db.get_image_ids_by_rel_paths(folder_id, [rel_path])`, хотя ID уже загружен в словаре `old_records[rel_path]["id"]`.
+  В [indexing.py (строка 275)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/indexing.py#L275) для каждого измененного файла вызывался `db.get_image_ids_by_rel_paths(folder_id, [rel_path])`, хотя ID уже загружен в словаре `old_records[rel_path]["id"]`.
+  * **Решение (✅ Реализовано):** Для всех изменённых и удалённых файлов ID берутся напрямую из памяти `old_records[path]["id"]` (0 дополнительных SQL-запросов вместо N). Переименования файлов переведены на пакетный метод `db.batch_rename_assets` через `executemany`.
 * **Проблема: Вставка в цикле вместо `executemany`.**  
-  В [database.py (строка 927)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py#L927) `insert_assets` использует цикл Python `for asset in assets: conn.execute(...)` вместо вызова оптимизированного на уровне C метода `conn.executemany(...)`.
+  В [database.py](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py) `insert_assets` использовал цикл Python `for asset in assets: conn.execute(...)`.
+  * **Решение (✅ Реализовано):** `insert_assets` переведён на нативный C-уровневый `conn.executemany(...)` с подготовленным списком кортежей параметров, компилируя SQL-запрос `ON CONFLICT DO UPDATE` один раз на весь батч.
 
 ---
 
@@ -106,5 +109,5 @@
 | **Фильтр рейтинга** | ✅ **Реализовано** (выраженческие индексы `COALESCE(rating, 0)`, авто-миграция) | **+2x–5x** к скорости фильтрации по рейтингу | Низкая |
 | **Вынос BLOB из `images`** | ✅ **Реализовано** (таблица `asset_blobs`, флаг `has_original_data`, удалены рудименты) | **+3x–10x** к скорости сканирования таблицы `images` | Средняя |
 | **Overfetching JSON** | ✅ **Реализовано** (Deferred Join в `get_assets`, флаги в SQL, точечный `json_extract`) | **-70%** трафика памяти и CPU при скроллинге галереи | Средняя |
-| **Пакетность воркера и `executemany`** | 1 коммит на каждый файл | **+200–400%** к скорости обработки очереди воркера | Средняя |
+| **Пакетность воркера и `executemany`** | ✅ **Реализовано** (батчинг по 50 элементов, `commit_worker_batch`, `batch_rename_assets`, устранён N+1) | **+200–400%** к скорости обработки очереди воркера | Средняя |
 | **Индексация нод/моделей** | `json_tree` сканирует дерево JSON на лету | Мгновенная фильтрация по моделям (вместо секундных задержек) | Выше среднего |

@@ -610,4 +610,245 @@ def test_get_assets_deferred_join_and_flag_computation_without_overfetching(temp
         conn.close()
 
 
+def test_insert_assets_executemany_and_batch_rename(temp_db):
+    """Verify insert_assets uses executemany for bulk insert and upsert, and batch_rename_assets works."""
+    from app.schemas import AssetInsertRow
+
+    folder_id = db.upsert_folder("C:/test_perf_executemany")
+    assets = [
+        AssetInsertRow(
+            rel_path=f"img_{i}.png",
+            file_name=f"img_{i}.png",
+            file_size=1024 * i,
+            file_mtime=2000.0 + i,
+            media_type="image",
+            mime_type="image/png",
+            format="png",
+            width=100 + i,
+            height=200 + i,
+            mode="RGB",
+            duration=None,
+            frame_rate=None,
+            codec=None,
+            error=None,
+            metadata_json=None,
+            content_fingerprint=f"fp_{i}",
+            preview_status="ready",
+            preview_error=None,
+        )
+        for i in range(10)
+    ]
+
+    # Bulk insert
+    db.insert_assets(folder_id, assets)
+
+    conn = db.get_conn()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM images WHERE folder_id = ?", (folder_id,)).fetchone()[0]
+        assert count == 10
+
+        # Upsert conflict update
+        updated_assets = [
+            AssetInsertRow(
+                rel_path=f"img_{i}.png",
+                file_name=f"img_{i}.png",
+                file_size=2048 * i,
+                file_mtime=3000.0 + i,
+                media_type="image",
+                mime_type="image/png",
+                format="png",
+                width=500,
+                height=600,
+                mode="RGB",
+                duration=None,
+                frame_rate=None,
+                codec=None,
+                error=None,
+                metadata_json='{"upserted": true}',
+                content_fingerprint=f"fp_new_{i}",
+                preview_status="ready",
+                preview_error=None,
+            )
+            for i in range(10)
+        ]
+        db.insert_assets(folder_id, updated_assets)
+
+        rows = conn.execute(
+            "SELECT width, height, metadata_json, content_fingerprint FROM images WHERE folder_id = ?",
+            (folder_id,),
+        ).fetchall()
+        assert len(rows) == 10
+        for r in rows:
+            assert r["width"] == 500
+            assert r["height"] == 600
+            assert r["metadata_json"] == '{"upserted": true}'
+
+        # Test batch_rename_assets
+        records = db.get_folder_file_records(folder_id)
+        renames = []
+        for rel_path, rec in records.items():
+            new_rel = f"renamed_{rel_path}"
+            renames.append((
+                new_rel,
+                new_rel,
+                int(rec["file_size"]),
+                float(rec["file_mtime"]),
+                str(rec["content_fingerprint"]),
+                "image",
+                "image/png",
+                int(rec["id"]),
+            ))
+        db.batch_rename_assets(renames)
+
+        renamed_count = conn.execute(
+            "SELECT COUNT(*) FROM images WHERE folder_id = ? AND rel_path LIKE 'renamed_%'",
+            (folder_id,),
+        ).fetchone()[0]
+        assert renamed_count == 10
+    finally:
+        conn.close()
+
+
+def test_worker_batching_and_commit_worker_batch(temp_db):
+    """Verify worker batch fetch, batch update, and auto folder completion."""
+    from app import worker
+    from app.schemas import AssetInsertRow
+
+    folder_id = db.upsert_folder("C:/test_perf_worker_batching")
+    conn = db.get_conn()
+    try:
+        conn.execute("UPDATE folders SET status = 'processing' WHERE id = ?", (folder_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assets = [
+        AssetInsertRow(
+            rel_path=f"work_{i}.png",
+            file_name=f"work_{i}.png",
+            file_size=500,
+            file_mtime=1000.0 + i,
+            media_type="image",
+            mime_type="image/png",
+            format=None,
+            width=0,
+            height=0,
+            mode=None,
+            error=None,
+            metadata_json=None,
+            content_fingerprint=None,
+            preview_status="pending",
+            preview_error=None,
+        )
+        for i in range(15)
+    ]
+    db.insert_assets(folder_id, assets)
+
+    # 1. Fetch batch of 10
+    batch1 = worker._next_asset_batch(batch_size=10)
+    assert len(batch1) == 10
+    assert [b["rel_path"] for b in batch1] == [f"work_{i}.png" for i in range(10)]
+
+    # 2. Batch commit 10 processed images
+    image_updates = [
+        (
+            "png",
+            512,
+            512,
+            "RGB",
+            None,
+            '{"processed": true}',
+            "ready",
+            None,
+            b["id"],
+        )
+        for b in batch1
+    ]
+    db.commit_worker_batch(image_updates=image_updates)
+
+    # Verify folder is still processing since 5 remain
+    folder_info = db.get_folder_record(folder_id)
+    assert folder_info["status"] == "processing"
+
+    # 3. Fetch remaining batch of 5
+    batch2 = worker._next_asset_batch(batch_size=10)
+    assert len(batch2) == 5
+
+    # 4. Batch commit with 4 images and 1 error
+    err_id = batch2[0]["id"]
+    ok_batch = batch2[1:]
+    ok_updates = [
+        (
+            "png",
+            512,
+            512,
+            "RGB",
+            None,
+            '{"processed": true}',
+            "ready",
+            None,
+            b["id"],
+        )
+        for b in ok_batch
+    ]
+    error_updates = [("Corrupt PNG file header", err_id)]
+    db.commit_worker_batch(image_updates=ok_updates, error_updates=error_updates)
+
+    # 5. All items processed -> folder automatically transitioned to 'completed'
+    folder_info = db.get_folder_record(folder_id)
+    assert folder_info["status"] == "completed"
+
+    # 6. Next batch fetch returns empty
+    batch3 = worker._next_asset_batch(batch_size=10)
+    assert len(batch3) == 0
+
+
+def test_reconciliation_zero_n_plus_one_calls(temp_db, tmp_path: Path):
+    """Verify that reconciliation does not call get_image_ids_by_rel_paths for changed/updated files."""
+    from unittest.mock import patch
+    from app import indexing
+
+    source_dir = tmp_path / "source_folder"
+    source_dir.mkdir()
+    f1 = source_dir / "f1.png"
+    f2 = source_dir / "f2.png"
+    f1.write_bytes(b"data1")
+    f2.write_bytes(b"data2")
+
+    thumb_dir = tmp_path / "thumbs"
+    cutout_dir = tmp_path / "cutouts"
+    preview_dir = tmp_path / "previews"
+    thumb_dir.mkdir()
+    cutout_dir.mkdir()
+    preview_dir.mkdir()
+
+    # Initial indexing
+    res1 = indexing.index_source_directory(
+        source_dir,
+        thumbnail_dir=thumb_dir,
+        cutout_dir=cutout_dir,
+        preview_dir=preview_dir,
+        recursive=False,
+    )
+    assert res1.processed == 2
+
+    # Now modify both files (change mtime and size)
+    time.sleep(0.01)
+    f1.write_bytes(b"data1_modified")
+    f2.write_bytes(b"data2_modified")
+
+    # Reconcile again: ensure get_image_ids_by_rel_paths is NOT called for modified files
+    with patch("app.database.get_image_ids_by_rel_paths", wraps=db.get_image_ids_by_rel_paths) as mock_ids:
+        res2 = indexing.index_source_directory(
+            source_dir,
+            thumbnail_dir=thumb_dir,
+            cutout_dir=cutout_dir,
+            preview_dir=preview_dir,
+            recursive=False,
+        )
+        assert res2.processed == 2
+        # get_image_ids_by_rel_paths should NOT have been called because IDs come from old_records directly!
+        assert mock_ids.call_count == 0
+
+
 
