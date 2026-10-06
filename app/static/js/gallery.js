@@ -146,7 +146,7 @@ function galleryCardHtml(img, index) {
         : '';
 
     return `
-        <div class="gallery-card${isActive}" data-index="${index}" data-image-id="${img.id ?? ''}">
+        <div class="gallery-card${isActive}" tabindex="0" role="group" aria-label="${escapeHtml(fileName)}" data-index="${index}" data-image-id="${img.id ?? ''}">
             <div class="img-wrapper"${ratioStyle}${fallbackAttr}>
                 ${videoPlaceholder}
                 <img src="${src}" alt="${escapeHtml(fileName)}" loading="lazy" decoding="async" draggable="false"${imgStyle} onerror="if(this.dataset.mediaType==='video'){this.hidden=true;}" data-media-type="${isVideo ? 'video' : 'image'}">
@@ -180,6 +180,11 @@ function createGalleryCard(img, index) {
 let suppressNextClick = false;
 
 function bindGalleryCard(card) {
+    card.addEventListener('keydown', event => {
+        if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        card.click();
+    });
     const imgEl = card.querySelector('img');
     if (imgEl) {
         const handleImageLoad = () => {
@@ -238,7 +243,17 @@ function bindGalleryCard(card) {
         event.stopPropagation();
         const index = Number.parseInt(card.dataset.index, 10);
         const imageId = images[index]?.id;
-        if (imageId) import('./api.js').then(module => module.removeAssetFromIndexById(imageId));
+        if (imageId) {
+            card.style.pointerEvents = 'none';
+            card.style.opacity = '0.35';
+            card.style.transform = 'scale(0.95)';
+            card.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+            import('./api.js').then(module => module.removeAssetFromIndexById(imageId)).catch(() => {
+                card.style.pointerEvents = '';
+                card.style.opacity = '';
+                card.style.transform = '';
+            });
+        }
     });
 
     card.addEventListener('contextmenu', event => {
@@ -363,16 +378,26 @@ export function renderGallery({ appendOnly = false, startIndex = 0, reconcile = 
                         <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
                     </div>
                     <p>No media found for the selected filters</p>
+                    <button class="btn btn-secondary" type="button" data-reset-viewer-filters>Reset filters</button>
                 </div>
             `;
+            dom.contentArea.querySelector('[data-reset-viewer-filters]').addEventListener('click', () => {
+                import('./features/sidebar.js')
+                    .then(module => module.resetViewerFilters())
+                    .catch(error => showToast(error.message));
+            });
             return;
         }
 
         const masonry = dom.contentArea.querySelector('.gallery-masonry');
         if (reconcile && masonry) {
+            const savedScroll = dom.contentArea ? dom.contentArea.scrollTop : 0;
             reconcileGalleryCards(masonry);
             resizeAllGridItems();
             applySearchFilter();
+            if (dom.contentArea && savedScroll > 0) {
+                dom.contentArea.scrollTop = savedScroll;
+            }
         } else if (appendOnly && masonry) {
             const fragment = document.createDocumentFragment();
             const newCards = [];
@@ -412,9 +437,10 @@ export function renderGallery({ appendOnly = false, startIndex = 0, reconcile = 
             } else {
                 dom.contentArea.appendChild(sentinel);
             }
+            sentinel.hidden = Boolean(dom.searchInput?.value.trim());
 
             const observer = new IntersectionObserver(entries => {
-                if (entries.some(entry => entry.isIntersecting)) {
+                if (!dom.searchInput?.value.trim() && entries.some(entry => entry.isIntersecting)) {
                     loadNextGalleryPage();
                 }
             }, { root: null, rootMargin: '600px 0px', threshold: 0 });

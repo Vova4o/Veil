@@ -1,9 +1,9 @@
 /**
- * Search bar component. Search is applied independently to the central folder
- * gallery and the global Media sidebar.
+ * Metadata search across loaded media in the central gallery.
  */
 
-import { images, sidebarImages, searchSettings, saveState, dom, totalImages } from '../state.js';
+import { images, searchSettings, saveState, dom, totalImages, allLoaded } from '../state.js';
+import { formatMediaCountLabel } from '../utils.js';
 
 export let currentSearchTerms = [];
 export let isExactMatch = false;
@@ -138,19 +138,58 @@ function onSearch(event) {
         if (match) matchCount++;
     });
 
-    document.querySelectorAll('.image-item').forEach(item => {
-        const index = Number.parseInt(item.dataset.index, 10);
-        item.style.display = sidebarImages[index] && predicate(sidebarImages[index]) ? '' : 'none';
-    });
+
+    const masonry = dom.contentArea?.querySelector('.gallery-masonry');
+    const sentinel = dom.contentArea?.querySelector('#gallery-sentinel');
+    if (sentinel) sentinel.hidden = Boolean(query);
+    let pagination = dom.contentArea?.querySelector('.viewer-search-pagination');
+    if (masonry && query && !allLoaded) {
+        if (!pagination) {
+            pagination = document.createElement('div');
+            pagination.className = 'viewer-search-pagination';
+            pagination.innerHTML = '<button class="btn btn-secondary" type="button">Load more media to search</button>';
+            pagination.querySelector('button').onclick = async event => {
+                const button = event.currentTarget;
+                button.disabled = true;
+                try {
+                    const { loadNextGalleryPage } = await import('../gallery.js');
+                    await loadNextGalleryPage();
+                } finally {
+                    button.disabled = false;
+                    applySearchFilter();
+                }
+            };
+            dom.contentArea.appendChild(pagination);
+        }
+    } else {
+        pagination?.remove();
+    }
+    let empty = dom.contentArea?.querySelector('.viewer-search-empty');
+    if (masonry && query && matchCount === 0) {
+        if (!empty) {
+            empty = document.createElement('div');
+            empty.className = 'viewer-search-empty';
+            empty.setAttribute('role', 'status');
+            empty.innerHTML = '<p>No matches in loaded media</p><button class="btn btn-secondary" type="button">Clear search</button>';
+            empty.querySelector('button').onclick = () => dom.searchClearBtn.click();
+            dom.contentArea.appendChild(empty);
+        }
+    } else {
+        empty?.remove();
+    }
+    if (pagination) dom.contentArea.appendChild(pagination);
 
     if (dom.viewerCollectionCount) {
         if (query) {
             dom.viewerCollectionCount.textContent = `${matchCount.toLocaleString()} / ${images.length.toLocaleString()}`;
+            dom.viewerCollectionCount.title = `${matchCount} matches in ${images.length} loaded items (${totalImages} in collection)`;
         } else {
             const total = totalImages || images.length;
-            dom.viewerCollectionCount.textContent = total ? total.toLocaleString() : '';
+            dom.viewerCollectionCount.textContent = total.toLocaleString();
+            dom.viewerCollectionCount.title = formatMediaCountLabel(images.length, total);
         }
     }
+    import('../features/sidebar.js').then(module => module.syncQuickViewsUI());
 }
 
 function onKeydown(event) {

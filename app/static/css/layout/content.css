@@ -10,7 +10,11 @@
         linear-gradient(180deg, color-mix(in srgb, var(--bg) 94%, var(--surface2)) 0%, var(--bg) 100%);
 }
 
-/* Persistent Viewer controls aligned with the sidebar tabs. */
+/* Persistent controls adapt to the workspace width, including sidebar resizing. */
+.viewer-workspace {
+    container-type: inline-size;
+}
+
 .viewer-context-toolbar {
     min-width: 0;
     height: var(--panel-header-height);
@@ -61,6 +65,7 @@
     font-weight: 700;
     line-height: 1;
     flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
 }
 
 .viewer-count-badge:empty {
@@ -107,6 +112,24 @@
 .viewer-search-clear:hover {
     background: var(--surface2);
     color: var(--text);
+}
+
+.viewer-search-clear[hidden] {
+    display: none;
+}
+
+.viewer-context-search input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+}
+
+.viewer-context-toolbar :is(button, input):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.rating-option-stars {
+    display: inline-flex;
+    gap: 2px;
 }
 
 .viewer-search-settings {
@@ -225,9 +248,9 @@
 }
 
 .viewer-rating-filter-button.active {
-    border-color: color-mix(in srgb, var(--accent2) 58%, var(--border));
-    background: var(--accent2-dim);
-    color: var(--accent2);
+    border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+    background: var(--accent-dim);
+    color: var(--accent);
 }
 
 .viewer-media-filter-button.active {
@@ -341,10 +364,164 @@
     }
 }
 
+@container (max-width: 1040px) {
+    .viewer-context-toolbar {
+        display: grid;
+        grid-template-columns: minmax(100px, 0.6fr) minmax(180px, 1fr);
+        grid-template-areas: "collection search" "actions actions";
+        height: auto;
+        gap: 8px 16px;
+        padding: 10px 14px;
+    }
+
+    .viewer-context-collection {
+        grid-area: collection;
+        display: flex;
+        max-width: none;
+        min-width: 0;
+    }
+
+    .viewer-context-search {
+        grid-area: search;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+        margin: 0;
+    }
+
+    .viewer-context-actions {
+        grid-area: actions;
+        justify-content: flex-end;
+        min-width: 0;
+        flex-wrap: wrap;
+    }
+}
+
+@container (max-width: 720px) {
+    .context-view-toggle button span,
+    .context-sort-button span {
+        display: none;
+    }
+
+    .context-view-toggle button,
+    .context-sort-button {
+        width: 34px;
+        padding: 0;
+        justify-content: center;
+    }
+
+    .context-sort-button svg:last-child {
+        display: none;
+    }
+}
+
+@container (max-width: 520px) {
+    .viewer-context-toolbar {
+        grid-template-columns: minmax(90px, 0.55fr) minmax(160px, 1fr);
+        padding: 8px;
+        gap: 8px;
+    }
+
+    .viewer-context-actions {
+        gap: 6px;
+        justify-content: flex-start;
+    }
+
+    .viewer-context-actions .sort-container:last-child {
+        margin-left: auto;
+    }
+
+    .viewer-context-search .search-input {
+        height: 40px;
+    }
+
+    .context-view-toggle,
+    .context-density-toggle,
+    .context-sort-button {
+        height: 40px;
+    }
+
+    .context-view-toggle button,
+    .context-sort-button {
+        width: 36px;
+    }
+
+    .context-density-toggle button {
+        height: 34px;
+    }
+}
+
+.viewer-search-empty {
+    padding: var(--space-xl);
+    color: var(--text-dim);
+    text-align: center;
+}
+
+.viewer-search-empty button {
+    margin-top: var(--space-md);
+}
+
+.viewer-search-pagination {
+    padding: var(--space-lg);
+    text-align: center;
+}
+
+/* Keep navigation and header actions on separate rows on narrow screens. */
+@media (max-width: 650px) {
+    :root {
+        --header-height: 96px;
+    }
+
+    .app-header.global-header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-content: center;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .global-header .global-header-left {
+        display: contents;
+    }
+
+    .global-header #sidebar-toggle {
+        grid-column: 1;
+        grid-row: 1;
+        justify-self: start;
+    }
+
+    .global-header .global-header-actions {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .global-header .app-switcher {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        justify-self: stretch;
+    }
+
+    .global-header .app-switcher-link {
+        flex: 1;
+        text-align: center;
+    }
+}
+
+@media (max-width: 768px) {
+    .app-main .sidebar {
+        z-index: var(--z-dropdown);
+    }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    :root {
+        --header-height: 44px;
+    }
+}
+
 /* Drop zone */
 .drop-zone {
-    border: 1px dashed color-mix(in srgb, var(--border) 78%, var(--text-muted));
-    border-radius: var(--radius);
+    border: 1px dashed color-mix(in srgb, var(--border) 78%, var(--text-muted));    border-radius: var(--radius);
     display: flex;
     flex-direction: column;
     align-items: center;

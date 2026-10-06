@@ -1,4 +1,8 @@
 /* === Gallery Layout === */
+#gallery-sentinel[hidden] {
+    display: none;
+}
+
 /* 
    RULE: Use CSS Grid layout with repeat(auto-fill, minmax(220px, 1fr)) to keep cards in horizontal order. 
    Do NOT use Multi-column layout (column-count) as it re-orders cards vertically and balances heights, 
@@ -15,7 +19,6 @@
     align-items: start;
     width: 100%;
     box-sizing: border-box;
-    transition: gap var(--transition);
 }
 
 .gallery-masonry[data-density="sm"] {
@@ -34,18 +37,6 @@
 }
 
 /* Density-specific card scaling */
-.gallery-masonry[data-density="sm"] .gallery-card .card-info {
-    padding: 24px 8px 8px;
-}
-
-.gallery-masonry[data-density="sm"] .gallery-card .card-name {
-    font-size: 11px;
-}
-
-.gallery-masonry[data-density="sm"] .gallery-card .card-meta {
-    font-size: 9px;
-}
-
 .gallery-masonry[data-density="sm"] .gallery-delete {
     width: 24px;
     height: 24px;
@@ -108,7 +99,7 @@
     border-radius: var(--radius);
     overflow: hidden;
     cursor: pointer;
-    transition: all var(--transition);
+    transition: border-color var(--transition-fast);
     position: relative;
     display: flex;
     flex-direction: column;
@@ -117,13 +108,21 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-user-drag: none;
-    touch-action: none;
+    touch-action: pan-y;
 }
 
 .gallery-card:hover {
     border-color: color-mix(in srgb, var(--accent) 68%, var(--border));
-    transform: translateY(-2px);
-    box-shadow: var(--shadow);
+}
+
+.gallery-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.gallery-card button:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
 }
 
 .gallery-card.active,
@@ -143,10 +142,6 @@
     transition: transform var(--transition);
     -webkit-user-drag: none;
     user-select: none;
-}
-
-.gallery-card:hover img {
-    transform: scale(1.015);
 }
 
 .gallery-card .card-info {
@@ -170,11 +165,11 @@
     z-index: 2;
 }
 
-.gallery-card:hover .card-info {
+.gallery-card:hover .card-info,
+.gallery-card:focus-within .card-info {
     opacity: 1;
     transform: translateY(0);
-    pointer-events: auto;
-}
+    pointer-events: auto;}
 
 .gallery-card .card-info-header {
     display: flex;
