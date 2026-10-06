@@ -85,6 +85,7 @@ tracer = get_tracer("comfy-meta-viewer")
 
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 app.config["SEND_FILE_MAX_AGE"] = 3600
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config.update(build_runtime_paths().flask_config())
 app.config["CONFIG_STORE"] = ConfigStore(Path(app.config["CONFIG_FILE"]))
 app.register_blueprint(ai_blueprint)
@@ -429,6 +430,9 @@ def api_folders_events():
                         "status": f.status,
                         "processed_count": f.processed_count,
                         "image_count": f.image_count,
+                        "video_count": f.video_count,
+                        "asset_count": f.asset_count,
+                        "processed_asset_count": f.processed_asset_count,
                         "enabled": f.enabled,
                         "recursive": f.recursive,
                         "source_status": f.source_status,

@@ -44,7 +44,7 @@ const folderSortOptions = [
 const albumSortOptions = [
     { key: 'name', label: 'Name' },
     { key: 'updated_at', label: 'Last Updated' },
-    { key: 'asset_count', label: 'Image Count' }
+    { key: 'asset_count', label: 'Item Count' }
 ];
 
 const dirOptions = [

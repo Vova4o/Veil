@@ -14,7 +14,6 @@ const AI_STORAGE_KEYS = [
 
 export const dom = {
     contentArea: document.getElementById('content-area'),
-    imageList: document.getElementById('image-list'),
     imageCount: document.getElementById('image-count'),
     folderNameEl: document.getElementById('folder-name'),
     viewerCollectionName: document.getElementById('viewer-collection-name'),
@@ -41,7 +40,6 @@ export const dom = {
     tabImages: document.getElementById('tab-images'),
     panelFolders: document.getElementById('panel-folders'),
     panelAlbums: document.getElementById('panel-albums'),
-    panelImages: document.getElementById('panel-images'),
     sidebarQuickViews: document.getElementById('sidebar-quick-views'),
     quickViewResetBtn: document.getElementById('quick-view-reset-btn'),
     sidebar: document.getElementById('sidebar'),

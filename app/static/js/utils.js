@@ -124,7 +124,7 @@ export function customAlert(title, message) {
         overlay.className = 'modal-overlay';
         overlay.innerHTML = `
             <div class="modal-content">
-                <div class="modal-title">🔔 ${escapeHtml(title)}</div>
+                <div class="modal-title">${escapeHtml(title)}</div>
                 <div class="modal-message">${escapeHtml(message)}</div>
                 <div class="modal-actions">
                     <button class="btn btn-primary modal-ok-btn">OK</button>
@@ -181,7 +181,7 @@ export function customPrompt(title, message, defaultValue = '') {
         overlay.className = 'modal-overlay';
         overlay.innerHTML = `
             <div class="modal-content">
-                <div class="modal-title">✏️ ${escapeHtml(title)}</div>
+                <div class="modal-title">${escapeHtml(title)}</div>
                 <div class="modal-message">${escapeHtml(message)}</div>
                 <input type="text" class="modal-input" value="${escapeHtml(defaultValue)}">
                 <div class="modal-actions">

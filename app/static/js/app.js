@@ -1,5 +1,4 @@
 import {
-    activeSidebarTab,
     currentCollection,
     dom,
     loadState,
@@ -20,9 +19,9 @@ import {
     setTotalImages,
     viewMode,
 } from './state.js';
-import { initEvents, renderCurrentContent, setViewMode, switchSidebarTab } from './events.js';
+import { initEvents, renderCurrentContent, setViewMode } from './events.js';
 import { initLightboxEvents } from './lightbox.js';
-import { applySidebarLayout, renderSidebar, initSidebarResize, toggleSidebar, renderAlbumsList, renderFoldersList, initQuickViews } from './features/sidebar.js';
+import { applySidebarLayout, renderSidebar, initSidebarResize, toggleSidebar, renderAlbumsList, renderFoldersList, initQuickViews, initSidebarAccordion } from './features/sidebar.js';
 import { initSearch } from './components/search-bar.js';
 import { initKeyboardShortcuts } from './features/keyboard.js';
 import { initCentralCollectionShortcuts } from './central-shortcuts.js';
@@ -53,12 +52,12 @@ async function bootstrapApplication() {
     initRatingFilter();
     initMediaTypeFilter();
     initQuickViews();
+    initSidebarAccordion();
     syncGalleryDensityUI();
     const preferredCollection = { type: currentCollection.type, id: currentCollection.id };
 
     applySidebarLayout();
     setViewMode(viewMode, { render: false, persist: false });
-    await switchSidebarTab(activeSidebarTab, { render: false, load: false, persist: false });
 
     try {
         const data = await loadBootstrap({ preferredCollection });

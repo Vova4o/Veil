@@ -7,7 +7,6 @@ import {
     totalImages,
     allLoaded,
     detailCache,
-    galleryActive,
     dom,
     setImages,
     setActiveIndex,
@@ -25,7 +24,6 @@ import {
     setSidebarPage,
     sidebarPage,
     setSidebarAllLoaded,
-    sidebarAllLoaded,
     sidebarTotalImages,
     setFolders,
     setAlbums,
@@ -110,17 +108,11 @@ function sidebarImagesUrl(page, perPage) {
 
 async function renderCurrentContent({ reconcileGallery = false } = {}) {
     const { viewMode } = await import('./state.js');
+    const { setViewMode, renderCurrentContent: renderViewerContent } = await import('./events.js');
     if (viewMode === 'upload') {
-        const { setViewMode } = await import('./events.js');
         setViewMode('gallery', { render: false });
     }
-    if (galleryActive) {
-        const { renderGallery } = await import('./gallery.js');
-        renderGallery({ reconcile: reconcileGallery });
-        return;
-    }
-    const { renderImageMeta } = await import('./detail-loader.js');
-    await renderImageMeta(images[activeIndex] || images[0] || null);
+    await renderViewerContent({ reconcileGallery });
 }
 
 export async function loadBootstrap({ preferredCollection = null } = {}) {
@@ -397,49 +389,6 @@ export async function loadSidebarImages({ force = false, render = true, preserve
     return data;
 }
 
-export async function loadMoreSidebarImages() {
-    if (isLoading || sidebarAllLoaded) return;
-    setIsLoading(true);
-    let spinner = document.querySelector('#sidebar-load-more-spinner');
-    if (!spinner && dom.imageList) {
-        spinner = document.createElement('div');
-        spinner.id = 'sidebar-load-more-spinner';
-        spinner.style.cssText = 'display: flex; justify-content: center; padding: 12px; width: 100%;';
-        spinner.innerHTML = `
-            <svg viewBox="0 0 24 24" width="16" height="16" stroke="var(--accent)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="anim-spin">
-                <line x1="12" y1="2" x2="12" y2="6"></line>
-                <line x1="12" y1="18" x2="12" y2="22"></line>
-                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
-                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
-                <line x1="2" y1="12" x2="6" y2="12"></line>
-                <line x1="18" y1="12" x2="22" y2="12"></line>
-                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
-                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
-            </svg>
-        `;
-        dom.imageList.appendChild(spinner);
-    }
-    const nextPage = sidebarPage + 1;
-    try {
-        const data = await fetchJson(sidebarImagesUrl(nextPage, PAGE_SIZE));
-        if (data.images?.length) {
-            sidebarImages.push(...data.images);
-            setSidebarPage(nextPage);
-            setSidebarTotalImages(data.total || sidebarTotalImages);
-            setSidebarAllLoaded(sidebarImages.length >= (data.total || 0));
-            const { renderSidebar } = await import('./features/sidebar.js');
-            renderSidebar();
-        } else {
-            setSidebarAllLoaded(true);
-        }
-    } catch(e) {
-        console.error('loadMoreSidebarImages error:', e);
-    } finally {
-        setIsLoading(false);
-        if (spinner) spinner.remove();
-    }
-}
-
 export async function getFolders({ force = false } = {}) {
     const data = await fetchJson('/api/folders', { force });
     return data.folders || [];
@@ -513,13 +462,13 @@ async function renderAfterImageRemoval() {
             renderFoldersList,
             renderSidebar,
         } = await import('./features/sidebar.js');
-        renderSidebar();
+        renderSidebar({ reconcile: true });
         await Promise.all([
             renderAlbumsList(updatedAlbums),
             renderFoldersList(updatedFolders),
         ]);
         if (typeof renderCurrentContent === 'function') {
-            await renderCurrentContent();
+            await renderCurrentContent({ reconcileGallery: true });
         }
     } catch (e) {
         console.warn('renderAfterImageRemoval non-critical error:', e);

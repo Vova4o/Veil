@@ -133,7 +133,9 @@ class UnifiedMediaAssetTest(unittest.TestCase):
 
     def test_viewer_ui_exposes_unified_media_filter_and_video_player(self) -> None:
         html = app.test_client().get("/").get_data(as_text=True)
-        self.assertIn('data-tab="images">Media</button>', html)
+        self.assertIn('data-quick-filter="videos"', html)
+        self.assertIn('data-quick-filter="images"', html)
+        self.assertNotIn('id="image-list"', html)
         self.assertIn('id="media-filter-images"', html)
         self.assertIn('id="media-filter-videos"', html)
         self.assertIn('id="lb-video"', html)

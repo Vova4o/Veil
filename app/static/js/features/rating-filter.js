@@ -16,7 +16,7 @@ import {
 function filterLabel(rating) {
     if (rating === null) return 'Rating';
     if (rating === 0) return 'Unrated';
-    return `${rating} ★`;
+    return `${rating} stars`;
 }
 
 function closeRatingFilter({ restoreFocus = false } = {}) {

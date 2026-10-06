@@ -12,7 +12,7 @@ import {
     clearStoredPreferences,
 } from './state.js';
 import { loadFromFiles, loadFromPaths, scanFolder, invalidateApiCache } from './api.js';
-import { renderSidebar } from './features/sidebar.js';
+import { renderSidebar, updateSidebarImageCount, syncQuickViewsUI, syncCollectionPickers } from './features/sidebar.js';
 import { customConfirm, customPrompt } from './utils.js';
 import { isSupportedMediaFile } from './media-files.js';
 
@@ -76,8 +76,11 @@ function initHeaderMenus() {
     });
 }
 
-export async function renderCurrentContent() {
+export async function renderCurrentContent({ reconcileGallery = false } = {}) {
     syncViewerContext();
+    updateSidebarImageCount();
+    syncQuickViewsUI();
+    syncCollectionPickers();
     if (viewMode === 'upload') {
         const { renderUploadView } = await import('./meta-view.js');
         renderUploadView();
@@ -85,7 +88,7 @@ export async function renderCurrentContent() {
     }
     if (galleryActive) {
         const { renderGallery } = await import('./gallery.js');
-        renderGallery();
+        renderGallery({ reconcile: reconcileGallery });
         return;
     }
     const { renderImageMeta } = await import('./detail-loader.js');
@@ -98,9 +101,6 @@ function applySidebarTabClasses(tab) {
     dom.tabFolders?.classList.toggle('active', showFolders);
     dom.tabAlbums?.classList.toggle('active', showAlbums);
     dom.tabImages?.classList.toggle('active', !showFolders && !showAlbums);
-    dom.panelFolders?.classList.toggle('active', showFolders);
-    dom.panelAlbums?.classList.toggle('active', showAlbums);
-    dom.panelImages?.classList.toggle('active', !showFolders && !showAlbums);
 }
 
 async function scanDragAndDropItems(items) {

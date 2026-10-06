@@ -1,5 +1,6 @@
+{% from 'components/viewer-icons.html' import icon %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-viewer-icons="/static/icons/viewer.svg?v={{ static_version('icons/viewer.svg') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,8 +15,8 @@
     <link rel="stylesheet" href="/static/css/base/typography.css">
     <!-- Layout -->
     <link rel="stylesheet" href="/static/css/layout/app-shell.css">
-    <link rel="stylesheet" href="/static/css/layout/sidebar.css">
-    <link rel="stylesheet" href="/static/css/layout/content.css">
+    <link rel="stylesheet" href="/static/css/layout/sidebar.css?v={{ static_version('css/layout/sidebar.css') }}">
+    <link rel="stylesheet" href="/static/css/layout/content.css?v={{ static_version('css/layout/content.css') }}">
     <!-- Components -->
     <link rel="stylesheet" href="/static/css/components/buttons.css">
     <link rel="stylesheet" href="/static/css/components/cards.css">
@@ -30,7 +31,7 @@
     <!-- Features -->
     <link rel="stylesheet" href="/static/css/features/meta-panel.css">
     <link rel="stylesheet" href="/static/css/features/workflow-graph.css">
-    <link rel="stylesheet" href="/static/css/features/gallery.css">
+    <link rel="stylesheet" href="/static/css/features/gallery.css?v={{ static_version('css/features/gallery.css') }}">
     <link rel="stylesheet" href="/static/css/features/lightbox.css">
     <link rel="stylesheet" href="/static/css/features/cutout.css">
     <link rel="stylesheet" href="/static/css/features/remix.css?v={{ static_version('css/features/remix.css') }}">
@@ -110,35 +111,35 @@
                         <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
                         <span><strong>Dark Studio</strong><small>Deep slate & teal</small></span>
                     </div>
-                    <span class="theme-check" aria-hidden="true">✓</span>
+                    <span class="theme-check" aria-hidden="true">{{ icon("check", 14) }}</span>
                 </button>
                 <button class="header-menu-item theme-option" type="button" role="menuitem" data-theme-value="light">
                     <div class="theme-option-main">
                         <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
                         <span><strong>Light Studio</strong><small>Clean white & subtle borders</small></span>
                     </div>
-                    <span class="theme-check" aria-hidden="true">✓</span>
+                    <span class="theme-check" aria-hidden="true">{{ icon("check", 14) }}</span>
                 </button>
                 <button class="header-menu-item theme-option" type="button" role="menuitem" data-theme-value="strawberry">
                     <div class="theme-option-main">
                         <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c-1.5 0-3 1-3.5 2.5C7.5 4 6 5 6 6.5c0 1.5 1 2.5 1 3.5C7 15 10 21 12 22c2-1 5-7 5-12 0-1 1-2 1-3.5 0-1.5-1.5-2.5-2.5-2C15 3 13.5 2 12 2z"></path></svg>
                         <span><strong>Strawberry Milk</strong><small>Pastel cream & berry</small></span>
                     </div>
-                    <span class="theme-check" aria-hidden="true">✓</span>
+                    <span class="theme-check" aria-hidden="true">{{ icon("check", 14) }}</span>
                 </button>
                 <button class="header-menu-item theme-option" type="button" role="menuitem" data-theme-value="strawberry-dark">
                     <div class="theme-option-main">
                         <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c-1.5 0-3 1-3.5 2.5C7.5 4 6 5 6 6.5c0 1.5 1 2.5 1 3.5C7 15 10 21 12 22c2-1 5-7 5-12 0-1 1-2 1-3.5 0-1.5-1.5-2.5-2.5-2C15 3 13.5 2 12 2z"></path><path d="M12 2v20" opacity="0.35"></path></svg>
                         <span><strong>Strawberry Velvet</strong><small>Dark plum & neon rose</small></span>
                     </div>
-                    <span class="theme-check" aria-hidden="true">✓</span>
+                    <span class="theme-check" aria-hidden="true">{{ icon("check", 14) }}</span>
                 </button>
                 <button class="header-menu-item theme-option" type="button" role="menuitem" data-theme-value="system">
                     <div class="theme-option-main">
                         <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                         <span><strong>System</strong><small>Follow OS appearance</small></span>
                     </div>
-                    <span class="theme-check" aria-hidden="true">✓</span>
+                    <span class="theme-check" aria-hidden="true">{{ icon("check", 14) }}</span>
                 </button>
             </div>
         </div>
@@ -166,107 +167,100 @@
 
 <main class="app-main">
     <aside class="sidebar" id="sidebar">
-        <div class="sidebar-tabs">
-            <button class="sidebar-tab active" id="tab-folders" data-tab="folders">Folders</button>
-            <button class="sidebar-tab" id="tab-albums" data-tab="albums">Albums</button>
-            <button class="sidebar-tab" id="tab-images" data-tab="images">Media</button>
-        </div>
-        
-        <div class="sidebar-panel active" id="panel-folders">
-            <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center; padding-right: 8px;">
-                <div style="min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px;">
-                    <span class="sidebar-title">Sources</span>
-                    <span id="folders-count" style="font-size: 12px; font-weight: 500; color: var(--text-dim);">(0)</span>
+        <div class="sidebar-scroll" id="sidebar-scroll">
+            <!-- 1. Library / Quick Views Section -->
+            <div class="sidebar-section sidebar-section-library" id="sidebar-library-section">
+                <div class="sidebar-section-header">
+                    <span class="sidebar-section-title">Library</span>
+                    <button class="quick-view-reset-btn" id="quick-view-reset-btn" type="button" title="Clear search, rating and media filters" disabled>Reset filters</button>
                 </div>
-                <div class="folders-controls" style="display: flex; gap: 4px; align-items: center; flex-shrink: 0;">
-                    <button class="icon-btn" id="folders-view-btn" title="Toggle List/Tile View" style="padding: 6px; width: 30px; height: 30px;">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="icon-list"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                <div class="sidebar-nav-list" id="sidebar-quick-views">
+                    <button class="sidebar-nav-item quick-chip active" data-quick-filter="all" title="Show all items">
+                        <span class="nav-item-icon">{{ icon('images') }}</span>
+                        <span class="nav-item-label">All Media</span>
                     </button>
-                    <div class="sort-container" style="position: relative; flex-shrink: 0;">
-                        <button class="icon-btn" id="folders-sort-btn" title="Sort" style="padding: 6px; width: 30px; height: 30px;">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l4-4 4 4M7 5v14M21 15l-4 4-4-4M17 19V5"/></svg>
+                    <button class="sidebar-nav-item quick-chip" data-quick-filter="top-rated" title="Rated 5 stars">
+                        <span class="nav-item-icon">{{ icon('star') }}</span>
+                        <span class="nav-item-label">Top rated (5 stars)</span>
+                    </button>
+                    <button class="sidebar-nav-item quick-chip" data-quick-filter="unrated" title="Unrated media">
+                        <span class="nav-item-icon">{{ icon('star-off') }}</span>
+                        <span class="nav-item-label">Unrated</span>
+                    </button>
+                    <button class="sidebar-nav-item quick-chip" data-quick-filter="videos" title="Videos only">
+                        <span class="nav-item-icon">{{ icon('video') }}</span>
+                        <span class="nav-item-label">Videos</span>
+                    </button>
+                    <button class="sidebar-nav-item quick-chip" data-quick-filter="images" title="Images only">
+                        <span class="nav-item-icon">{{ icon('image') }}</span>
+                        <span class="nav-item-label">Images</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 2. Sources / Folders Section -->
+            <div class="sidebar-section sidebar-section-folders" id="panel-folders">
+                <div class="sidebar-section-header">
+                    <button class="sidebar-section-toggle" id="folders-section-toggle" type="button" title="Toggle Sources" aria-expanded="true" aria-controls="folder-list">
+                        <svg class="section-chevron" viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><path d="m6 9 6 6 6-6"/></svg>
+                        <span class="sidebar-section-title">Sources</span>
+                        <span id="folders-count" class="sidebar-section-count">(0)</span>
+                    </button>
+                    <div class="sidebar-section-actions">
+                        <button class="icon-btn-subtle" id="folders-add-btn" title="Connect Folder Source" aria-label="Connect folder source">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         </button>
-                        <div class="dropdown-menu" id="folders-sort-dropdown-menu" style="display: none; right: 0; left: auto; width: 180px;">
+                        <button class="icon-btn-subtle" id="folders-view-btn" title="Toggle List/Tile View" aria-label="Switch source view">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                        </button>
+                        <div class="sort-container" style="position: relative;">
+                            <button class="icon-btn-subtle" id="folders-sort-btn" title="Sort Sources" aria-label="Sort sources">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l4-4 4 4M7 5v14M21 15l-4 4-4-4M17 19V5"/></svg>
+                            </button>
+                            <div class="dropdown-menu" id="folders-sort-dropdown-menu" style="display: none; right: 0; left: auto; width: 180px;"></div>
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="folder-list view-list" id="folder-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted)">
-                    <div style="font-size: 24px; margin-bottom: 8px;">&#128193;</div>
-                    <p style="font-size: 12px;">No sources yet.</p>
-                    <p style="font-size: 11px; margin-top: 4px;">Click "Open Folder" to connect a directory.</p>
+                <div class="folder-list view-list" id="folder-list">
+                    <div class="collection-empty" role="status">
+                        {{ icon('folder-open', 24) }}
+                        <p>Loading sources…</p>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="sidebar-panel" id="panel-albums">
-            <div class="sidebar-header viewer-albums-header">
-                <div class="sidebar-header-title-group">
-                    <span class="sidebar-title">Albums</span>
-                    <span id="viewer-albums-count" class="sidebar-header-count">(0)</span>
-                </div>
-                <div class="viewer-albums-controls">
-                    <a class="icon-btn viewer-manage-library" href="/library" title="Manage albums in Library" aria-label="Manage albums in Library">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"></path><path d="M10 14 21 3"></path><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"></path></svg>
-                    </a>
-                    <button class="icon-btn" id="viewer-albums-view-btn" title="Switch to Tile View" aria-label="Switch album view">
-                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            <!-- 3. Albums Section -->
+            <div class="sidebar-section sidebar-section-albums" id="panel-albums">
+                <div class="sidebar-section-header">
+                    <button class="sidebar-section-toggle" id="albums-section-toggle" type="button" title="Toggle Albums" aria-expanded="true" aria-controls="viewer-album-list">
+                        <svg class="section-chevron" viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><path d="m6 9 6 6 6-6"/></svg>
+                        <span class="sidebar-section-title">Albums</span>
+                        <span id="viewer-albums-count" class="sidebar-section-count">(0)</span>
                     </button>
-                    <div class="sort-container">
-                        <button class="icon-btn" id="viewer-albums-sort-btn" title="Sort albums" aria-label="Sort albums">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l4-4 4 4M7 5v14M21 15l-4 4-4-4M17 19V5"></path></svg>
+                    <div class="sidebar-section-actions">
+                        <a class="icon-btn-subtle viewer-manage-library" href="/library" title="Manage albums in Library" aria-label="Manage albums in Library">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"></path><path d="M10 14 21 3"></path><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"></path></svg>
+                        </a>
+                        <button class="icon-btn-subtle" id="viewer-albums-view-btn" title="Switch album view" aria-label="Switch album view">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                         </button>
-                        <div class="dropdown-menu" id="viewer-albums-sort-dropdown-menu" style="display: none; right: 0; left: auto; width: 180px;"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="folder-list album-list view-list" id="viewer-album-list"></div>
-        </div>
-
-        <div class="sidebar-panel" id="panel-images">
-            <div class="sidebar-header sidebar-header-images" style="display: flex; justify-content: space-between; align-items: center;">
-                <div class="sidebar-header-main" style="min-width: 0; flex: 1;">
-                    <span class="sidebar-label">Current Collection</span>
-                    <div class="sidebar-header-summary">
-                        <span class="sidebar-collection-kind" id="collection-kind"></span>
-                        <span class="sidebar-folder" id="folder-name"></span>
-                        <span class="sidebar-info sidebar-info-badge" id="image-count"></span>
-                    </div>
-                </div>
-                <div class="sidebar-media-controls">
-                    <div class="sort-container" style="position: relative; flex-shrink: 0;">
-                        <button class="icon-btn" id="sidebar-sort-btn" title="Sort media" aria-label="Sort media" style="padding: 6px;">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l4-4 4 4M7 5v14M21 15l-4 4-4-4M17 19V5"/></svg>
-                        </button>
-                        <div class="dropdown-menu" id="sidebar-sort-dropdown-menu" style="display: none; right: 0; left: auto; width: 180px;">
+                        <div class="sort-container" style="position: relative;">
+                            <button class="icon-btn-subtle" id="viewer-albums-sort-btn" title="Sort albums" aria-label="Sort albums">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l4-4 4 4M7 5v14M21 15l-4 4-4-4M17 19V5"></path></svg>
+                            </button>
+                            <div class="dropdown-menu" id="viewer-albums-sort-dropdown-menu" style="display: none; right: 0; left: auto; width: 180px;"></div>
                         </div>
                     </div>
                 </div>
-            <div class="sidebar-quick-views" id="sidebar-quick-views">
-                <div class="sidebar-quick-views-header">
-                    <span class="sidebar-quick-views-title">Quick Views</span>
-                    <button class="quick-view-reset-btn" id="quick-view-reset-btn" title="Reset all filters">Reset</button>
-                </div>
-                <div class="sidebar-quick-chips">
-                    <button class="quick-chip active" data-quick-filter="all" title="Show all items">
-                        <span class="quick-chip-icon">🗂️</span> All
-                    </button>
-                    <button class="quick-chip" data-quick-filter="top-rated" title="Rated 5 stars">
-                        <span class="quick-chip-icon">★</span> 5★ Top
-                    </button>
-                    <button class="quick-chip" data-quick-filter="unrated" title="Unrated media">
-                        <span class="quick-chip-icon">☆</span> Unrated
-                    </button>
-                    <button class="quick-chip" data-quick-filter="videos" title="Videos only">
-                        <span class="quick-chip-icon">🎬</span> Videos
-                    </button>
-                    <button class="quick-chip" data-quick-filter="images" title="Images only">
-                        <span class="quick-chip-icon">🖼️</span> Images
-                    </button>
-                </div>
+                <div class="folder-list album-list view-list" id="viewer-album-list"></div>
             </div>
-            <div class="image-list" id="image-list"></div>
+
+            <!-- Collection metadata used by detail view; no secondary media list. -->
+            <div hidden aria-hidden="true">
+                <span id="collection-kind"></span>
+                <span id="folder-name"></span>
+                <span id="image-count"></span>
+            </div>
         </div>
         <div class="sidebar-resize" id="sidebar-resize"></div>
     </aside>
@@ -276,10 +270,10 @@
             <div class="viewer-context-collection" title="Current collection">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 7h8M8 11h8M8 15h5"></path></svg>
                 <span id="viewer-collection-name">Gallery</span>
-                <span id="viewer-collection-count" class="viewer-count-badge" aria-label="Collection item count"></span>
+                <span id="viewer-collection-count" class="viewer-count-badge" role="status" aria-live="polite" aria-atomic="true" aria-label="Collection item count"></span>
             </div>
             <div class="viewer-context-search">
-                <input type="text" class="search-input" id="search-input" placeholder="Search metadata... (Ctrl+F)">
+                <input type="search" class="search-input" id="search-input" aria-label="Search loaded media" placeholder="Search loaded media...">
                 <button id="search-clear-btn" class="viewer-search-clear" type="button" title="Clear search" aria-label="Clear search" hidden>
                     <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
@@ -321,11 +315,11 @@
                         <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="all"><span class="indicator"></span><span class="label">All ratings</span></button>
                         <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="0"><span class="indicator"></span><span class="label">Unrated</span></button>
                         <div class="dropdown-divider"></div>
-                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="1"><span class="indicator"></span><span class="label rating-option-stars">★</span><span class="label">1 star</span></button>
-                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="2"><span class="indicator"></span><span class="label rating-option-stars">★★</span><span class="label">2 stars</span></button>
-                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="3"><span class="indicator"></span><span class="label rating-option-stars">★★★</span><span class="label">3 stars</span></button>
-                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="4"><span class="indicator"></span><span class="label rating-option-stars">★★★★</span><span class="label">4 stars</span></button>
-                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="5"><span class="indicator"></span><span class="label rating-option-stars">★★★★★</span><span class="label">5 stars</span></button>
+                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="1"><span class="indicator"></span><span class="label rating-option-stars" aria-hidden="true">{{ icon("star", 12) }}</span><span class="label">1 star</span></button>
+                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="2"><span class="indicator"></span><span class="label rating-option-stars" aria-hidden="true">{{ icon("star", 12) }}{{ icon("star", 12) }}</span><span class="label">2 stars</span></button>
+                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="3"><span class="indicator"></span><span class="label rating-option-stars" aria-hidden="true">{{ icon("star", 12) }}{{ icon("star", 12) }}{{ icon("star", 12) }}</span><span class="label">3 stars</span></button>
+                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="4"><span class="indicator"></span><span class="label rating-option-stars" aria-hidden="true">{{ icon("star", 12) }}{{ icon("star", 12) }}{{ icon("star", 12) }}{{ icon("star", 12) }}</span><span class="label">4 stars</span></button>
+                        <button class="dropdown-item" type="button" role="menuitemradio" data-viewer-rating="5"><span class="indicator"></span><span class="label rating-option-stars" aria-hidden="true">{{ icon("star", 12) }}{{ icon("star", 12) }}{{ icon("star", 12) }}{{ icon("star", 12) }}{{ icon("star", 12) }}</span><span class="label">5 stars</span></button>
                     </div>
                 </div>
                 <div class="view-toggle context-view-toggle" aria-label="Viewer layout">
@@ -503,10 +497,10 @@
                 <div class="shortcut-group">
                     <h4>Features</h4>
                     <ul class="features-list">
-                        <li>📂 <strong>Source Monitor:</strong> Watch local and desktop-synced folders and reconcile missed changes.</li>
-                        <li>💾 <strong>Originals Storage:</strong> Added files are stored in the database and indexed when opened.</li>
-                        <li>📊 <strong>Interactive Graph:</strong> Navigate and inspect active workflow generation nodes.</li>
-                        <li>🔍 <strong>EXIF extraction:</strong> Extracts raw metadata chunks from PNG, JPEG, WEBP files.</li>
+                        <li><strong>Source Monitor:</strong> Watch local and desktop-synced folders and reconcile missed changes.</li>
+                        <li><strong>Originals Storage:</strong> Added files are stored in the database and indexed when opened.</li>
+                        <li><strong>Interactive Graph:</strong> Navigate and inspect active workflow generation nodes.</li>
+                        <li><strong>EXIF extraction:</strong> Extracts raw metadata chunks from PNG, JPEG, WEBP files.</li>
                     </ul>
                 </div>
                 

@@ -1,23 +1,16 @@
 /**
- * Sidebar component. The Media tab owns the global image/video collection;
- * the Folders and Albums tabs select the central Viewer collection.
+ * Viewer navigation: quick filters, source folders and albums.
+ * Media cards are rendered only in the central workspace.
  */
 
 import {
     images,
     galleryActive,
     currentFolderId,
-    sidebarAllLoaded,
-    sidebarScrollObserver,
-    sidebarTotalImages,
     totalImages,
     dom,
     showToast,
     setActiveIndex,
-    setSidebarScrollObserver,
-    sidebarImages,
-    sidebarActiveImageId,
-    setSidebarActiveImageId,
     folders,
     albums,
     currentCollection,
@@ -28,7 +21,6 @@ import {
     setCurrentFolderId,
     setCurrentPage,
     setAllLoaded,
-    viewMode,
     foldersSortKey,
     foldersSortDir,
     foldersViewMode,
@@ -43,144 +35,42 @@ import {
     refreshCacheBuster,
     ratingFilter,
     mediaTypeFilter,
+    setRatingFilter,
+    setMediaTypeFilter,
+    isBrowsableCollection,
 } from '../state.js';
-import { escapeHtml, customConfirm, formatMediaCountLabel, imageRenderSignature, originalUrl } from '../utils.js';
-import { createSidebarItem } from '../components/sidebar-item.js';
-import { showImageContextMenu } from '../components/image-context-menu.js';
-
-function bindSidebarItem(item) {
-    item.onclick = () => selectSidebarImage(Number.parseInt(item.dataset.index, 10));
-    item.querySelector('.sidebar-delete')?.addEventListener('click', event => {
-        event.stopPropagation();
-        const index = Number.parseInt(item.dataset.index, 10);
-        const imageId = sidebarImages[index]?.id;
-        if (imageId) import('../api.js').then(module => module.removeAssetFromIndexById(imageId));
-    });
-    item.addEventListener('contextmenu', event => {
-        const index = Number.parseInt(item.dataset.index, 10);
-        const img = sidebarImages[index];
-        if (!img?.id) return;
-        showImageContextMenu(event, {
-            imageId: img.id,
-            fileName: img.file_name || img.file || '',
-            sourceUrl: originalUrl(img),
-            mediaType: img.media_type || 'image',
-            canAccessOriginal: true,
-            hasLocalFile: Boolean(img.id && img.has_local_file),
-            isUploadedAsset: img.has_local_file === false,
-            rating: img.rating,
-            onOpenInViewer: () => import('../lightbox.js')
-                .then(module => module.openLightbox(index, sidebarImages)),
-            onDeleteFile: () => import('../api.js')
-                .then(module => module.deleteAssetFileById(img.id)),
-            onRemoveFromIndex: () => import('../api.js')
-                .then(module => module.removeAssetFromIndexById(img.id)),
-            onRenamed: renamed => import('../api.js').then(module => module.applyImageRename(renamed)),
-            onRatingChanged: asset => import('../api.js').then(module => module.applyImageRating(asset)),
-            extraSections: img.media_type === 'video' ? [] : [[{
-                label: 'Create transparent PNG',
-                icon: 'cutout',
-                run: async () => {
-                    const lightbox = await import('../lightbox.js');
-                    await lightbox.openLightbox(index, sidebarImages);
-                    const cutout = await import('./cutout.js');
-                    cutout.openCutoutPanel();
-                },
-            }]],
-            notify: showToast,
-        });
-    });
-}
-
-function reconcileSidebarItems() {
-    const existingById = new Map(
-        [...dom.imageList.querySelectorAll('.image-item[data-image-id]')]
-            .map(item => [item.dataset.imageId, item]),
-    );
-    let cursor = dom.imageList.firstElementChild;
-
-    sidebarImages.forEach((img, index) => {
-        const imageId = String(img.id ?? '');
-        const signature = imageRenderSignature(img);
-        let item = existingById.get(imageId);
-        if (!item || item.dataset.renderSignature !== signature) {
-            const replacement = createSidebarItem(img, index, sidebarActiveImageId === img.id);
-            bindSidebarItem(replacement);
-            if (item) {
-                const replacesCursor = item === cursor;
-                item.replaceWith(replacement);
-                if (replacesCursor) cursor = replacement;
-                existingById.delete(imageId);
-            }
-            item = replacement;
-        } else {
-            existingById.delete(imageId);
-            item.dataset.index = String(index);
-            item.classList.toggle('active', sidebarActiveImageId === img.id);
-            const deleteButton = item.querySelector('.sidebar-delete');
-            if (deleteButton) deleteButton.dataset.index = String(index);
-        }
-
-        if (item !== cursor) dom.imageList.insertBefore(item, cursor);
-        cursor = item.nextElementSibling;
-    });
-
-    existingById.forEach(item => item.remove());
-}
+import { escapeHtml, customConfirm, formatMediaCountLabel } from '../utils.js';
+import { collectionCount, sourcePresentation, collectionIcon, updateCollectionViewButton, initSourceActions, captureSourceInteraction, restoreSourceInteraction } from '../components/viewer-collections.js';
 
 export function updateSidebarImageCount() {
-    const loadedCount = Math.max(images.length, sidebarImages.length);
-    const totalCount = totalImages || sidebarTotalImages;
+    const loadedCount = images.length;
+    const totalCount = totalImages;
     const label = formatMediaCountLabel(loadedCount, totalCount);
     if (dom.imageCount) dom.imageCount.textContent = label;
     if (dom.viewerCollectionCount) {
         const count = totalCount || loadedCount;
-        dom.viewerCollectionCount.textContent = count ? count.toLocaleString() : '';
+        dom.viewerCollectionCount.textContent = count.toLocaleString();
         dom.viewerCollectionCount.title = label;
     }
 }
 
-export function renderSidebar({ reconcile = false } = {}) {
-    // Custom order is served by the backend (sort_by=custom):
-    // no client-side overlay is applied anymore.
+export function renderSidebar() {
     updateSidebarImageCount();
-
-    if (reconcile) {
-        dom.imageList.querySelector('#scroll-sentinel')?.remove();
-        reconcileSidebarItems();
-    } else {
-        dom.imageList.innerHTML = '';
-        const fragment = document.createDocumentFragment();
-        sidebarImages.forEach((img, index) => {
-            const item = createSidebarItem(img, index, sidebarActiveImageId === img.id);
-            bindSidebarItem(item);
-            fragment.appendChild(item);
-        });
-        dom.imageList.appendChild(fragment);
-    }
-
-    appendSentinel();
+    syncQuickViewsUI();
+    syncCollectionPickers();
     import('../components/search-bar.js').then(module => module.applySearchFilter());
 }
 
-export function appendSentinel() {
-    if (sidebarScrollObserver) sidebarScrollObserver.disconnect();
-    dom.imageList.querySelector('#scroll-sentinel')?.remove();
-    if (sidebarAllLoaded) return;
-
-    const sentinel = document.createElement('div');
-    sentinel.id = 'scroll-sentinel';
-    sentinel.style.height = '20px';
-    sentinel.style.width = '100%';
-    dom.imageList.appendChild(sentinel);
-
-    const observer = new IntersectionObserver(entries => {
-        if (entries.some(entry => entry.isIntersecting)) {
-            import('../api.js').then(module => module.loadMoreSidebarImages());
-        }
-    }, { root: dom.imageList, rootMargin: '400px 0px', threshold: 0 });
-    setSidebarScrollObserver(observer);
-    observer.observe(sentinel);
+export function syncCollectionPickers() {
+    document.querySelectorAll('.source-folder-item, .album-item').forEach(item => {
+        const type = item.dataset.albumId ? 'album' : 'folder';
+        const id = Number(item.dataset.albumId || item.dataset.sourceId);
+        const active = currentCollection.type === type && currentCollection.id === id;
+        item.classList.toggle('active', active);
+        const control = type === 'album' ? item : item.querySelector('.folder-item-content');
+        if (active) control.setAttribute('aria-current', 'true');
+        else control.removeAttribute('aria-current');
+    });
 }
 
 // Central-image selection helper retained for list/detail interactions.
@@ -197,30 +87,6 @@ export async function selectImage(index) {
         openLightbox(index, images);
         return;
     }
-    const { renderImageMeta } = await import('../detail-loader.js');
-    await renderImageMeta(img);
-}
-
-export async function selectSidebarImage(index) {
-    const img = sidebarImages[index];
-    if (!img) return;
-
-    setSidebarActiveImageId(img.id);
-    dom.imageList.querySelectorAll('.image-item').forEach((element, itemIndex) => {
-        element.classList.toggle('active', itemIndex === index);
-    });
-
-    if (viewMode === 'upload') {
-        const { setViewMode } = await import('../events.js');
-        setViewMode('list', { render: false });
-    }
-
-    if (galleryActive) {
-        const { openLightbox } = await import('../lightbox.js');
-        openLightbox(index, sidebarImages);
-        return;
-    }
-
     const { renderImageMeta } = await import('../detail-loader.js');
     await renderImageMeta(img);
 }
@@ -296,22 +162,14 @@ export async function renderAlbumsList(albumList = null) {
 
     dom.albumList.classList.toggle('view-list', albumsViewMode === 'list');
     if (dom.albumsCount) dom.albumsCount.textContent = `(${visibleAlbums.length})`;
-    if (dom.albumsViewBtn) {
-        const listMode = albumsViewMode === 'list';
-        dom.albumsViewBtn.innerHTML = listMode
-            ? '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>'
-            : '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>';
-        dom.albumsViewBtn.title = listMode ? 'Switch to Tile View' : 'Switch to List View';
-    }
+    updateCollectionViewButton(dom.albumsViewBtn, albumsViewMode, 'albums');
 
     if (visibleAlbums.length === 0) {
         dom.albumList.innerHTML = `
-            <div class="viewer-albums-empty">
-                <div class="viewer-albums-empty-icon" aria-hidden="true">
-                    <svg viewBox="0 0 32 32" width="32" height="32" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="6" width="18" height="20" rx="3"></rect><path d="M8 22H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v1"></path><circle cx="14" cy="12" r="2"></circle><path d="m11 21 4-4 3 3 2.5-2.5L24 21"></path></svg>
-                </div>
+            <div class="collection-empty viewer-albums-empty">
+                ${collectionIcon('images', 24)}
                 <strong>No albums yet</strong>
-                <p>Create and organize albums in Library.</p>
+                <p>Group media into albums in Library.</p>
                 <a class="btn btn-sm btn-secondary" href="/library">Open Library</a>
             </div>`;
         return;
@@ -340,14 +198,13 @@ export async function renderAlbumsList(albumList = null) {
         ].filter(Boolean).join(' ');
         item.dataset.albumDropTarget = String(album.id);
         item.dataset.albumId = String(album.id);
-        item.setAttribute('aria-label', `Open album ${album.name}`);
+        const { count, label: countLabel } = collectionCount(album, { album: true });
+        const active = currentCollection.type === 'album' && currentCollection.id === album.id;
+        item.setAttribute('aria-label', `Open album ${album.name}, ${countLabel}`);
+        if (active) item.setAttribute('aria-current', 'true');
         const cover = album.display_cover_image_id
             ? `<img src="/api/thumbnail/${album.display_cover_image_id}" alt="" loading="lazy" draggable="false">`
-            : `<span class="viewer-album-placeholder" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="15" rx="2"></rect><path d="M3 9h18"></path><path d="m8 16 2.5-3 2 2 2.5-3 3 4"></path></svg>
-            </span>`;
-        const count = Number(album.asset_count) || 0;
-        const countLabel = `${count.toLocaleString()} image${count === 1 ? '' : 's'}`;
+            : `<span class="viewer-album-placeholder" aria-hidden="true">${collectionIcon('images', 24)}</span>`;
         item.innerHTML = `
             <span class="folder-item-content">
                 <span class="viewer-album-stack" aria-hidden="true">
@@ -355,7 +212,7 @@ export async function renderAlbumsList(albumList = null) {
                 </span>
                 <span class="folder-item-details">
                     <span class="folder-item-name" title="${escapeHtml(album.name)}">${escapeHtml(album.name)}</span>
-                    <span class="viewer-album-meta"><svg viewBox="0 0 16 16" width="12" height="12" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="9" height="10" rx="1.5"></rect><path d="M4 11H3a1.5 1.5 0 0 1-1.5-1.5v-6A1.5 1.5 0 0 1 3 2h7a1.5 1.5 0 0 1 1.5 1.5"></path></svg>${countLabel}</span>
+                    <span class="viewer-album-meta" title="${countLabel}">${count === 0 ? 'Empty album' : countLabel}</span>
                 </span>
             </span>`;
         item.addEventListener('click', async () => {
@@ -379,29 +236,20 @@ export async function renderFoldersList(folderList = null) {
         setFolders(folderList);
     }
 
-    // Toggle view-list class on folder list based on view mode
     dom.folderList.classList.toggle('view-list', foldersViewMode === 'list');
-    if (dom.foldersViewBtn) {
-        dom.foldersViewBtn.classList.toggle('active', foldersViewMode === 'list');
-        if (foldersViewMode === 'list') {
-            dom.foldersViewBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`;
-            dom.foldersViewBtn.title = 'Switch to Grid View';
-        } else {
-            dom.foldersViewBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="icon-list"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`;
-            dom.foldersViewBtn.title = 'Switch to List View';
-        }
-    }
+    updateCollectionViewButton(dom.foldersViewBtn, foldersViewMode, 'sources');
 
     if (dom.foldersCount) dom.foldersCount.textContent = `(${visibleFolders.length})`;
 
     if (visibleFolders.length === 0) {
         dom.folderList.innerHTML = `
-            <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--text-muted); text-align: center;">
-                <div style="font-size: 48px; margin-bottom: 16px;">&#128193;</div>
-                <p style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--text);">No sources yet.</p>
-                <p style="font-size: 12px; line-height: 1.5; max-width: 200px;">Click "Open Folder" to connect a directory.</p>
-            </div>
-        `;
+            <div class="collection-empty">
+                ${collectionIcon('folder-open', 24)}
+                <strong>No sources yet</strong>
+                <p>Connect a folder to browse its media.</p>
+                <button class="btn btn-sm btn-secondary" type="button" data-connect-source>Connect folder</button>
+            </div>`;
+        dom.folderList.querySelector('[data-connect-source]').onclick = () => dom.btnOpenFolder?.click();
         return;
     }
 
@@ -425,24 +273,17 @@ export async function renderFoldersList(folderList = null) {
         return 0;
     });
 
-    const statusLabels = {
-        disabled: 'Disabled',
-        available: 'Available',
-        partially_available: 'Partial',
-        unavailable: 'Unavailable',
-        reconnecting: 'Reconnecting',
-        error: 'Error',
-    };
-
+    const interaction = captureSourceInteraction(dom.folderList);
     dom.folderList.innerHTML = '';
     sortedFolders.forEach(folder => {
         const item = document.createElement('div');
         const isSource = !String(folder.path || '').startsWith('__uploads');
-        const sourceStatus = folder.source_status || (folder.enabled ? 'available' : 'disabled');
+        const { status: sourceStatus, label: statusLabel, processing, percent } = sourcePresentation(folder);
+        const active = currentCollection.type === 'folder' && folder.id === currentFolderId;
         item.className = [
             'folder-item',
             'source-folder-item',
-            folder.id === currentFolderId ? 'active' : '',
+            active ? 'active' : '',
             isSource ? 'physical-source' : '',
             !isSource ? 'virtual-source' : '',
             !folder.enabled ? 'source-disabled' : '',
@@ -450,62 +291,56 @@ export async function renderFoldersList(folderList = null) {
             `source-${sourceStatus}`,
         ].filter(Boolean).join(' ');
 
-        const imageCount = Number(folder.image_count) || 0;
-        const imageCountLabel = `${imageCount.toLocaleString()} image${imageCount === 1 ? '' : 's'}`;
-        const percentage = imageCount > 0
-            ? Math.round((folder.processed_count / imageCount) * 100)
-            : 0;
-        const progressHtml = folder.enabled && folder.status === 'processing' ? `
-            <div class="folder-progress-wrapper">
-                <div class="folder-progress-label"><span>Indexing</span><span>${percentage}%</span></div>
-                <div class="folder-progress-track"><div style="width: ${percentage}%"></div></div>
-            </div>
-        ` : '';
-        const errorTitle = folder.last_error ? ` title="${escapeHtml(folder.last_error)}"` : '';
+        item.dataset.sourceId = String(folder.id);
+        const { label: countLabel, description: countDescription } = collectionCount(folder);
+        const progressHtml = processing ? `
+            <span class="folder-progress-wrapper">
+                <span class="folder-progress-label">Indexing${percent === null ? '' : ` ${percent}%`}</span>
+                <span class="folder-progress-track" role="progressbar" aria-label="Indexing ${escapeHtml(folder.name)}"
+                    aria-valuemin="0" aria-valuemax="100" ${percent === null ? '' : `aria-valuenow="${percent}"`}>
+                    <span style="width: ${percent ?? 0}%"></span>
+                </span>
+            </span>` : '';
+        const menuId = `viewer-source-actions-${folder.id}`;
+        const errorTitle = ` title="${escapeHtml(folder.last_error || statusLabel)}"`;
         const sourceActions = isSource ? `
-            <div class="source-actions">
-                <button class="source-action-btn source-toggle-btn ${folder.enabled ? 'active' : ''}"
-                    title="${folder.enabled ? 'Disable source' : 'Enable source'}"
-                    aria-label="${folder.enabled ? 'Disable' : 'Enable'} ${escapeHtml(folder.name)}">
-                    <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"><path d="M12 2v10"></path><path d="M18.4 6.6a8 8 0 1 1-12.8 0"></path></svg>
-                </button>
-                <button class="source-action-btn source-recursive-btn ${folder.recursive ? 'active' : ''}"
-                    title="${folder.recursive ? 'Disable subfolder scanning' : 'Include subfolders'}"
-                    aria-label="Toggle recursive scanning for ${escapeHtml(folder.name)}">
-                    <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v8a4 4 0 0 0 4 4h8"></path><path d="m15 12 3 3-3 3"></path></svg>
-                </button>
-                <button class="source-action-btn source-reconcile-btn" title="Reconcile now"
-                    aria-label="Reconcile ${escapeHtml(folder.name)}" ${folder.enabled ? '' : 'disabled'}>
-                    <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M18.5 9A7 7 0 0 0 6 6.5L4 11"></path><path d="M5.5 15A7 7 0 0 0 18 17.5l2-4.5"></path></svg>
-                </button>
-            </div>
-        ` : '';
-
-        item.innerHTML = `
-            ${sourceActions}
-            <div class="folder-item-content">
-                <div class="folder-item-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"></path></svg>
-                </div>
-                <div class="folder-item-details">
-                    <div class="folder-item-name" title="${escapeHtml(folder.path || folder.name)}">${escapeHtml(folder.name)}</div>
-                    <div class="source-badges">
-                        ${isSource ? `<span class="source-status source-status-${sourceStatus}"${errorTitle}>${statusLabels[sourceStatus] || sourceStatus}</span>` : ''}
-                        ${folder.recursive && isSource ? '<span class="source-recursive-badge" title="Includes subfolders" aria-label="Includes subfolders"><svg viewBox="0 0 16 16" width="12" height="12" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v5a3 3 0 0 0 3 3h5"></path><path d="m9.5 7.5 2.5 2.5-2.5 2.5"></path></svg></span>' : ''}
-                    </div>
-                    ${progressHtml}
-                </div>
-                ${folder.scanned_at ? `<div class="folder-item-meta"><span class="folder-item-count"><svg viewBox="0 0 16 16" width="12" height="12" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"></rect><path d="m4.5 10 2.3-2.5 1.8 1.8 1.6-1.6 2.3 2.3"></path></svg>${imageCountLabel}</span></div>` : ''}
-            </div>
-            <button class="folder-delete-btn" data-id="${folder.id}" title="Forget source" aria-label="Forget ${escapeHtml(folder.name)}">
-                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            <button class="source-action-btn source-toggle-btn" type="button">
+                ${collectionIcon('power')}${folder.enabled ? 'Disable source' : 'Enable source'}
             </button>
-        `;
+            <button class="source-action-btn source-recursive-btn" type="button">
+                ${collectionIcon('git-branch')}${folder.recursive ? 'Exclude subfolders' : 'Include subfolders'}
+            </button>
+            <button class="source-action-btn source-reconcile-btn" type="button" ${folder.enabled ? '' : 'disabled'}>
+                ${collectionIcon('refresh-cw')}Reconcile now
+            </button>` : '';
+        item.innerHTML = `
+            <button class="folder-item-content" type="button" aria-label="Open source ${escapeHtml(folder.name)}, ${countLabel}"
+                ${active ? 'aria-current="true"' : ''}>
+                <span class="folder-item-icon" aria-hidden="true">${collectionIcon('folder-open', 20)}</span>
+                <span class="folder-item-details">
+                    <span class="folder-item-name" title="${escapeHtml(folder.path || folder.name)}">${escapeHtml(folder.name)}</span>
+                    <span class="source-badges">${isSource && !processing ? `<span class="source-status source-status-${sourceStatus}"${errorTitle}>${statusLabel}</span>` : ''}${folder.recursive && isSource ? `<span class="source-recursive-badge" title="Includes subfolders" aria-label="Includes subfolders">${collectionIcon('git-branch', 12)}</span>` : ''}</span>
+                    ${progressHtml}
+                </span>
+                <span class="folder-item-meta" title="${countDescription}"><span class="folder-item-count">${countLabel}</span></span>
+            </button>
+            <button class="source-menu-toggle" type="button" popovertarget="${menuId}"
+                aria-controls="${menuId}" aria-expanded="false" aria-label="Actions for ${escapeHtml(folder.name)}" title="Source actions">
+                ${collectionIcon('ellipsis')}
+            </button>
+            <div class="source-actions" id="${menuId}" popover="auto" aria-label="Actions for ${escapeHtml(folder.name)}">
+                <div class="source-menu-heading">${escapeHtml(folder.path || folder.name)}</div>
+                ${sourceActions}
+                <button class="source-action-btn folder-delete-btn" type="button" data-id="${folder.id}">
+                    ${collectionIcon('trash')}Forget source
+                </button>
+            </div>`;
+        initSourceActions(item);
 
-        item.onclick = async () => {
+        item.querySelector('.folder-item-content').onclick = async () => {
             if (!folder.enabled) {
                 const { showToast } = await import('../state.js');
-                showToast('Enable the source to view its images');
+                showToast('Enable the source to view its media');
                 return;
             }
             const { loadFolderImages } = await import('../api.js');
@@ -543,7 +378,7 @@ export async function renderFoldersList(folderList = null) {
         if (deleteBtn) {
             deleteBtn.onclick = async event => {
                 event.stopPropagation();
-                const confirmed = await customConfirm('Delete Folder', `Are you sure you want to remove folder "${folder.name}" from the database? This does not delete any files from your disk.`);
+                const confirmed = await customConfirm('Forget source', `Are you sure you want to remove folder "${folder.name}" from the database? This does not delete any files from your disk.`);
                 if (!confirmed) return;
 
                 const { deleteFolderFromServer, getFolders, loadFolderImages, loadSidebarImages } = await import('../api.js');
@@ -575,18 +410,19 @@ export async function renderFoldersList(folderList = null) {
                     }
                 }
 
-                // Refresh the global Images tab list
+                // Refresh the global media cache
                 await loadSidebarImages({ force: true });
 
                 await renderFoldersList(updatedFolders);
                 const { showToast } = await import('../state.js');
-                showToast('Folder deleted from database');
+                showToast('Source removed from index');
             };
         }
 
         dom.folderList.appendChild(item);
     });
 
+    restoreSourceInteraction(dom.folderList, interaction);
     initFoldersSSE();
 }
 
@@ -726,11 +562,18 @@ function initFoldersSSE() {
     };
 }
 
+let quickViewBusy = false;
+
 export function syncQuickViewsUI() {
     const root = dom.sidebarQuickViews;
     if (!root) return;
 
-    const isAll = ratingFilter === null && mediaTypeFilter.images && mediaTypeFilter.videos;
+    const hasSearch = Boolean(dom.searchInput?.value.trim());
+    const hasFilters = hasSearch || ratingFilter !== null || !mediaTypeFilter.images || !mediaTypeFilter.videos;
+    const reset = document.getElementById('quick-view-reset-btn');
+    if (reset) reset.disabled = quickViewBusy || !hasFilters;
+    root.querySelectorAll('[data-quick-filter]').forEach(button => { button.disabled = quickViewBusy; });
+    const isAll = currentCollection.type === 'media' && !hasFilters;
     const isTopRated = ratingFilter === 5;
     const isUnrated = ratingFilter === 0;
     const isVideosOnly = !mediaTypeFilter.images && mediaTypeFilter.videos;
@@ -745,54 +588,85 @@ export function syncQuickViewsUI() {
         else if (filter === 'videos') active = isVideosOnly;
         else if (filter === 'images') active = isImagesOnly;
         chip.classList.toggle('active', active);
+        chip.setAttribute('aria-pressed', String(active));
     });
 }
 
-export function initQuickViews() {
-    const root = dom.sidebarQuickViews;
-    if (!root) return;
+export function initSidebarAccordion() {
+    document.querySelectorAll('.sidebar-section-toggle').forEach(btn => {
+        btn.addEventListener('click', event => {
+            event.preventDefault();
+            const section = btn.closest('.sidebar-section');
+            if (section) {
+                const collapsed = section.classList.toggle('collapsed');
+                btn.setAttribute('aria-expanded', String(!collapsed));
+            }
+        });
+    });
 
+    document.getElementById('folders-add-btn')?.addEventListener('click', event => {
+        event.preventDefault();
+        document.getElementById('btn-open-folder')?.click();
+    });
+}
+
+export async function resetViewerFilters({ allMedia = false } = {}) {
+    const filtersChanged = ratingFilter !== null || !mediaTypeFilter.images || !mediaTypeFilter.videos;
+    setRatingFilter(null);
+    setMediaTypeFilter({ images: true, videos: true });
+    if (dom.searchInput) dom.searchInput.value = '';
+    saveState();
+    const [{ syncRatingFilter }, { syncMediaTypeFilter }, { applySearchFilter }] = await Promise.all([
+        import('./rating-filter.js'),
+        import('./media-type-filter.js'),
+        import('../components/search-bar.js'),
+    ]);
+    syncRatingFilter();
+    syncMediaTypeFilter();
+    applySearchFilter();
+    const { invalidateApiCache, loadCollectionImages, loadMediaCollection } = await import('../api.js');
+    invalidateApiCache();
+    if (allMedia) await loadMediaCollection({ force: true });
+    else if (filtersChanged && isBrowsableCollection(currentCollection)) {
+        await loadCollectionImages({ ...currentCollection }, { force: true });
+    }
+    syncQuickViewsUI();
+}
+
+export function initQuickViews() {
+    const section = document.getElementById('sidebar-library-section');
+    if (!section || !dom.sidebarQuickViews) return;
     syncQuickViewsUI();
 
-    root.addEventListener('click', async event => {
-        const chip = event.target.closest('.quick-chip[data-quick-filter]');
-        const resetBtn = event.target.closest('#quick-view-reset-btn');
-
-        if (resetBtn || (chip && chip.dataset.quickFilter === 'all')) {
-            const { selectRatingFilter } = await import('./rating-filter.js');
-            const { applyMediaTypeFilter } = await import('./media-type-filter.js');
-            if (ratingFilter !== null) await selectRatingFilter(null);
-            if (!mediaTypeFilter.images || !mediaTypeFilter.videos) {
-                await applyMediaTypeFilter({ images: true, videos: true });
-            }
-            syncQuickViewsUI();
-            return;
-        }
-
-        if (!chip) return;
-        const filter = chip.dataset.quickFilter;
-
-        if (filter === 'top-rated') {
-            const { selectRatingFilter } = await import('./rating-filter.js');
-            await selectRatingFilter(ratingFilter === 5 ? null : 5);
-        } else if (filter === 'unrated') {
-            const { selectRatingFilter } = await import('./rating-filter.js');
-            await selectRatingFilter(ratingFilter === 0 ? null : 0);
-        } else if (filter === 'videos') {
-            const { applyMediaTypeFilter } = await import('./media-type-filter.js');
-            if (!mediaTypeFilter.images && mediaTypeFilter.videos) {
-                await applyMediaTypeFilter({ images: true, videos: true });
-            } else {
-                await applyMediaTypeFilter({ images: false, videos: true });
-            }
-        } else if (filter === 'images') {
-            const { applyMediaTypeFilter } = await import('./media-type-filter.js');
-            if (mediaTypeFilter.images && !mediaTypeFilter.videos) {
-                await applyMediaTypeFilter({ images: true, videos: true });
-            } else {
-                await applyMediaTypeFilter({ images: true, videos: false });
-            }
-        }
+    section.addEventListener('click', async event => {
+        const chip = event.target.closest('[data-quick-filter]');
+        const reset = event.target.closest('#quick-view-reset-btn');
+        if ((!chip && !reset) || quickViewBusy) return;
+        quickViewBusy = true;
         syncQuickViewsUI();
+        try {
+            const filter = chip?.dataset.quickFilter;
+            if (reset || filter === 'all') {
+                await resetViewerFilters({ allMedia: filter === 'all' });
+            } else if (filter === 'top-rated' || filter === 'unrated') {
+                const { selectRatingFilter } = await import('./rating-filter.js');
+                const target = filter === 'top-rated' ? 5 : 0;
+                await selectRatingFilter(ratingFilter === target ? null : target);
+            } else if (filter === 'videos' || filter === 'images') {
+                const { applyMediaTypeFilter } = await import('./media-type-filter.js');
+                const alreadyActive = filter === 'videos'
+                    ? !mediaTypeFilter.images && mediaTypeFilter.videos
+                    : mediaTypeFilter.images && !mediaTypeFilter.videos;
+                await applyMediaTypeFilter({
+                    images: alreadyActive || filter === 'images',
+                    videos: alreadyActive || filter === 'videos',
+                });
+            }
+        } catch (error) {
+            showToast(`Could not update filters: ${error.message}`);
+        } finally {
+            quickViewBusy = false;
+            syncQuickViewsUI();
+        }
     });
 }

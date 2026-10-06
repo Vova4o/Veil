@@ -211,6 +211,58 @@ class VirtualOrganizationTest(LibraryTestCase):
 
 
 class LibraryApiTest(LibraryTestCase):
+    def test_forgetting_rated_source_clears_ratings_before_indexing_a_new_source(self) -> None:
+        for index in range(5):
+            self.make_image(f"reference-{index}.png")
+        result = self.index()
+        image_ids = db.get_folder_image_ids(result.folder_id)
+        for image_id in image_ids:
+            library.update_asset(image_id, rating=5)
+        library.update_asset(image_ids[0], favorite=True, note="Old source", tags=["old"])
+        album = library.create_album("Old references")
+        library.add_assets_to_album(album["id"], image_ids)
+        library.update_album(album["id"], cover_image_id=image_ids[0])
+        library.set_custom_order(f"folder:{result.folder_id}", image_ids)
+        library.set_custom_order("media:all", image_ids)
+        library.reorder_album_assets(album["id"], image_ids)
+        AIRatingStore().save(
+            image_id=image_ids[0],
+            result=AIRatingResult(rank=AIRank.S, technical_quality=9, composition=8, prompt_adherence=9),
+        )
+        client = app.test_client()
+        self.assertEqual(client.get("/api/images?rating=5").get_json()["total"], 5)
+
+        response = client.delete(f"/api/folders/{result.folder_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(client.get("/api/images?rating=5").get_json()["total"], 0)
+        self.assertTrue((self.source / "reference-0.png").exists())
+        retained_album = library.list_albums()[0]
+        self.assertEqual(retained_album["asset_count"], 0)
+        self.assertIsNone(retained_album["cover_image_id"])
+        conn = db.get_conn()
+        try:
+            for table in ("images", "album_images", "image_tags", "item_positions", "ai_ratings"):
+                self.assertEqual(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], 0)
+            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            conn.close()
+
+        new_source = self.root / "new-source"
+        new_source.mkdir()
+        Image.new("RGB", (5, 4), color="blue").save(new_source / "reference-0.png")
+        new_result = index_source_directory(
+            new_source, thumbnail_dir=self.paths.thumbnails,
+            preview_dir=self.paths.previews, cutout_dir=self.paths.cutouts,
+        )
+        self.assertNotEqual(new_result.folder_id, result.folder_id)
+        new_id = db.get_folder_image_ids(new_result.folder_id)[0]
+        new_asset = library.get_assets(asset_id=new_id)["assets"][0]
+        self.assertIsNone(new_asset["rating"])
+        self.assertFalse(new_asset["favorite"])
+        self.assertEqual(new_asset["tags"], [])
+        self.assertEqual(new_asset["note"], "")
+        self.assertEqual(client.get("/api/images?rating=5").get_json()["total"], 0)
+
     def test_viewer_images_endpoint_filters_an_album(self) -> None:
         self.make_image("album-member.png")
         self.make_image("outside-album.png", "blue")
@@ -532,14 +584,17 @@ class LibraryApiTest(LibraryTestCase):
             styles,
         )
         self.assertIn('class="album-sidebar-list"', template)
-        self.assertIn('id="tab-albums"', viewer)
+        self.assertIn('id="albums-section-toggle"', viewer)
+        self.assertIn('aria-controls="viewer-album-list"', viewer)
         self.assertIn('id="panel-albums"', viewer)
         self.assertIn('id="viewer-album-list"', viewer)
         self.assertIn('title="Details view"', viewer)
         self.assertIn("function renderAlbumsList", viewer_sidebar)
         self.assertIn("contentChangedSourceIds", viewer_sidebar)
         self.assertIn("preserveCount: true", viewer_sidebar)
-        self.assertIn("function reconcileSidebarItems", viewer_sidebar)
+        self.assertNotIn('id="image-list"', viewer)
+        self.assertNotIn('id="panel-images"', viewer)
+        self.assertNotIn("function reconcileSidebarItems", viewer_sidebar)
         self.assertIn("loadAlbumImages(album.id, album.name)", viewer_sidebar)
         self.assertIn('draggable="false"', viewer_sidebar)
         sidebar_styles = (
@@ -650,7 +705,11 @@ class LibraryApiTest(LibraryTestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("render && !preserveCount", api_script)
-        self.assertIn("renderGallery({ reconcile: reconcileGallery })", api_script)
+        self.assertIn("await renderViewerContent({ reconcileGallery })", api_script)
+        viewer_events = (root / "app" / "static" / "js" / "events.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("renderGallery({ reconcile: reconcileGallery })", viewer_events)
         self.assertIn("function reconcileGalleryCards", gallery_script)
         self.assertIn("data-image-id=", gallery_script)
         self.assertIn("function reconcileAssetCards", library_script)
