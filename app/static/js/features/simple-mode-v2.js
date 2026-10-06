@@ -23,9 +23,12 @@ const state = {
     ambientLoadingMore: false,
     ambientRequest: 0,
     ambientPoolRequest: 0,
+    ambientPicking: false,
+    ambientPickRequest: 0,
     fit: 'cover',
     layer: 0,
     timer: null,
+    timerInterval: 0,
     interval: 300000,
     opacity: 44,
     blur: 10,
@@ -126,14 +129,35 @@ function applyVisualSettings() {
     document.body.setAttribute('data-ambient-fit', state.fit || 'cover');
 }
 
-function restartAmbientTimer() {
+function restartAmbientTimer(force = false) {
+    const interval = state.interval > 0 && state.ambient.length > 1 ? state.interval : 0;
+    if (!force && state.timer && state.timerInterval === interval) return;
     if (state.timer) {
         clearInterval(state.timer);
         state.timer = null;
     }
-    if (state.interval > 0 && state.ambient.length > 1) {
-        state.timer = setInterval(ambientPick, state.interval);
+    state.timerInterval = interval;
+    if (interval) {
+        state.timer = setInterval(() => ambientPick(false), interval);
     }
+}
+
+function setAmbientInterval(seconds) {
+    const interval = Math.max(0, Number(seconds) || 0) * 1000;
+    save('cmv_simple_ambient_interval', interval);
+    if (interval === state.interval) return;
+    state.interval = interval;
+    // A load started under the old interval must not switch the image early.
+    state.ambientRequest += 1;
+    state.ambientPickRequest += 1;
+    state.ambientPicking = false;
+    restartAmbientTimer(true);
+}
+
+function ambientPoolUrl() {
+    const current = Number(state.ambientCurrent);
+    return '/api/simple/ambient?limit=72'
+        + (Number.isSafeInteger(current) && current > 0 ? `&current_id=${current}` : '');
 }
 
 function restore() {
@@ -214,6 +238,8 @@ function ambientKey(item) {
 
 function resetAmbient() {
     state.ambientRequest += 1;
+    state.ambientPickRequest += 1;
+    state.ambientPicking = false;
     state.ambient = [];
     state.ambientDeck = [];
     state.ambientHistory = [];
@@ -772,7 +798,7 @@ async function loadMoreAmbient() {
     state.ambientLoadingMore = true;
     const request = state.ambientPoolRequest;
     try {
-        const data = await json('/api/simple/ambient?limit=72');
+        const data = await json(ambientPoolUrl());
         if (request !== state.ambientPoolRequest) return;
         const items = Array.isArray(data.items) ? data.items : [];
         if (!items.length) { resetAmbient(); return; }
@@ -794,7 +820,7 @@ async function loadMoreAmbient() {
 async function loadAmbient() {
     const request = ++state.ambientPoolRequest;
     try {
-        const data = await json('/api/simple/ambient?limit=72');
+        const data = await json(ambientPoolUrl());
         if (request !== state.ambientPoolRequest) return;
         const items = Array.isArray(data.items) ? data.items : [];
         if (!items.length) { resetAmbient(); return; }
@@ -829,34 +855,41 @@ function watchAmbientSources() {
 
 async function ambientPick(resetTimer = true) {
     if (!state.ambient.length) return;
-    if (!state.ambientDeck.length) {
-        refillAmbientDeck();
-    }
-    // Try each candidate at most once; a missing source must not stop the slideshow.
-    const attempts = state.ambientDeck.length;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-        let nextItem = state.ambientDeck.shift();
-        if (!nextItem) break;
-        if (ambientKey(nextItem) === state.ambientCurrent && state.ambientDeck.length > 0) {
-            const alt = state.ambientDeck.shift();
-            state.ambientDeck.push(nextItem);
-            nextItem = alt;
+    if (!resetTimer && state.ambientPicking) return;
+    const request = ++state.ambientPickRequest;
+    state.ambientPicking = true;
+    try {
+        if (!state.ambientDeck.length) {
+            refillAmbientDeck();
         }
-        // Failover is sequential so only the first working candidate is downloaded/applied.
-        // eslint-disable-next-line no-await-in-loop, no-restricted-syntax
-        const loaded = await setAmbient(nextItem);
-        if (loaded === null) return;
-        if (loaded) break;
-        state.ambient = state.ambient.filter(item => ambientKey(item) !== ambientKey(nextItem));
-    }
-    preloadAmbientPool();
+        // Try each candidate at most once; a missing source must not stop the slideshow.
+        const attempts = state.ambientDeck.length;
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            let nextItem = state.ambientDeck.shift();
+            if (!nextItem) break;
+            if (ambientKey(nextItem) === state.ambientCurrent && state.ambientDeck.length > 0) {
+                const alt = state.ambientDeck.shift();
+                state.ambientDeck.push(nextItem);
+                nextItem = alt;
+            }
+            // Failover is sequential so only the first working candidate is downloaded/applied.
+            // eslint-disable-next-line no-await-in-loop, no-restricted-syntax
+            const loaded = await setAmbient(nextItem);
+            if (loaded === null) return;
+            if (loaded) break;
+            state.ambient = state.ambient.filter(item => ambientKey(item) !== ambientKey(nextItem));
+        }
+        preloadAmbientPool();
 
-    if (resetTimer) {
-        restartAmbientTimer();
-    }
+        if (resetTimer) {
+            restartAmbientTimer(true);
+        }
 
-    if (state.ambientDeck.length < 8) {
-        loadMoreAmbient();
+        if (state.ambientDeck.length < 8) {
+            loadMoreAmbient();
+        }
+    } finally {
+        if (request === state.ambientPickRequest) state.ambientPicking = false;
     }
 }
 
@@ -1904,14 +1937,8 @@ function openStudioContextMenu(event) {
             const s = v % 60;
             return s ? `${m} min ${s} sec` : `${m} min`;
         },
-        onInput: v => {
-            state.interval = v * 1000;
-        },
-        onChange: v => {
-            state.interval = v * 1000;
-            save('cmv_simple_ambient_interval', state.interval);
-            restartAmbientTimer();
-        },
+        onInput: setAmbientInterval,
+        onChange: setAmbientInterval,
     }));
 
     const sep2 = document.createElement('div');

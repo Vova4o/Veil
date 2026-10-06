@@ -96,7 +96,7 @@ def _ai_status_payload() -> dict[str, Any]:
     }
 
 
-def _query_ambient_candidates() -> list[dict[str, Any]]:
+def _query_ambient_candidates(*, current_id: int | None = None) -> list[dict[str, Any]]:
     # The registered source path is authoritative; no runtime/model directory is used.
     conn = db.get_conn()
     try:
@@ -107,7 +107,7 @@ def _query_ambient_candidates() -> list[dict[str, Any]]:
                        i.original_data IS NOT NULL AS has_original_data,
                        f.path AS folder_path,
                        ROW_NUMBER() OVER (
-                           PARTITION BY i.folder_id ORDER BY RANDOM()
+                           PARTITION BY i.folder_id ORDER BY (i.id = ?) DESC, RANDOM()
                        ) AS source_position
                 FROM images i
                 LEFT JOIN folders f ON f.id = i.folder_id
@@ -115,9 +115,10 @@ def _query_ambient_candidates() -> list[dict[str, Any]]:
                   AND (f.enabled = 1 OR f.id IS NULL)
                   AND (f.source_status IN ('available', 'partially_available') OR f.id IS NULL)
             )
-            ORDER BY source_position, RANDOM()
+            ORDER BY (id = ?) DESC, source_position, RANDOM()
             LIMIT 360
-            """
+            """,
+            (current_id, current_id),
         ).fetchall()
     finally:
         conn.close()
@@ -142,9 +143,9 @@ def _query_ambient_candidates() -> list[dict[str, Any]]:
     return candidates
 
 
-def _ambient_payload(limit: int = 72) -> list[dict[str, Any]]:
+def _ambient_payload(limit: int = 72, *, current_id: int | None = None) -> list[dict[str, Any]]:
     try:
-        candidates = _query_ambient_candidates()
+        candidates = _query_ambient_candidates(current_id=current_id)
     except Exception as exc:
         logger.debug("Failed to load ambient library assets: %s", exc)
         return []
@@ -160,6 +161,16 @@ def _ambient_payload(limit: int = 72) -> list[dict[str, Any]]:
     for group in groups:
         random.shuffle(group)
     random.shuffle(groups)
+    # Keep the currently displayed file in refreshes when its source is still
+    # available. Absence from a random sample does not mean the file was removed.
+    if current_id is not None:
+        for index, group in enumerate(groups):
+            current = next((item for item in group if item["id"] == current_id), None)
+            if current is not None:
+                group.remove(current)
+                group.append(current)
+                groups.insert(0, groups.pop(index))
+                break
     pool: list[dict[str, Any]] = []
     while groups and len(pool) < limit:
         remaining = []
@@ -204,7 +215,8 @@ def simple_models():
 @simple_blueprint.route("/api/simple/ambient", methods=["GET"])
 def simple_ambient():
     limit = request.args.get("limit", default=36, type=int) or 36
-    return jsonify({"items": _ambient_payload(max(1, min(limit, 72)))})
+    current_id = request.args.get("current_id", type=int)
+    return jsonify({"items": _ambient_payload(max(1, min(limit, 72)), current_id=current_id)})
 
 
 @simple_blueprint.route("/api/simple/ai-status", methods=["GET"])

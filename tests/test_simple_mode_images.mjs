@@ -8,6 +8,8 @@ const source = fs.readFileSync(new URL('../app/static/js/features/simple-mode-v2
 function harness(available = [], delayed = []) {
     const requests = [];
     const pending = new Map();
+    const timers = new Map();
+    let nextTimer = 0;
     const storage = () => {
         const values = new Map();
         return {
@@ -54,13 +56,18 @@ function harness(available = [], delayed = []) {
                 if (delayed.includes(url)) pending.set(url, settle); else queueMicrotask(settle);
             }
         },
-        setInterval: () => 1, clearInterval() {}, requestAnimationFrame() {},
+        setInterval: (callback, interval) => {
+            const id = ++nextTimer;
+            timers.set(id, {callback, interval});
+            return id;
+        },
+        clearInterval: id => timers.delete(id), requestAnimationFrame() {},
     });
     vm.runInContext(source, context);
     // Keep layout measurement out of this image-loading integration seam.
     vm.runInContext(`resizePrompt = () => {}; syncCanvasAspect = () => {};`, context);
     return {
-        context, elements, ambient, artwork, requests, pending,
+        context, elements, ambient, artwork, requests, pending, timers,
         run: code => vm.runInContext(code, context),
         cache(outputs) {
             context.localStorage.setItem('cmv_simple_last_result', JSON.stringify({ data: { outputs } }));
@@ -212,4 +219,47 @@ test('a source refresh cancels a pending image outside the new pool', async () =
     h.pending.get('/removed')();
     await pending;
     assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/current');
+});
+
+test('refreshing a source pool preserves the selected interval timer', async () => {
+    const h = harness(['/current', '/next']);
+    h.run("state.ambient = [{id: 1, preview_url: '/current'}, {id: 2, preview_url: '/next'}]; state.interval = 60000;");
+    await h.run("setAmbient(state.ambient[0])");
+    h.run('restartAmbientTimer()');
+    const timer = h.run('state.timer');
+    h.context.fetch = async () => ({ok: true, json: async () => ({items: [{id: 1, preview_url: '/current'}, {id: 2, preview_url: '/next'}]})});
+    await h.run('loadAmbient()');
+    assert.equal(h.run('state.timer'), timer);
+    assert.equal(h.timers.get(timer).interval, 60000);
+});
+
+test('interval ticks do not restart the timer or overlap a slow image load', async () => {
+    const h = harness(['/current', '/slow', '/third'], ['/slow']);
+    h.run("state.ambient = [{id: 1, preview_url: '/current'}, {id: 2, preview_url: '/slow'}, {id: 3, preview_url: '/third'}]; state.ambientDeck = state.ambient.slice(1); state.interval = 15000;");
+    await h.run("setAmbient(state.ambient[0])");
+    h.run('restartAmbientTimer()');
+    const timer = h.run('state.timer');
+    const tick = h.timers.get(timer).callback;
+    const first = tick();
+    const second = tick();
+    h.pending.get('/slow')();
+    await Promise.all([first, second]);
+    assert.equal(h.run('state.timer'), timer);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/slow');
+});
+
+test('changing the interval cancels an earlier automatic switch and disabling stops it', async () => {
+    const h = harness(['/current', '/slow'], ['/slow']);
+    h.run("state.ambient = [{id: 1, preview_url: '/current'}, {id: 2, preview_url: '/slow'}]; state.ambientDeck = state.ambient.slice(1); state.interval = 15000;");
+    await h.run("setAmbient(state.ambient[0])");
+    h.run('restartAmbientTimer()');
+    const pending = h.timers.get(h.run('state.timer')).callback();
+    h.run('setAmbientInterval(60)');
+    assert.equal([...h.timers.values()][0].interval, 60000);
+    h.pending.get('/slow')();
+    await pending;
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/current');
+    h.run('setAmbientInterval(0)');
+    assert.equal(h.timers.size, 0);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_interval'), '0');
 });

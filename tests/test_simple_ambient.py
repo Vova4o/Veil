@@ -101,3 +101,36 @@ def test_ambient_can_use_uploaded_images_without_physical_folders(ambient_librar
     Image.new("RGB", (4, 3), "blue").save(original, format="PNG")
     image_id = add_image(folder_id, ambient_library, "uploaded.png", original=original.getvalue())
     assert [item["id"] for item in simple_routes._ambient_payload()] == [image_id]
+
+
+def test_ambient_refresh_keeps_the_current_image_in_a_random_sample(ambient_library, monkeypatch):
+    # The current file may be absent from the next random batch without being removed.
+    candidates = [
+        {"id": 1, "_folder_id": 1, "preview_url": "/api/preview/1"},
+        {"id": 2, "_folder_id": 1, "preview_url": "/api/preview/2"},
+    ]
+    monkeypatch.setattr(simple_routes, "_query_ambient_candidates", lambda **_kwargs: candidates)
+    monkeypatch.setattr(simple_routes.random, "shuffle", lambda items: items.reverse())
+    response = app.test_client().get("/api/simple/ambient?limit=1&current_id=2")
+    assert [item["id"] for item in response.get_json()["items"]] == [2]
+
+
+def test_ambient_refresh_does_not_pin_an_unavailable_current_file(ambient_library):
+    source = ambient_library / "source"
+    folder_id = db.upsert_source(str(source))
+    current_id = add_image(folder_id, source, "current.png")
+    next_id = add_image(folder_id, source, "next.png")
+    (source / "current.png").unlink()
+    response = app.test_client().get(f"/api/simple/ambient?current_id={current_id}")
+    assert [item["id"] for item in response.get_json()["items"]] == [next_id]
+
+
+def test_pinning_current_image_keeps_other_folders_in_the_pool(ambient_library):
+    first = ambient_library / "first"
+    first_id = db.upsert_source(str(first))
+    current_id = add_image(first_id, first, "current.png")
+    add_image(first_id, first, "other.png")
+    second = ambient_library / "second"
+    second_id = db.upsert_source(str(second))
+    second_image = add_image(second_id, second, "second.png")
+    assert {item["id"] for item in simple_routes._ambient_payload(2, current_id=current_id)} == {current_id, second_image}
