@@ -105,12 +105,12 @@ def get_conn() -> sqlite3.Connection:
         conn = sqlite3.connect(get_db_path(), timeout=30.0, factory=_TrackedConnection)
         conn._cmv_counted = True
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA wal_autocheckpoint=1000")
+        conn.execute("PRAGMA cache_size=-64000")
+        conn.execute("PRAGMA mmap_size=268435456")
         return conn
     except Exception:
         if "conn" in locals():
@@ -550,7 +550,8 @@ _LATE_INDEXES_SQL = """
     CREATE INDEX IF NOT EXISTS idx_images_mtime_id ON images(file_mtime DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_images_media_mtime_id ON images(media_type, file_mtime DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_images_folder_media_mtime_id ON images(folder_id, media_type, file_mtime DESC, id DESC);
-    CREATE INDEX IF NOT EXISTS idx_images_rating_media_mtime ON images(rating, media_type, file_mtime DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_images_rating_media_mtime ON images(COALESCE(rating, 0), media_type, file_mtime DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_images_folder_rating_media_mtime ON images(folder_id, COALESCE(rating, 0), media_type, file_mtime DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_images_indexed_at ON images(indexed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_images_pending_processing ON images(folder_id, id) WHERE metadata_json IS NULL AND error IS NULL;
     CREATE INDEX IF NOT EXISTS idx_album_images_album_pos ON album_images(album_id, position ASC, image_id ASC);
@@ -613,16 +614,27 @@ def _create_late_indexes(conn: sqlite3.Connection) -> None:
     conn.executescript(_LATE_INDEXES_SQL)
 
 
+def _migrate_rating_indexes(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_images_rating_media_mtime'"
+    ).fetchone()
+    if row and "COALESCE" not in str(row["sql"] or "").upper():
+        conn.execute("DROP INDEX IF EXISTS idx_images_rating_media_mtime")
+
+
 def init_db() -> None:
     Path(get_db_path()).parent.mkdir(parents=True, exist_ok=True)
     conn = get_conn()
     try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=1000")
         _create_initial_tables_and_indexes(conn)
         _migrate_ai_job_review_status(conn)
         _migrate_ai_rating_nullable_rank(conn)
         _normalize_ai_rating_statuses(conn)
         _apply_column_migrations(conn)
         _apply_data_migrations(conn)
+        _migrate_rating_indexes(conn)
         _create_late_indexes(conn)
         conn.commit()
     finally:

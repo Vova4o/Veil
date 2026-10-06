@@ -32,6 +32,7 @@ def test_composite_indexes_exist(temp_db):
             "idx_images_media_mtime_id",
             "idx_images_folder_media_mtime_id",
             "idx_images_rating_media_mtime",
+            "idx_images_folder_rating_media_mtime",
             "idx_album_images_album_image",
             "idx_album_images_album_pos",
             "idx_images_indexed_at",
@@ -39,6 +40,71 @@ def test_composite_indexes_exist(temp_db):
         }
         for expected in expected_indexes:
             assert expected in index_names, f"Missing expected index: {expected}"
+    finally:
+        conn.close()
+
+
+def test_connection_pragmas_and_cache(temp_db):
+    """Verify that get_conn applies tuned PRAGMAs: cache_size, mmap, busy_timeout, WAL."""
+    conn = db.get_conn()
+    try:
+        journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+        sync_mode = conn.execute("PRAGMA synchronous").fetchone()[0]
+        foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        cache_size = conn.execute("PRAGMA cache_size").fetchone()[0]
+        mmap_size = conn.execute("PRAGMA mmap_size").fetchone()[0]
+
+        assert journal_mode == "wal"
+        assert sync_mode == 1  # NORMAL
+        assert foreign_keys == 1
+        assert busy_timeout == 30000
+        assert cache_size == -64000
+        assert mmap_size == 268435456
+    finally:
+        conn.close()
+
+
+def test_explain_query_plan_rating_filter_uses_expression_index(temp_db):
+    """Verify rating filters use expression indexes without temp B-Tree sorts."""
+    folder_id = db.upsert_folder("C:/test_perf_folder_rating")
+    conn = db.get_conn()
+    try:
+        conn.executemany(
+            """INSERT INTO images (folder_id, rel_path, file_name, file_mtime, media_type, rating)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                (folder_id, f"file_{i}.jpg", f"file_{i}.jpg", 1000.0 + i, "image", i % 6 or None)
+                for i in range(50)
+            ],
+        )
+        conn.commit()
+
+        # 1. Rating-only filter across all folders
+        plan_rows_rating = conn.execute(
+            """EXPLAIN QUERY PLAN
+               SELECT i2.id FROM images i2
+               JOIN folders f2 ON f2.id = i2.folder_id
+               WHERE f2.enabled = 1 AND i2.media_type IN ('image') AND COALESCE(i2.rating, 0) = ?
+               ORDER BY i2.file_mtime DESC, i2.id DESC LIMIT 50 OFFSET 0""",
+            (3,),
+        ).fetchall()
+        plan_text_rating = " ".join(r["detail"] for r in plan_rows_rating).lower()
+        assert "idx_images_rating_media_mtime" in plan_text_rating or "using index" in plan_text_rating
+        assert "use temp b-tree for order by" not in plan_text_rating
+
+        # 2. Folder + rating filter
+        plan_rows_folder_rating = conn.execute(
+            """EXPLAIN QUERY PLAN
+               SELECT i2.id FROM images i2
+               JOIN folders f2 ON f2.id = i2.folder_id
+               WHERE i2.folder_id = ? AND f2.enabled = 1 AND i2.media_type IN ('image') AND COALESCE(i2.rating, 0) = ?
+               ORDER BY i2.file_mtime DESC, i2.id DESC LIMIT 50 OFFSET 0""",
+            (folder_id, 3),
+        ).fetchall()
+        plan_text_folder_rating = " ".join(r["detail"] for r in plan_rows_folder_rating).lower()
+        assert "idx_images_folder_rating_media_mtime" in plan_text_folder_rating or "using index" in plan_text_folder_rating
+        assert "use temp b-tree for order by" not in plan_text_folder_rating
     finally:
         conn.close()
 

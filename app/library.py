@@ -1097,7 +1097,7 @@ def get_assets(
     params: list[Any] = []
 
     if rating is not None:
-        conditions.append("i.rating = ?")
+        conditions.append("COALESCE(i.rating, 0) = ?")
         params.append(rating)
 
     if ai_rank and ai_rank.strip():
