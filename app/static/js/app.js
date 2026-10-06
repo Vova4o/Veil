@@ -22,7 +22,7 @@ import {
 } from './state.js';
 import { initEvents, renderCurrentContent, setViewMode, switchSidebarTab } from './events.js';
 import { initLightboxEvents } from './lightbox.js';
-import { applySidebarLayout, renderSidebar, initSidebarResize, toggleSidebar, renderAlbumsList, renderFoldersList } from './features/sidebar.js';
+import { applySidebarLayout, renderSidebar, initSidebarResize, toggleSidebar, renderAlbumsList, renderFoldersList, initQuickViews } from './features/sidebar.js';
 import { initSearch } from './components/search-bar.js';
 import { initKeyboardShortcuts } from './features/keyboard.js';
 import { initCentralCollectionShortcuts } from './central-shortcuts.js';
@@ -52,6 +52,7 @@ async function bootstrapApplication() {
     updateSortButtonLabel();
     initRatingFilter();
     initMediaTypeFilter();
+    initQuickViews();
     syncGalleryDensityUI();
     const preferredCollection = { type: currentCollection.type, id: currentCollection.id };
 

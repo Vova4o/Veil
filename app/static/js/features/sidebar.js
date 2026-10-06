@@ -41,6 +41,8 @@ import {
     sidebarCollapsed,
     sidebarWidth,
     refreshCacheBuster,
+    ratingFilter,
+    mediaTypeFilter,
 } from '../state.js';
 import { escapeHtml, customConfirm, formatMediaCountLabel, imageRenderSignature, originalUrl } from '../utils.js';
 import { createSidebarItem } from '../components/sidebar-item.js';
@@ -722,4 +724,75 @@ function initFoldersSSE() {
         foldersEventSource = null;
         setTimeout(initFoldersSSE, 5000);
     };
+}
+
+export function syncQuickViewsUI() {
+    const root = dom.sidebarQuickViews;
+    if (!root) return;
+
+    const isAll = ratingFilter === null && mediaTypeFilter.images && mediaTypeFilter.videos;
+    const isTopRated = ratingFilter === 5;
+    const isUnrated = ratingFilter === 0;
+    const isVideosOnly = !mediaTypeFilter.images && mediaTypeFilter.videos;
+    const isImagesOnly = mediaTypeFilter.images && !mediaTypeFilter.videos;
+
+    root.querySelectorAll('.quick-chip[data-quick-filter]').forEach(chip => {
+        const filter = chip.dataset.quickFilter;
+        let active = false;
+        if (filter === 'all') active = isAll;
+        else if (filter === 'top-rated') active = isTopRated;
+        else if (filter === 'unrated') active = isUnrated;
+        else if (filter === 'videos') active = isVideosOnly;
+        else if (filter === 'images') active = isImagesOnly;
+        chip.classList.toggle('active', active);
+    });
+}
+
+export function initQuickViews() {
+    const root = dom.sidebarQuickViews;
+    if (!root) return;
+
+    syncQuickViewsUI();
+
+    root.addEventListener('click', async event => {
+        const chip = event.target.closest('.quick-chip[data-quick-filter]');
+        const resetBtn = event.target.closest('#quick-view-reset-btn');
+
+        if (resetBtn || (chip && chip.dataset.quickFilter === 'all')) {
+            const { selectRatingFilter } = await import('./rating-filter.js');
+            const { applyMediaTypeFilter } = await import('./media-type-filter.js');
+            if (ratingFilter !== null) await selectRatingFilter(null);
+            if (!mediaTypeFilter.images || !mediaTypeFilter.videos) {
+                await applyMediaTypeFilter({ images: true, videos: true });
+            }
+            syncQuickViewsUI();
+            return;
+        }
+
+        if (!chip) return;
+        const filter = chip.dataset.quickFilter;
+
+        if (filter === 'top-rated') {
+            const { selectRatingFilter } = await import('./rating-filter.js');
+            await selectRatingFilter(ratingFilter === 5 ? null : 5);
+        } else if (filter === 'unrated') {
+            const { selectRatingFilter } = await import('./rating-filter.js');
+            await selectRatingFilter(ratingFilter === 0 ? null : 0);
+        } else if (filter === 'videos') {
+            const { applyMediaTypeFilter } = await import('./media-type-filter.js');
+            if (!mediaTypeFilter.images && mediaTypeFilter.videos) {
+                await applyMediaTypeFilter({ images: true, videos: true });
+            } else {
+                await applyMediaTypeFilter({ images: false, videos: true });
+            }
+        } else if (filter === 'images') {
+            const { applyMediaTypeFilter } = await import('./media-type-filter.js');
+            if (mediaTypeFilter.images && !mediaTypeFilter.videos) {
+                await applyMediaTypeFilter({ images: true, videos: true });
+            } else {
+                await applyMediaTypeFilter({ images: true, videos: false });
+            }
+        }
+        syncQuickViewsUI();
+    });
 }

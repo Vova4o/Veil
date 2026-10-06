@@ -42,6 +42,8 @@ export const dom = {
     panelFolders: document.getElementById('panel-folders'),
     panelAlbums: document.getElementById('panel-albums'),
     panelImages: document.getElementById('panel-images'),
+    sidebarQuickViews: document.getElementById('sidebar-quick-views'),
+    quickViewResetBtn: document.getElementById('quick-view-reset-btn'),
     sidebar: document.getElementById('sidebar'),
     sidebarResize: document.getElementById('sidebar-resize'),
     sidebarToggle: document.getElementById('sidebar-toggle'),

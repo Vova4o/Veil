@@ -72,6 +72,16 @@ export function thumbUrl(img) {
     return img.id ? `/api/thumbnail/${img.id}?t=${cacheBuster}` : (img.thumbnail || '');
 }
 
+export function getPositivePrompt(img) {
+    if (!img) return '';
+    const pp = img.prompt_parameters;
+    if (pp && typeof pp === 'object') {
+        const val = pp.positive_prompt || pp.prompt || pp.positive;
+        if (typeof val === 'string' && val.trim()) return val.trim();
+    }
+    return '';
+}
+
 export function imageRenderSignature(img) {
     return JSON.stringify([
         img.id ?? null,
@@ -83,6 +93,7 @@ export function imageRenderSignature(img) {
         img.error || '',
         img.rating || 0,
         img.preview_status || '',
+        getPositivePrompt(img) ? 1 : 0,
     ]);
 }
 

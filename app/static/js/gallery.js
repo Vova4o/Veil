@@ -15,7 +15,7 @@ import {
     setSortKey,
     saveState,
 } from './state.js';
-import { escapeHtml, imageRenderSignature, originalUrl, thumbUrl } from './utils.js';
+import { escapeHtml, getPositivePrompt, imageRenderSignature, originalUrl, thumbUrl } from './utils.js';
 import { skeletonGalleryCard } from './components/skeleton.js';
 import { showImageContextMenu } from './components/image-context-menu.js';
 import { traceSpan } from './tracing.js';
@@ -137,6 +137,14 @@ function galleryCardHtml(img, index) {
         ? `<div class="gallery-card-badges">${ratingBadge}${mediaBadge}</div>`
         : '';
 
+    const posPrompt = getPositivePrompt(img);
+    const copyPromptBtn = posPrompt
+        ? `<button class="gallery-copy-prompt" data-index="${index}" title="Copy prompt" aria-label="Copy positive prompt">
+            <svg class="icon-copy" viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <svg class="icon-check" viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: none;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </button>`
+        : '';
+
     return `
         <div class="gallery-card${isActive}" data-index="${index}" data-image-id="${img.id ?? ''}">
             <div class="img-wrapper"${ratioStyle}${fallbackAttr}>
@@ -150,7 +158,10 @@ function galleryCardHtml(img, index) {
             </button>
             ${hasError}
             <div class="card-info">
-                <div class="card-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+                <div class="card-info-header">
+                    <div class="card-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+                    ${copyPromptBtn}
+                </div>
                 <div class="card-meta">${isVideo ? 'Video · ' : ''}${fmt} ${dims}</div>
             </div>
         </div>
@@ -203,6 +214,24 @@ function bindGalleryCard(card) {
         }
         const index = Number.parseInt(card.dataset.index, 10);
         import('./lightbox.js').then(module => module.openLightbox(index, images));
+    });
+
+    card.querySelector('.gallery-copy-prompt')?.addEventListener('click', async event => {
+        event.stopPropagation();
+        event.preventDefault();
+        const index = Number.parseInt(card.dataset.index, 10);
+        const img = images[index];
+        const prompt = getPositivePrompt(img);
+        if (!prompt) return;
+        const btn = event.currentTarget;
+        try {
+            await navigator.clipboard.writeText(prompt);
+            btn.classList.add('copied');
+            showToast('Prompt copied!');
+            setTimeout(() => btn?.classList.remove('copied'), 1500);
+        } catch {
+            showToast('Failed to copy prompt');
+        }
     });
 
     card.querySelector('.gallery-delete')?.addEventListener('click', event => {

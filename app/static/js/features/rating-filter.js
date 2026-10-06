@@ -26,7 +26,7 @@ function closeRatingFilter({ restoreFocus = false } = {}) {
     if (restoreFocus) dom.ratingFilterBtn.focus();
 }
 
-function syncRatingFilter() {
+export function syncRatingFilter() {
     if (!dom.ratingFilterBtn || !dom.ratingFilterMenu) return;
     const label = filterLabel(ratingFilter);
     if (dom.ratingFilterLabel) dom.ratingFilterLabel.textContent = label;
@@ -44,6 +44,7 @@ function syncRatingFilter() {
         const indicator = button.querySelector('.indicator');
         if (indicator) indicator.textContent = active ? '•' : '';
     });
+    import('./sidebar.js').then(module => module.syncQuickViewsUI?.());
 }
 
 async function reloadFilteredImages() {
@@ -70,16 +71,16 @@ async function reloadFilteredImages() {
     }
 }
 
-async function selectRatingFilter(nextRating) {
+export async function selectRatingFilter(nextRating) {
     setRatingFilter(nextRating);
     saveState();
     syncRatingFilter();
     closeRatingFilter();
-    dom.ratingFilterBtn.disabled = true;
+    if (dom.ratingFilterBtn) dom.ratingFilterBtn.disabled = true;
     try {
         await reloadFilteredImages();
     } finally {
-        dom.ratingFilterBtn.disabled = false;
+        if (dom.ratingFilterBtn) dom.ratingFilterBtn.disabled = false;
     }
 }
 

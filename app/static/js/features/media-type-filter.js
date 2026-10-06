@@ -25,7 +25,7 @@ function closeMediaTypeFilter({ restoreFocus = false } = {}) {
     if (restoreFocus) dom.mediaTypeFilterBtn.focus();
 }
 
-function syncMediaTypeFilter() {
+export function syncMediaTypeFilter() {
     if (dom.mediaFilterImages) dom.mediaFilterImages.checked = mediaTypeFilter.images;
     if (dom.mediaFilterVideos) dom.mediaFilterVideos.checked = mediaTypeFilter.videos;
     if (dom.mediaTypeFilterLabel) dom.mediaTypeFilterLabel.textContent = filterLabel();
@@ -35,9 +35,10 @@ function syncMediaTypeFilter() {
         dom.mediaTypeFilterBtn.title = `Media: ${filterLabel()}`;
         dom.mediaTypeFilterBtn.setAttribute('aria-label', dom.mediaTypeFilterBtn.title);
     }
+    import('./sidebar.js').then(module => module.syncQuickViewsUI?.());
 }
 
-async function applyMediaTypeFilter(nextFilter) {
+export async function applyMediaTypeFilter(nextFilter) {
     if (!nextFilter.images && !nextFilter.videos) {
         showToast('Keep at least one media type visible');
         syncMediaTypeFilter();
@@ -48,7 +49,7 @@ async function applyMediaTypeFilter(nextFilter) {
     saveState();
     syncMediaTypeFilter();
     invalidateApiCache();
-    dom.mediaTypeFilterBtn.disabled = true;
+    if (dom.mediaTypeFilterBtn) dom.mediaTypeFilterBtn.disabled = true;
     try {
         const loads = [loadSidebarImages({ force: true, render: false })];
         if (isBrowsableCollection(currentCollection)) {
@@ -69,7 +70,7 @@ async function applyMediaTypeFilter(nextFilter) {
             syncLightboxAfterCollectionChange();
         }
     } finally {
-        dom.mediaTypeFilterBtn.disabled = false;
+        if (dom.mediaTypeFilterBtn) dom.mediaTypeFilterBtn.disabled = false;
     }
 }
 
