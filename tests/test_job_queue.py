@@ -253,8 +253,12 @@ class TrashQueueTest(unittest.TestCase):
         conn.row_factory = sqlite3.Row
         try:
             conn.execute(
-                "UPDATE images SET original_data = ? WHERE id = ?",
-                (b"upload-bytes", self.ids["c.png"]),
+                "UPDATE images SET has_original_data = 1 WHERE id = ?",
+                (self.ids["c.png"],),
+            )
+            conn.execute(
+                "INSERT INTO asset_blobs (image_id, data) VALUES (?, ?)",
+                (self.ids["c.png"], b"upload-bytes"),
             )
             conn.commit()
         finally:
@@ -266,6 +270,7 @@ class TrashQueueTest(unittest.TestCase):
         self.assertTrue(job_worker.process_pending_job())
         self.mock_trash.assert_not_called()
         self.assertEqual(self._tombstone_count(), 0)
+        self.assertIsNone(database.get_asset_original_data(self.ids["c.png"]))
 
     def test_worker_thread_lifecycle(self) -> None:
         job_worker.start_job_worker()

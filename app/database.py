@@ -156,8 +156,7 @@ _INITIAL_SCHEMA_SQL = """
         ai_annotations_json TEXT,
         preview_status TEXT NOT NULL DEFAULT 'pending',
         preview_error TEXT,
-        thumbnail_b64 TEXT,
-        original_data BLOB,
+        has_original_data INTEGER NOT NULL DEFAULT 0,
         content_fingerprint TEXT,
         is_favorite INTEGER NOT NULL DEFAULT 0,
         rating INTEGER,
@@ -165,6 +164,11 @@ _INITIAL_SCHEMA_SQL = """
         indexed_at TEXT DEFAULT (datetime('now')),
         created_at TEXT DEFAULT (datetime('now')),
         UNIQUE(folder_id, rel_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_blobs (
+        image_id INTEGER PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+        data BLOB NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS albums (
@@ -511,7 +515,7 @@ _INITIAL_SCHEMA_SQL = """
 """
 
 _COLUMN_MIGRATIONS = (
-    "ALTER TABLE images ADD COLUMN original_data BLOB",
+    "ALTER TABLE images ADD COLUMN has_original_data INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE folders ADD COLUMN status TEXT NOT NULL DEFAULT 'idle'",
     "ALTER TABLE folders ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE folders ADD COLUMN recursive INTEGER NOT NULL DEFAULT 0",
@@ -553,6 +557,7 @@ _LATE_INDEXES_SQL = """
     CREATE INDEX IF NOT EXISTS idx_images_rating_media_mtime ON images(COALESCE(rating, 0), media_type, file_mtime DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_images_folder_rating_media_mtime ON images(folder_id, COALESCE(rating, 0), media_type, file_mtime DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_images_indexed_at ON images(indexed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_images_has_original_data ON images(has_original_data) WHERE has_original_data = 1;
     CREATE INDEX IF NOT EXISTS idx_images_pending_processing ON images(folder_id, id) WHERE metadata_json IS NULL AND error IS NULL;
     CREATE INDEX IF NOT EXISTS idx_album_images_album_pos ON album_images(album_id, position ASC, image_id ASC);
     CREATE INDEX IF NOT EXISTS idx_item_positions_scope ON item_positions(scope, position ASC, image_id ASC);
@@ -622,6 +627,47 @@ def _migrate_rating_indexes(conn: sqlite3.Connection) -> None:
         conn.execute("DROP INDEX IF EXISTS idx_images_rating_media_mtime")
 
 
+def _migrate_asset_blobs_and_rudiments(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS asset_blobs (
+            image_id INTEGER PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+            data BLOB NOT NULL
+        )"""
+    )
+    col_rows = conn.execute("PRAGMA table_info(images)").fetchall()
+    columns = {r["name"] for r in col_rows}
+    if not columns:
+        return
+
+    if "has_original_data" not in columns:
+        conn.execute("ALTER TABLE images ADD COLUMN has_original_data INTEGER NOT NULL DEFAULT 0")
+
+    if "original_data" in columns:
+        conn.execute(
+            """INSERT OR IGNORE INTO asset_blobs (image_id, data)
+               SELECT id, original_data FROM images WHERE original_data IS NOT NULL"""
+        )
+        conn.execute(
+            """UPDATE images SET has_original_data = 1
+               WHERE id IN (SELECT image_id FROM asset_blobs)"""
+        )
+        try:
+            conn.execute("ALTER TABLE images DROP COLUMN original_data")
+        except sqlite3.OperationalError:
+            pass
+
+    if "thumbnail_b64" in columns:
+        try:
+            conn.execute("ALTER TABLE images DROP COLUMN thumbnail_b64")
+        except sqlite3.OperationalError:
+            pass
+
+    conn.execute(
+        """UPDATE images SET has_original_data = 1
+           WHERE id IN (SELECT image_id FROM asset_blobs) AND has_original_data = 0"""
+    )
+
+
 def init_db() -> None:
     Path(get_db_path()).parent.mkdir(parents=True, exist_ok=True)
     conn = get_conn()
@@ -633,6 +679,7 @@ def init_db() -> None:
         _migrate_ai_rating_nullable_rank(conn)
         _normalize_ai_rating_statuses(conn)
         _apply_column_migrations(conn)
+        _migrate_asset_blobs_and_rudiments(conn)
         _apply_data_migrations(conn)
         _migrate_rating_indexes(conn)
         _create_late_indexes(conn)
@@ -940,9 +987,9 @@ def insert_assets(folder_id: int, assets: list[AssetInsertRow]) -> None:
             conn.execute(
                 """INSERT INTO images (folder_id, rel_path, file_name, file_size, file_mtime,
                     media_type, mime_type, format, width, height, mode, duration,
-                    frame_rate, codec, error, metadata_json, thumbnail_b64,
+                    frame_rate, codec, error, metadata_json,
                     content_fingerprint, preview_status, preview_error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(folder_id, rel_path) DO UPDATE SET
                     file_name=excluded.file_name,
                     file_size=excluded.file_size, file_mtime=excluded.file_mtime,
@@ -951,7 +998,7 @@ def insert_assets(folder_id: int, assets: list[AssetInsertRow]) -> None:
                     mode=excluded.mode, duration=excluded.duration,
                     frame_rate=excluded.frame_rate, codec=excluded.codec,
                     error=excluded.error,
-                    metadata_json=excluded.metadata_json, thumbnail_b64=excluded.thumbnail_b64,
+                    metadata_json=excluded.metadata_json,
                     ai_annotations_json=NULL,
                     content_fingerprint=excluded.content_fingerprint,
                     preview_status=excluded.preview_status,
@@ -974,7 +1021,6 @@ def insert_assets(folder_id: int, assets: list[AssetInsertRow]) -> None:
                     asset.codec,
                     asset.error,
                     asset.metadata_json,
-                    asset.thumbnail_b64,
                     asset.content_fingerprint,
                     asset.preview_status,
                     asset.preview_error,
@@ -1748,7 +1794,7 @@ def get_images_page(
             i.format, i.width, i.height, i.mode,
             i.duration, i.frame_rate, i.codec, i.preview_status,
             i.preview_error, i.error, i.metadata_json, i.rating,
-            i.original_data IS NULL AS has_local_file,
+            (i.has_original_data = 0) AS has_local_file,
             i.file_mtime
         FROM ({subquery}) page_ids
         JOIN images i ON i.id = page_ids.id{album_join}{custom_join_main}
@@ -1824,7 +1870,7 @@ def get_asset_source_info(asset_id: int) -> dict[str, Any] | None:
         row = conn.execute(
             """SELECT i.id, i.rel_path, i.file_name, i.file_size, i.file_mtime,
                 i.media_type, i.mime_type, i.format, i.duration, i.preview_status,
-                i.preview_error, i.original_data IS NOT NULL AS has_original_data,
+                i.preview_error, i.has_original_data,
                 f.path AS folder_path
             FROM images i
             LEFT JOIN folders f ON f.id = i.folder_id
@@ -1835,6 +1881,7 @@ def get_asset_source_info(asset_id: int) -> dict[str, Any] | None:
             return None
 
         source = dict(row)
+        source["has_original_data"] = bool(source["has_original_data"])
         source["path"] = None
         if not source["has_original_data"]:
             source["path"] = str(
@@ -1858,8 +1905,8 @@ def iter_asset_original_data(
     conn = get_conn()
     try:
         with conn.blobopen(
-            "images",
-            "original_data",
+            "asset_blobs",
+            "data",
             asset_id,
             readonly=True,
         ) as blob:
@@ -1889,8 +1936,8 @@ def get_asset_detail(asset_id: int) -> ImageDetail | None:
                 i.frame_rate, i.codec, i.error, i.metadata_json,
                 i.ai_annotations_json, i.preview_status, i.preview_error,
                 i.is_favorite, i.rating, i.note,
-                i.original_data IS NOT NULL AS has_original_data,
-                i.original_data IS NULL AS has_local_file,
+                i.has_original_data,
+                (i.has_original_data = 0) AS has_local_file,
                 f.path AS folder_path
             FROM images i
             LEFT JOIN folders f ON f.id = i.folder_id
@@ -1900,6 +1947,8 @@ def get_asset_detail(asset_id: int) -> ImageDetail | None:
         if not row:
             return None
         d = dict(row)
+        d["has_original_data"] = bool(d["has_original_data"])
+        d["has_local_file"] = bool(d["has_local_file"])
         if (
             d.get("media_type") == "image"
             and d.get("metadata_json") is None
@@ -1909,14 +1958,14 @@ def get_asset_detail(asset_id: int) -> ImageDetail | None:
             try:
                 if d.get("has_original_data"):
                     original_row = conn.execute(
-                        "SELECT original_data FROM images WHERE id = ?",
+                        "SELECT data FROM asset_blobs WHERE image_id = ?",
                         (img_id,),
                     ).fetchone()
-                    if not original_row or original_row["original_data"] is None:
+                    if not original_row or original_row["data"] is None:
                         raise FileNotFoundError("Database original not found")
                     from .extractor import extract_metadata_from_bytes
                     meta = extract_metadata_from_bytes(
-                        bytes(original_row["original_data"]),
+                        bytes(original_row["data"]),
                         d["file_name"],
                     )
                 else:
@@ -2272,7 +2321,7 @@ def get_diagnostics() -> dict[str, Any]:
             FROM images"""
         ).fetchone()
         uploads_row = conn.execute(
-            "SELECT COUNT(*) AS c FROM images WHERE original_data IS NOT NULL"
+            "SELECT COUNT(*) AS c FROM images WHERE has_original_data = 1"
         ).fetchone()
         return {
             "db_path": get_db_path(),
@@ -2339,9 +2388,9 @@ def insert_upload_asset(
                         folder_id, rel_path, file_name, file_size, file_mtime,
                         media_type, mime_type, format, width, height, mode,
                         duration, frame_rate, codec, metadata_json,
-                        preview_status, preview_error, original_data, content_fingerprint
+                        preview_status, preview_error, has_original_data, content_fingerprint
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                     RETURNING id""",
                     (
                         folder_id,
@@ -2363,7 +2412,6 @@ def insert_upload_asset(
                         else None,
                         preview_status,
                         preview_error,
-                        original_data,
                         hashlib.sha256(original_data).hexdigest(),
                     ),
                 )
@@ -2375,6 +2423,10 @@ def insert_upload_asset(
 
         row = cur.fetchone()
         image_id = row["id"]
+        conn.execute(
+            "INSERT INTO asset_blobs (image_id, data) VALUES (?, ?)",
+            (image_id, original_data),
+        )
         conn.commit()
         return image_id, folder_id
     except Exception:
@@ -2402,10 +2454,10 @@ def get_asset_original_data(asset_id: int) -> bytes | None:
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT original_data FROM images WHERE id = ?", (asset_id,)
+            "SELECT data FROM asset_blobs WHERE image_id = ?", (asset_id,)
         ).fetchone()
-        if row and row["original_data"]:
-            return bytes(row["original_data"])
+        if row and row["data"]:
+            return bytes(row["data"])
         return None
     finally:
         conn.close()

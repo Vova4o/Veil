@@ -130,9 +130,10 @@ class LazyUploadTest(unittest.TestCase):
         try:
             return conn.execute(
                 """SELECT i.id, i.rel_path, i.file_name, i.format, i.metadata_json,
-                    i.thumbnail_b64, i.original_data, f.path AS folder_path
+                    i.has_original_data, b.data AS original_data, f.path AS folder_path
                 FROM images i
                 JOIN folders f ON f.id = i.folder_id
+                LEFT JOIN asset_blobs b ON b.image_id = i.id
                 ORDER BY i.id"""
             ).fetchall()
         finally:
@@ -160,7 +161,7 @@ class LazyUploadTest(unittest.TestCase):
         self.assertTrue(all(row["file_name"] == "sample.png" for row in rows))
         self.assertTrue(all(row["format"] is None for row in rows))
         self.assertTrue(all(row["metadata_json"] is None for row in rows))
-        self.assertTrue(all(row["thumbnail_b64"] is None for row in rows))
+        self.assertTrue(all(row["has_original_data"] == 1 for row in rows))
         self.assertTrue(all(bytes(row["original_data"]) == png_data for row in rows))
 
         thumbnail_response = self.client.get(f"/api/thumbnail/{rows[1]['id']}")

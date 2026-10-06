@@ -104,7 +104,7 @@ def _query_ambient_candidates(*, current_id: int | None = None) -> list[dict[str
             """
             SELECT * FROM (
                 SELECT i.id, i.folder_id, i.rel_path, i.file_name, i.width, i.height,
-                       i.original_data IS NOT NULL AS has_original_data,
+                       i.has_original_data,
                        f.path AS folder_path,
                        ROW_NUMBER() OVER (
                            PARTITION BY i.folder_id ORDER BY (i.id = ?) DESC, RANDOM()

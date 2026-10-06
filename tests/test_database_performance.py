@@ -313,3 +313,170 @@ def test_case_insensitive_name_sorting(temp_db):
     finally:
         conn.close()
 
+
+def test_asset_blobs_table_and_columns_exist(temp_db):
+    """Verify that asset_blobs table exists and rudiments (original_data, thumbnail_b64) are removed from images."""
+    conn = db.get_conn()
+    try:
+        tables = {
+            r["name"]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "asset_blobs" in tables
+
+        image_cols = {
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(images)").fetchall()
+        }
+        assert "has_original_data" in image_cols
+        assert "original_data" not in image_cols
+        assert "thumbnail_b64" not in image_cols
+
+        indexes = {
+            r["name"]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            ).fetchall()
+        }
+        assert "idx_images_has_original_data" in indexes
+    finally:
+        conn.close()
+
+
+def test_blob_storage_streaming_and_cascade_delete(temp_db):
+    """Verify BLOB storage in asset_blobs, streaming via iter_asset_original_data, and CASCADE delete."""
+    binary_payload = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"X" * 1024
+    image_id, folder_id = db.insert_upload_asset(
+        "uploaded_test.webp",
+        binary_payload,
+        media_type="image",
+        width=64,
+        height=64,
+    )
+
+    conn = db.get_conn()
+    try:
+        # Check images row has has_original_data = 1
+        img_row = conn.execute(
+            "SELECT has_original_data FROM images WHERE id = ?", (image_id,)
+        ).fetchone()
+        assert img_row is not None
+        assert img_row["has_original_data"] == 1
+
+        # Check asset_blobs row exists
+        blob_row = conn.execute(
+            "SELECT data FROM asset_blobs WHERE image_id = ?", (image_id,)
+        ).fetchone()
+        assert blob_row is not None
+        assert bytes(blob_row["data"]) == binary_payload
+
+        # Test get_asset_original_data API
+        retrieved = db.get_asset_original_data(image_id)
+        assert retrieved == binary_payload
+
+        # Test streaming via iter_asset_original_data
+        chunks = list(db.iter_asset_original_data(image_id, chunk_size=256))
+        assert b"".join(chunks) == binary_payload
+
+        # Test stats
+        stats = db.get_diagnostics()
+        assert stats["uploads"] == 1
+
+        # Test CASCADE delete
+        conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+        conn.commit()
+
+        # asset_blobs row must be automatically removed
+        blob_after = conn.execute(
+            "SELECT COUNT(*) AS c FROM asset_blobs WHERE image_id = ?", (image_id,)
+        ).fetchone()
+        assert blob_after["c"] == 0
+        assert db.get_asset_original_data(image_id) is None
+    finally:
+        conn.close()
+
+
+def test_legacy_blob_and_thumbnail_migration(tmp_path: Path):
+    """Verify automated migration from legacy schemas with original_data and thumbnail_b64 in images."""
+    legacy_db_file = tmp_path / "legacy_migration.db"
+    old_path = db.get_db_path()
+    try:
+        # Create legacy table manually
+        import sqlite3
+        raw_conn = sqlite3.connect(legacy_db_file)
+        raw_conn.execute("PRAGMA foreign_keys = ON")
+        raw_conn.executescript(
+            """
+            CREATE TABLE folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+                rel_path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER DEFAULT 0,
+                file_mtime REAL DEFAULT 0,
+                format TEXT,
+                width INTEGER DEFAULT 0,
+                height INTEGER DEFAULT 0,
+                mode TEXT,
+                error TEXT,
+                metadata_json TEXT,
+                thumbnail_b64 TEXT,
+                original_data BLOB,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(folder_id, rel_path)
+            );
+            INSERT INTO folders (id, path, name) VALUES (1, '__uploads__', 'Uploads');
+            INSERT INTO images (id, folder_id, rel_path, file_name, original_data, thumbnail_b64)
+            VALUES (10, 1, 'legacy.png', 'legacy.png', X'DEADBEEF', 'old_thumb_b64');
+            INSERT INTO images (id, folder_id, rel_path, file_name, original_data, thumbnail_b64)
+            VALUES (11, 1, 'no_blob.png', 'no_blob.png', NULL, NULL);
+            """
+        )
+        raw_conn.commit()
+        raw_conn.close()
+
+        # Run init_db() which runs migrations
+        db.set_db_path(legacy_db_file)
+        db.init_db()
+
+        conn = db.get_conn()
+        try:
+            # Check asset_blobs has migrated binary
+            migrated_blob = conn.execute(
+                "SELECT data FROM asset_blobs WHERE image_id = 10"
+            ).fetchone()
+            assert migrated_blob is not None
+            assert bytes(migrated_blob["data"]) == bytes.fromhex("DEADBEEF")
+
+            # Check has_original_data flags
+            img_10 = conn.execute(
+                "SELECT has_original_data FROM images WHERE id = 10"
+            ).fetchone()
+            assert img_10["has_original_data"] == 1
+
+            img_11 = conn.execute(
+                "SELECT has_original_data FROM images WHERE id = 11"
+            ).fetchone()
+            assert img_11["has_original_data"] == 0
+
+            # Verify columns original_data and thumbnail_b64 were dropped
+            cols = {
+                r["name"]
+                for r in conn.execute("PRAGMA table_info(images)").fetchall()
+            }
+            assert "original_data" not in cols
+            assert "thumbnail_b64" not in cols
+            assert "has_original_data" in cols
+        finally:
+            conn.close()
+    finally:
+        db.set_db_path(old_path)
+
+

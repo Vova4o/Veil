@@ -29,10 +29,15 @@ def add_image(folder_id: int, directory: Path, name: str, *, missing=False, medi
     conn = db.get_conn()
     try:
         image_id = conn.execute(
-            """INSERT INTO images (folder_id, rel_path, file_name, media_type, width, height, original_data)
+            """INSERT INTO images (folder_id, rel_path, file_name, media_type, width, height, has_original_data)
                VALUES (?, ?, ?, ?, 4, 3, ?) RETURNING id""",
-            (folder_id, name, name, media_type, original),
+            (folder_id, name, name, media_type, 1 if original is not None else 0),
         ).fetchone()["id"]
+        if original is not None:
+            conn.execute(
+                "INSERT INTO asset_blobs (image_id, data) VALUES (?, ?)",
+                (image_id, original),
+            )
         conn.commit()
         return image_id
     finally:

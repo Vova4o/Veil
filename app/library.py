@@ -489,7 +489,7 @@ def _custom_collection_condition(collection: str) -> tuple[str, list[Any]]:
         return ("datetime(i.indexed_at) >= datetime('now', '-30 days')", [])
     if collection == "unavailable":
         return (
-            """i.original_data IS NULL AND (
+            """i.has_original_data = 0 AND (
                 f.enabled = 0 OR f.source_status IN ('disabled', 'unavailable', 'reconnecting', 'error')
             )""",
             [],
@@ -816,7 +816,7 @@ def update_asset(
             row = conn.execute(
                 """SELECT i.rel_path, i.file_name, f.path AS folder_path,
                           i.folder_id, i.file_size, i.file_mtime,
-                          i.original_data IS NOT NULL AS has_original_data
+                          i.has_original_data
                    FROM images i
                    JOIN folders f ON i.folder_id = f.id
                    WHERE i.id = ?""",
@@ -1017,7 +1017,7 @@ def enqueue_trash(asset_ids: Iterable[int]) -> dict[str, Any]:
             placeholders = ",".join("?" for _ in chunk)
             rows = conn.execute(
                 "SELECT i.id, i.folder_id, i.rel_path, i.file_name,"
-                " i.original_data IS NOT NULL AS has_original_data,"
+                " i.has_original_data,"
                 " f.path AS folder_path FROM images i"
                 " LEFT JOIN folders f ON f.id = i.folder_id"
                 f" WHERE i.id IN ({placeholders})",
@@ -1171,7 +1171,7 @@ def get_assets(
         )
     elif collection == "unavailable":
         conditions.append(
-            """i.original_data IS NULL AND (
+            """i.has_original_data = 0 AND (
                 f.enabled = 0 OR f.source_status IN ('disabled', 'unavailable', 'reconnecting', 'error')
             )"""
         )
@@ -1296,7 +1296,7 @@ def get_assets(
                 i.metadata_json, i.ai_annotations_json, i.preview_status,
                 i.preview_error, i.is_favorite, i.rating, i.note, i.indexed_at,
                 i.derived_from_asset_id,
-                i.original_data IS NOT NULL AS has_original_data,
+                i.has_original_data,
                 f.name AS source_name, f.path AS source_path, f.enabled AS source_enabled,
                 f.source_status,
                 r.rank AS ai_rank, r.rank_override AS ai_rank_override, r.status AS ai_rank_status
@@ -1405,7 +1405,7 @@ def library_summary() -> dict[str, Any]:
         ).fetchone()
         unavailable = conn.execute(
             """SELECT COUNT(*) AS count FROM images i JOIN folders f ON f.id = i.folder_id
-            WHERE i.original_data IS NULL AND (
+            WHERE i.has_original_data = 0 AND (
                 f.enabled = 0 OR f.source_status IN ('disabled', 'unavailable', 'reconnecting', 'error')
             )"""
         ).fetchone()["count"]

@@ -356,8 +356,7 @@ CREATE TABLE images (
     ai_annotations_json TEXT,
     preview_status TEXT NOT NULL DEFAULT 'pending',
     preview_error TEXT,
-    thumbnail_b64 TEXT,
-    original_data BLOB,
+    has_original_data INTEGER NOT NULL DEFAULT 0,
     content_fingerprint TEXT,
     is_favorite INTEGER NOT NULL DEFAULT 0,
     rating INTEGER,
@@ -365,6 +364,11 @@ CREATE TABLE images (
     indexed_at TEXT DEFAULT (datetime('now')),
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(folder_id, rel_path)
+);
+
+CREATE TABLE asset_blobs (
+    image_id INTEGER PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+    data BLOB NOT NULL
 );
 
 CREATE INDEX idx_images_folder ON images(folder_id);

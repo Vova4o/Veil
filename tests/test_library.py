@@ -879,9 +879,12 @@ class LibraryMigrationTest(unittest.TestCase):
                         "preview_status",
                         "preview_error",
                         "ai_annotations_json",
+                        "has_original_data",
                     }
                     <= columns
                 )
+                self.assertNotIn("thumbnail_b64", columns)
+                self.assertNotIn("original_data", columns)
                 self.assertEqual(library.list_albums(), [])
             finally:
                 db.set_db_path(old_path)
