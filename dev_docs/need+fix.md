@@ -78,9 +78,18 @@
 ---
 
 #### 5. Медленные фильтры через `json_tree` (Table Scan на лету)
-* В функциях `list_metadata_filters()` и `_model_family_condition()` ([library.py:L130, L167](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py#L167)) фильтрация по нодам и семейству моделей выполняет функцию виртуальной таблицы `json_tree(...)` над колонкой `metadata_json` для каждой строки.
-* При 10 000+ изображениях разбор дерева JSON на лету во время SQL-запроса приводит к задержкам от сотен миллисекунд до нескольких секунд.
-  * **Решение**: Извлекать список типов нод и семейство модели (SD1.5, SDXL, Flux, Pony) на этапе индексации/парсинга и сохранять в нормализованную индексную таблицу связей (как сделано с `image_tags`).
+* В функциях `list_metadata_filters()` и `_model_family_condition()` ([library.py:L130, L167](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py#L167)) фильтрация по нодам и семейству моделей выполняла функцию виртуальной таблицы `json_tree(...)` над колонкой `metadata_json` для каждой строки.
+* При 10 000+ изображениях разбор дерева JSON на лету во время SQL-запроса приводил к задержкам от сотен миллисекунд до нескольких секунд.
+  * **Решение (✅ Реализовано):**
+    1. Созданы нормализованные таблицы связей:
+       - `image_nodes (image_id INTEGER REFERENCES images(id) ON DELETE CASCADE, node_type TEXT, PRIMARY KEY(image_id, node_type))` с B-Tree индексом `idx_image_nodes_node_type ON image_nodes(node_type COLLATE NOCASE, image_id)`.
+       - `image_model_families (image_id INTEGER REFERENCES images(id) ON DELETE CASCADE, family TEXT, PRIMARY KEY(image_id, family))` с индексом `idx_image_model_families_family ON image_model_families(family, image_id)`.
+    2. Реализована автоматическая синхронизация через триггеры SQLite:
+       - `trg_images_metadata_ai` (AFTER INSERT), `trg_images_metadata_au` (AFTER UPDATE OF metadata_json) и `trg_images_metadata_ad` (AFTER DELETE).
+       - Триггеры парсят ComfyUI ноды (`$.workflow.workflow_nodes` и fallback `$.prompt_api_json`), а также автоматически классифицируют семейства моделей (`flux`, `pony`, `sdxl`, `sd15`).
+    3. Добавлена прозрачная автомиграция и бэкфилл существующих данных (`_backfill_metadata_indices`) при `init_db()`.
+    4. Запросы фильтрации в [library.py](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py) переведены на быстрые O(log N) `EXISTS` с использованием индексов, а `list_metadata_filters()` — на мгновенный `SELECT DISTINCT node_type FROM image_nodes ORDER BY node_type COLLATE NOCASE`.
+    5. В веб-интерфейс ([library.html](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/templates/library.html)) добавлен фильтр семейства моделей `SD 1.5` (`sd15`).
 
 ---
 
@@ -110,4 +119,4 @@
 | **Вынос BLOB из `images`** | ✅ **Реализовано** (таблица `asset_blobs`, флаг `has_original_data`, удалены рудименты) | **+3x–10x** к скорости сканирования таблицы `images` | Средняя |
 | **Overfetching JSON** | ✅ **Реализовано** (Deferred Join в `get_assets`, флаги в SQL, точечный `json_extract`) | **-70%** трафика памяти и CPU при скроллинге галереи | Средняя |
 | **Пакетность воркера и `executemany`** | ✅ **Реализовано** (батчинг по 50 элементов, `commit_worker_batch`, `batch_rename_assets`, устранён N+1) | **+200–400%** к скорости обработки очереди воркера | Средняя |
-| **Индексация нод/моделей** | `json_tree` сканирует дерево JSON на лету | Мгновенная фильтрация по моделям (вместо секундных задержек) | Выше среднего |
+| **Индексация нод/моделей** | ✅ **Реализовано** (таблицы `image_nodes`/`image_model_families`, триггеры, быстрые `EXISTS`, бэкфилл, поддержка SD1.5/SDXL/Flux/Pony) | Мгновенная фильтрация по моделям и нодам (вместо секундных задержек) | Выше среднего |

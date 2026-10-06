@@ -200,6 +200,18 @@ _INITIAL_SCHEMA_SQL = """
         PRIMARY KEY (image_id, tag_id)
     );
 
+    CREATE TABLE IF NOT EXISTS image_nodes (
+        image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+        node_type TEXT NOT NULL,
+        PRIMARY KEY (image_id, node_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS image_model_families (
+        image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+        family TEXT NOT NULL,
+        PRIMARY KEY (image_id, family)
+    );
+
     -- Server-side custom (drag-reordered) positions, one scope per view:
     -- 'folder:<id>' (Viewer folder / library source), 'media:all' (whole
     -- library), 'collection:<id>' (system collections). Albums keep their own
@@ -571,6 +583,8 @@ _LATE_INDEXES_SQL = """
     CREATE INDEX IF NOT EXISTS idx_visual_actions_session ON visual_actions(session_id, id);
     CREATE INDEX IF NOT EXISTS idx_visual_sessions_original ON visual_sessions(original_asset_id);
     CREATE INDEX IF NOT EXISTS idx_visual_sessions_current ON visual_sessions(current_asset_id);
+    CREATE INDEX IF NOT EXISTS idx_image_nodes_node_type ON image_nodes(node_type COLLATE NOCASE, image_id);
+    CREATE INDEX IF NOT EXISTS idx_image_model_families_family ON image_model_families(family, image_id);
 """
 
 
@@ -625,6 +639,640 @@ def _migrate_rating_indexes(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if row and "COALESCE" not in str(row["sql"] or "").upper():
         conn.execute("DROP INDEX IF EXISTS idx_images_rating_media_mtime")
+
+
+_METADATA_TRIGGERS_SQL = """
+    CREATE TRIGGER IF NOT EXISTS trg_images_metadata_ai AFTER INSERT ON images
+    WHEN NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+    BEGIN
+        INSERT OR IGNORE INTO image_nodes (image_id, node_type)
+        SELECT DISTINCT NEW.id, CAST(value AS TEXT)
+        FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+        WHERE key = 'class_type' AND type = 'text' AND TRIM(CAST(value AS TEXT)) != '';
+
+        INSERT OR IGNORE INTO image_nodes (image_id, node_type)
+        SELECT DISTINCT NEW.id, CAST(value AS TEXT)
+        FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+        WHERE json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+          AND key = 'class_type' AND type = 'text' AND TRIM(CAST(value AS TEXT)) != '';
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'flux'
+        WHERE (
+            LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%flux%'
+            OR EXISTS (
+                SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                WHERE (key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                   OR (key = 'class_type' AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+            )
+            OR (
+                json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                    WHERE (key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                       OR (key = 'class_type' AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                )
+            )
+        );
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'pony'
+        WHERE (
+            LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%pony%'
+            OR EXISTS (
+                SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+            )
+            OR (
+                json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                    WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                )
+            )
+        );
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'sdxl'
+        WHERE (
+            (
+                LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                      COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                      COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                      COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sdxl%'
+                OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd_xl%'
+                OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd-xl%'
+                OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable diffusion xl%'
+                OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable-diffusion-xl%'
+                OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                         COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%xl%'
+                OR EXISTS (
+                    SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                    WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                      AND (
+                          LOWER(CAST(value AS TEXT)) LIKE '%sdxl%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%sd_xl%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%sd-xl%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion xl%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-xl%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%xl%'
+                      )
+                )
+                OR (
+                    json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                    AND EXISTS (
+                        SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                        WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                          AND (
+                              LOWER(CAST(value AS TEXT)) LIKE '%sdxl%' OR
+                              LOWER(CAST(value AS TEXT)) LIKE '%sd_xl%' OR
+                              LOWER(CAST(value AS TEXT)) LIKE '%sd-xl%' OR
+                              LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion xl%' OR
+                              LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-xl%' OR
+                              LOWER(CAST(value AS TEXT)) LIKE '%xl%'
+                          )
+                    )
+                )
+            )
+            AND NOT (
+                LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                      COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                      COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                      COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%pony%'
+                OR EXISTS (
+                    SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                    WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                )
+                OR (
+                    json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                    AND EXISTS (
+                        SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                        WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                    )
+                )
+            )
+        );
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'sd15'
+        WHERE (
+            LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                  COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd15%'
+            OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd1.5%'
+            OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%v1-5%'
+            OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%v1.5%'
+            OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable diffusion 1.5%'
+            OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                     COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable-diffusion-1.5%'
+            OR EXISTS (
+                SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                  AND (
+                      LOWER(CAST(value AS TEXT)) LIKE '%sd15%' OR
+                      LOWER(CAST(value AS TEXT)) LIKE '%sd1.5%' OR
+                      LOWER(CAST(value AS TEXT)) LIKE '%v1-5%' OR
+                      LOWER(CAST(value AS TEXT)) LIKE '%v1.5%' OR
+                      LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion 1.5%' OR
+                      LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-1.5%'
+                  )
+            )
+            OR (
+                json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                    WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                      AND (
+                          LOWER(CAST(value AS TEXT)) LIKE '%sd15%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%sd1.5%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%v1-5%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%v1.5%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion 1.5%' OR
+                          LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-1.5%'
+                      )
+                )
+            )
+        );
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_images_metadata_au AFTER UPDATE OF metadata_json ON images
+    BEGIN
+        DELETE FROM image_nodes WHERE image_id = OLD.id;
+        DELETE FROM image_model_families WHERE image_id = OLD.id;
+
+        INSERT OR IGNORE INTO image_nodes (image_id, node_type)
+        SELECT DISTINCT NEW.id, CAST(value AS TEXT)
+        FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+        WHERE NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+          AND key = 'class_type' AND type = 'text' AND TRIM(CAST(value AS TEXT)) != '';
+
+        INSERT OR IGNORE INTO image_nodes (image_id, node_type)
+        SELECT DISTINCT NEW.id, CAST(value AS TEXT)
+        FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+        WHERE NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+          AND json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+          AND key = 'class_type' AND type = 'text' AND TRIM(CAST(value AS TEXT)) != '';
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'flux'
+        WHERE NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+          AND (
+              LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%flux%'
+              OR EXISTS (
+                  SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                  WHERE (key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                     OR (key = 'class_type' AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+              )
+              OR (
+                  json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                      WHERE (key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                         OR (key = 'class_type' AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                  )
+              )
+          );
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'pony'
+        WHERE NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+          AND (
+              LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%pony%'
+              OR EXISTS (
+                  SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                  WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+              )
+              OR (
+                  json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                  )
+              )
+          );
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'sdxl'
+        WHERE NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+          AND (
+              (
+                  LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                        COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                        COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                        COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sdxl%'
+                  OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd_xl%'
+                  OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd-xl%'
+                  OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable diffusion xl%'
+                  OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable-diffusion-xl%'
+                  OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%xl%'
+                  OR EXISTS (
+                      SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                        AND (
+                            LOWER(CAST(value AS TEXT)) LIKE '%sdxl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd_xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd-xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%xl%'
+                        )
+                  )
+                  OR (
+                      json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                          WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                            AND (
+                                LOWER(CAST(value AS TEXT)) LIKE '%sdxl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%sd_xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%sd-xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%xl%'
+                            )
+                      )
+                  )
+              )
+              AND NOT (
+                  LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                        COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                        COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                        COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%pony%'
+                  OR EXISTS (
+                      SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                  )
+                  OR (
+                      json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                          WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                      )
+                  )
+              )
+          );
+
+        INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT NEW.id, 'sd15'
+        WHERE NEW.metadata_json IS NOT NULL AND json_valid(NEW.metadata_json) = 1
+          AND (
+              LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                    COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd15%'
+              OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd1.5%'
+              OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%v1-5%'
+              OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%v1.5%'
+              OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable diffusion 1.5%'
+              OR LOWER(COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(NEW.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable-diffusion-1.5%'
+              OR EXISTS (
+                  SELECT 1 FROM json_tree(NEW.metadata_json, '$.workflow.workflow_nodes')
+                  WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                    AND (
+                        LOWER(CAST(value AS TEXT)) LIKE '%sd15%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%sd1.5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%v1-5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%v1.5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion 1.5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-1.5%'
+                    )
+              )
+              OR (
+                  json_extract(NEW.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM json_tree(NEW.metadata_json, '$.prompt_api_json')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                        AND (
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd15%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd1.5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%v1-5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%v1.5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion 1.5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-1.5%'
+                        )
+                  )
+              )
+          );
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_images_metadata_ad AFTER DELETE ON images
+    BEGIN
+        DELETE FROM image_nodes WHERE image_id = OLD.id;
+        DELETE FROM image_model_families WHERE image_id = OLD.id;
+    END;
+"""
+
+
+def _backfill_metadata_indices(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        """SELECT 1 FROM images i
+        WHERE i.metadata_json IS NOT NULL
+          AND json_valid(i.metadata_json) = 1
+          AND NOT EXISTS (SELECT 1 FROM image_nodes WHERE image_id = i.id)
+          AND NOT EXISTS (SELECT 1 FROM image_model_families WHERE image_id = i.id)
+        LIMIT 1"""
+    ).fetchone()
+    if not row:
+        return
+
+    conn.execute(
+        """INSERT OR IGNORE INTO image_nodes (image_id, node_type)
+        SELECT DISTINCT i.id, CAST(value AS TEXT)
+        FROM images i, json_tree(i.metadata_json, '$.workflow.workflow_nodes')
+        WHERE i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+          AND key = 'class_type' AND type = 'text' AND TRIM(CAST(value AS TEXT)) != ''"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO image_nodes (image_id, node_type)
+        SELECT DISTINCT i.id, CAST(value AS TEXT)
+        FROM images i, json_tree(i.metadata_json, '$.prompt_api_json')
+        WHERE i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+          AND json_extract(i.metadata_json, '$.workflow.workflow_nodes') IS NULL
+          AND key = 'class_type' AND type = 'text' AND TRIM(CAST(value AS TEXT)) != ''"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT i.id, 'flux'
+        FROM images i
+        WHERE i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+          AND (
+              LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%flux%'
+              OR EXISTS (
+                  SELECT 1 FROM json_tree(i.metadata_json, '$.workflow.workflow_nodes')
+                  WHERE (key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                     OR (key = 'class_type' AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+              )
+              OR (
+                  json_extract(i.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM json_tree(i.metadata_json, '$.prompt_api_json')
+                      WHERE (key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                         OR (key = 'class_type' AND LOWER(CAST(value AS TEXT)) LIKE '%flux%')
+                  )
+              )
+          )"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT i.id, 'pony'
+        FROM images i
+        WHERE i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+          AND (
+              LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%pony%'
+              OR EXISTS (
+                  SELECT 1 FROM json_tree(i.metadata_json, '$.workflow.workflow_nodes')
+                  WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+              )
+              OR (
+                  json_extract(i.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM json_tree(i.metadata_json, '$.prompt_api_json')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                  )
+              )
+          )"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT i.id, 'sdxl'
+        FROM images i
+        WHERE i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+          AND (
+              (
+                  LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                        COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                        COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                        COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sdxl%'
+                  OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd_xl%'
+                  OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd-xl%'
+                  OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable diffusion xl%'
+                  OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable-diffusion-xl%'
+                  OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                           COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%xl%'
+                  OR EXISTS (
+                      SELECT 1 FROM json_tree(i.metadata_json, '$.workflow.workflow_nodes')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                        AND (
+                            LOWER(CAST(value AS TEXT)) LIKE '%sdxl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd_xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd-xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-xl%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%xl%'
+                        )
+                  )
+                  OR (
+                      json_extract(i.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM json_tree(i.metadata_json, '$.prompt_api_json')
+                          WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                            AND (
+                                LOWER(CAST(value AS TEXT)) LIKE '%sdxl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%sd_xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%sd-xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-xl%' OR
+                                LOWER(CAST(value AS TEXT)) LIKE '%xl%'
+                            )
+                      )
+                  )
+              )
+              AND NOT (
+                  LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                        COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                        COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                        COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%pony%'
+                  OR EXISTS (
+                      SELECT 1 FROM json_tree(i.metadata_json, '$.workflow.workflow_nodes')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                  )
+                  OR (
+                      json_extract(i.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM json_tree(i.metadata_json, '$.prompt_api_json')
+                          WHERE key IN ('ckpt_name', 'unet_name', 'model_name') AND LOWER(CAST(value AS TEXT)) LIKE '%pony%'
+                      )
+                  )
+              )
+          )"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO image_model_families (image_id, family)
+        SELECT i.id, 'sd15'
+        FROM images i
+        WHERE i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+          AND (
+              LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                    COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd15%'
+              OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%sd1.5%'
+              OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%v1-5%'
+              OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%v1.5%'
+              OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable diffusion 1.5%'
+              OR LOWER(COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.Model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.model'), '') || ' ' ||
+                       COALESCE(json_extract(i.metadata_json, '$.prompt_parameters.generation_settings.Model'), '')) LIKE '%stable-diffusion-1.5%'
+              OR EXISTS (
+                  SELECT 1 FROM json_tree(i.metadata_json, '$.workflow.workflow_nodes')
+                  WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                    AND (
+                        LOWER(CAST(value AS TEXT)) LIKE '%sd15%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%sd1.5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%v1-5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%v1.5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion 1.5%' OR
+                        LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-1.5%'
+                    )
+              )
+              OR (
+                  json_extract(i.metadata_json, '$.workflow.workflow_nodes') IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM json_tree(i.metadata_json, '$.prompt_api_json')
+                      WHERE key IN ('ckpt_name', 'unet_name', 'model_name')
+                        AND (
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd15%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%sd1.5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%v1-5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%v1.5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable diffusion 1.5%' OR
+                            LOWER(CAST(value AS TEXT)) LIKE '%stable-diffusion-1.5%'
+                        )
+                  )
+              )
+          )"""
+    )
+
+
+def _migrate_metadata_indexes(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS image_nodes (
+            image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+            node_type TEXT NOT NULL,
+            PRIMARY KEY (image_id, node_type)
+        )"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS image_model_families (
+            image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+            family TEXT NOT NULL,
+            PRIMARY KEY (image_id, family)
+        )"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_image_nodes_node_type
+        ON image_nodes(node_type COLLATE NOCASE, image_id)"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_image_model_families_family
+        ON image_model_families(family, image_id)"""
+    )
+    conn.executescript(_METADATA_TRIGGERS_SQL)
+    _backfill_metadata_indices(conn)
 
 
 def _migrate_asset_blobs_and_rudiments(conn: sqlite3.Connection) -> None:
@@ -683,6 +1331,7 @@ def init_db() -> None:
         _apply_data_migrations(conn)
         _migrate_rating_indexes(conn)
         _create_late_indexes(conn)
+        _migrate_metadata_indexes(conn)
         conn.commit()
     finally:
         conn.close()

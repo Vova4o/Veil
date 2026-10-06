@@ -534,6 +534,7 @@ class LibraryApiTest(LibraryTestCase):
         self.assertIn("padding-right: 34px", styles)
         self.assertIn('id="infinite-scroll-sentinel"', template)
         self.assertIn('id="library-model-filter"', template)
+        self.assertIn('<option value="sd15">SD 1.5</option>', template)
         self.assertIn('id="btn-library-guide"', template)
         self.assertIn('id="library-guide-dialog"', template)
         self.assertIn("Keyboard navigation", template)
@@ -721,6 +722,7 @@ class LibraryApiTest(LibraryTestCase):
             ("flux.png", "red"),
             ("pony.png", "blue"),
             ("sdxl.png", "green"),
+            ("sd15.png", "yellow"),
         ):
             self.make_image(name, color)
         result = self.index()
@@ -745,11 +747,18 @@ class LibraryApiTest(LibraryTestCase):
                     {"class_type": "SDXLRefiner", "inputs": {}}
                 ]}},
             },
+            "sd15.png": {
+                "prompt_parameters": {"model": "v1-5-pruned-emaonly.safetensors"},
+                "workflow": {"workflow_nodes": {"Sampler": [
+                    {"class_type": "KSampler", "inputs": {}}
+                ]}},
+            },
         }
         sizes = {
             "flux.png": (1280, 768),
             "pony.png": (768, 1280),
             "sdxl.png": (1024, 1024),
+            "sd15.png": (512, 512),
         }
         conn = db.get_conn()
         try:
@@ -774,6 +783,9 @@ class LibraryApiTest(LibraryTestCase):
         sdxl_assets = library.get_assets(model_family="sdxl")
         self.assertEqual(sdxl_assets["total"], 1)
         self.assertEqual(sdxl_assets["assets"][0]["file_name"], "sdxl.png")
+        sd15_assets = library.get_assets(model_family="sd15")
+        self.assertEqual(sd15_assets["total"], 1)
+        self.assertEqual(sd15_assets["assets"][0]["file_name"], "sd15.png")
         self.assertEqual(
             library.get_assets(orientation="portrait")["assets"][0]["file_name"],
             "pony.png",
@@ -782,12 +794,56 @@ class LibraryApiTest(LibraryTestCase):
             library.get_assets(node_type="SDXLRefiner")["assets"][0]["file_name"],
             "sdxl.png",
         )
+        self.assertEqual(
+            library.get_assets(node_type="KSampler")["assets"][0]["file_name"],
+            "sd15.png",
+        )
 
         filter_options = library.list_metadata_filters()
         self.assertEqual(
             set(filter_options["node_types"]),
-            {"FluxGuidance", "PonyDetailer", "SDXLRefiner"},
+            {"FluxGuidance", "PonyDetailer", "SDXLRefiner", "KSampler"},
         )
+
+        # Verify index tables are directly populated by triggers
+        conn = db.get_conn()
+        try:
+            flux_nodes = conn.execute(
+                "SELECT node_type FROM image_nodes WHERE image_id = ?",
+                (records["flux.png"]["id"],),
+            ).fetchall()
+            self.assertEqual([n["node_type"] for n in flux_nodes], ["FluxGuidance"])
+
+            flux_families = conn.execute(
+                "SELECT family FROM image_model_families WHERE image_id = ?",
+                (records["flux.png"]["id"],),
+            ).fetchall()
+            self.assertEqual([f["family"] for f in flux_families], ["flux"])
+
+            sd15_families = conn.execute(
+                "SELECT family FROM image_model_families WHERE image_id = ?",
+                (records["sd15.png"]["id"],),
+            ).fetchall()
+            self.assertEqual([f["family"] for f in sd15_families], ["sd15"])
+        finally:
+            conn.close()
+
+        # Verify delete cascade removes entries from image_nodes and image_model_families
+        db.delete_image(records["sd15.png"]["id"])
+        conn = db.get_conn()
+        try:
+            remaining_nodes = conn.execute(
+                "SELECT COUNT(*) as c FROM image_nodes WHERE image_id = ?",
+                (records["sd15.png"]["id"],),
+            ).fetchone()["c"]
+            remaining_families = conn.execute(
+                "SELECT COUNT(*) as c FROM image_model_families WHERE image_id = ?",
+                (records["sd15.png"]["id"],),
+            ).fetchone()["c"]
+            self.assertEqual(remaining_nodes, 0)
+            self.assertEqual(remaining_families, 0)
+        finally:
+            conn.close()
 
         client = app.test_client()
         combined = client.get(
@@ -849,6 +905,9 @@ class LibraryMigrationTest(unittest.TestCase):
                     created_at TEXT DEFAULT (datetime('now')),
                     UNIQUE(folder_id, rel_path)
                 );
+                INSERT INTO folders(id, path, name) VALUES (1, 'C:/test', 'test');
+                INSERT INTO images(id, folder_id, rel_path, file_name, metadata_json)
+                VALUES (1, 1, 'img.png', 'img.png', '{"workflow":{"workflow_nodes":{"S":[{"class_type":"KSampler"}]}},"prompt_parameters":{"model":"v1-5-pruned.safetensors"}}');
                 """
             )
             conn.close()
@@ -862,8 +921,12 @@ class LibraryMigrationTest(unittest.TestCase):
                         row["name"]
                         for row in connection.execute("PRAGMA table_info(images)").fetchall()
                     }
+                    backfilled_nodes = connection.execute("SELECT node_type FROM image_nodes WHERE image_id = 1").fetchall()
+                    backfilled_families = connection.execute("SELECT family FROM image_model_families WHERE image_id = 1").fetchall()
                 finally:
                     connection.close()
+                self.assertEqual([r["node_type"] for r in backfilled_nodes], ["KSampler"])
+                self.assertEqual([r["family"] for r in backfilled_families], ["sd15"])
                 self.assertTrue(
                     {
                         "content_fingerprint",

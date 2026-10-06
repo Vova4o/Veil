@@ -35,21 +35,25 @@ _MODEL_FAMILY_PATTERNS = {
         "%stable-diffusion-xl%",
         "%xl%",
     ),
+    "sd15": (
+        "%sd15%",
+        "%sd_15%",
+        "%sd-15%",
+        "%sd1.5%",
+        "%sd_1.5%",
+        "%sd-1.5%",
+        "%v1-5%",
+        "%v1.5%",
+        "%stable diffusion 1.5%",
+        "%stable-diffusion-1.5%",
+    ),
 }
 _ORIENTATION_CONDITIONS = {
     "landscape": "i.width > i.height",
     "portrait": "i.height > i.width",
     "square": "i.width = i.height AND i.width > 0",
 }
-_VALID_METADATA_SQL = (
-    "CASE WHEN json_valid(i.metadata_json) THEN i.metadata_json ELSE '{}' END"
-)
-_MODEL_TEXT_SQL = f"""LOWER(
-    COALESCE(CAST(json_extract({_VALID_METADATA_SQL}, '$.prompt_parameters.model') AS TEXT), '') || ' ' ||
-    COALESCE(CAST(json_extract({_VALID_METADATA_SQL}, '$.prompt_parameters.Model') AS TEXT), '') || ' ' ||
-    COALESCE(CAST(json_extract({_VALID_METADATA_SQL}, '$.prompt_parameters.generation_settings.model') AS TEXT), '') || ' ' ||
-    COALESCE(CAST(json_extract({_VALID_METADATA_SQL}, '$.prompt_parameters.generation_settings.Model') AS TEXT), '')
-)"""
+
 
 
 class LibraryError(RuntimeError):
@@ -117,44 +121,14 @@ def _clean_name(name: str) -> str:
 
 
 def _model_family_condition(model_family: str) -> tuple[str, list[str]]:
-    patterns = _MODEL_FAMILY_PATTERNS.get(model_family)
-    if patterns is None:
+    normalized = model_family.casefold()
+    if normalized not in _MODEL_FAMILY_PATTERNS:
         raise LibraryError("Unknown model family")
 
-    matches: list[str] = []
-    params: list[str] = []
-    for pattern in patterns:
-        matches.append(
-            f"""({_MODEL_TEXT_SQL} LIKE ? OR EXISTS (
-                SELECT 1
-                FROM json_tree({_VALID_METADATA_SQL}, '$.workflow.workflow_nodes') model_value
-                WHERE model_value.key IN ('ckpt_name', 'unet_name', 'model_name')
-                  AND LOWER(CAST(model_value.value AS TEXT)) LIKE ?
-            ))"""
-        )
-        params.extend((pattern, pattern))
-
-    if model_family == "flux":
-        matches.append(
-            f"""EXISTS (
-                SELECT 1
-                FROM json_tree({_VALID_METADATA_SQL}, '$.workflow.workflow_nodes') flux_node
-                WHERE flux_node.key = 'class_type'
-                  AND LOWER(CAST(flux_node.value AS TEXT)) LIKE '%flux%'
-            )"""
-        )
-    condition = f"({' OR '.join(matches)})"
-    if model_family == "sdxl":
-        condition = f"""({condition} AND NOT (
-            {_MODEL_TEXT_SQL} LIKE ? OR EXISTS (
-                SELECT 1
-                FROM json_tree({_VALID_METADATA_SQL}, '$.workflow.workflow_nodes') pony_model
-                WHERE pony_model.key IN ('ckpt_name', 'unet_name', 'model_name')
-                  AND LOWER(CAST(pony_model.value AS TEXT)) LIKE ?
-            )
-        ))"""
-        params.extend(("%pony%", "%pony%"))
-    return condition, params
+    return (
+        "EXISTS (SELECT 1 FROM image_model_families imf WHERE imf.image_id = i.id AND imf.family = ?)",
+        [normalized],
+    )
 
 
 def list_metadata_filters() -> dict[str, list[dict[str, str]] | list[str]]:
@@ -162,14 +136,8 @@ def list_metadata_filters() -> dict[str, list[dict[str, str]] | list[str]]:
     conn = db.get_conn()
     try:
         rows = conn.execute(
-            """SELECT DISTINCT CAST(node.value AS TEXT) AS node_type
-            FROM images i,
-                 json_tree(CASE WHEN json_valid(i.metadata_json) THEN i.metadata_json ELSE '{}' END, '$.workflow.workflow_nodes') node
-            WHERE i.media_type = 'image'
-              AND i.metadata_json IS NOT NULL
-              AND node.key = 'class_type'
-              AND node.type = 'text'
-              AND TRIM(CAST(node.value AS TEXT)) != ''
+            """SELECT DISTINCT node_type
+            FROM image_nodes
             ORDER BY node_type COLLATE NOCASE"""
         ).fetchall()
     finally:
@@ -180,6 +148,7 @@ def list_metadata_filters() -> dict[str, list[dict[str, str]] | list[str]]:
             {"id": "flux", "name": "Flux"},
             {"id": "pony", "name": "Pony"},
             {"id": "sdxl", "name": "SDXL"},
+            {"id": "sd15", "name": "SD 1.5"},
         ],
         "orientations": [
             {"id": "landscape", "name": "Landscape"},
@@ -1143,14 +1112,14 @@ def get_assets(
 
     if node_type and node_type.strip():
         conditions.append(
-            f"""EXISTS (
+            """EXISTS (
                 SELECT 1
-                FROM json_tree({_VALID_METADATA_SQL}, '$.workflow.workflow_nodes') selected_node
-                WHERE selected_node.key = 'class_type'
-                  AND LOWER(CAST(selected_node.value AS TEXT)) = ?
+                FROM image_nodes inod
+                WHERE inod.image_id = i.id
+                  AND inod.node_type = ? COLLATE NOCASE
             )"""
         )
-        params.append(node_type.strip().casefold())
+        params.append(node_type.strip())
 
     if asset_id is not None:
         conditions.append("i.id = ?")
