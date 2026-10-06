@@ -1,0 +1,215 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const source = fs.readFileSync(new URL('../app/static/js/features/simple-mode-v2.js', import.meta.url), 'utf8');
+
+function harness(available = [], delayed = []) {
+    const requests = [];
+    const pending = new Map();
+    const storage = () => {
+        const values = new Map();
+        return {
+            getItem: key => values.get(key) ?? null,
+            setItem: (key, value) => values.set(key, String(value)),
+            removeItem: key => values.delete(key),
+        };
+    };
+    const element = () => {
+        const classes = new Set();
+        return {
+            hidden: true, dataset: {}, style: { removeProperty() {} }, innerHTML: '',
+            classList: {
+                add: name => classes.add(name), remove: name => classes.delete(name),
+                contains: name => classes.has(name),
+            },
+            querySelectorAll: () => [],
+        };
+    };
+    const elements = new Map(['studio-layout', 'result', 'generating', 'ambient-a', 'ambient-b',
+        'ambient-backdrop-a', 'ambient-backdrop-b', 'result-thumbnails'].map(id => [id, element()]));
+    elements.get('studio-layout').dataset.view = 'idle';
+    const ambient = element();
+    const artwork = element();
+    const context = vm.createContext({
+        localStorage: storage(), sessionStorage: storage(),
+        document: {
+            readyState: 'loading', addEventListener() {}, getElementById: id => elements.get(id),
+            createElement: () => ({
+                textContent: '',
+                get innerHTML() { return this.textContent.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'); },
+            }),
+            querySelector: selector => selector === '.ambient-container' ? ambient
+                : selector === '.ambient-container.has-ambient' ? (ambient.classList.contains('has-ambient') ? ambient : null)
+                    : selector === '.canvas-artwork-wrap' ? artwork : null,
+        },
+        Image: class {
+            set src(url) {
+                requests.push(url);
+                const settle = () => {
+                    this.naturalWidth = available.includes(url) ? 100 : 0;
+                    if (this.naturalWidth) this.onload?.(); else this.onerror?.();
+                };
+                if (delayed.includes(url)) pending.set(url, settle); else queueMicrotask(settle);
+            }
+        },
+        setInterval: () => 1, clearInterval() {}, requestAnimationFrame() {},
+    });
+    vm.runInContext(source, context);
+    // Keep layout measurement out of this image-loading integration seam.
+    vm.runInContext(`resizePrompt = () => {}; syncCanvasAspect = () => {};`, context);
+    return {
+        context, elements, ambient, artwork, requests, pending,
+        run: code => vm.runInContext(code, context),
+        cache(outputs) {
+            context.localStorage.setItem('cmv_simple_last_result', JSON.stringify({ data: { outputs } }));
+        },
+    };
+}
+
+test('a missing saved result is cleared without displaying a broken image', async () => {
+    const h = harness();
+    h.cache([{ preview_url: '/missing', thumbnail_url: '/missing-thumb' }]);
+    await h.run('restoreLastResult()');
+    assert.equal(h.elements.get('studio-layout').dataset.view, 'idle');
+    assert.equal(h.elements.get('result').hidden, true);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_last_result'), null);
+    assert.equal(h.run('state.last'), null);
+});
+
+test('a missing saved background falls through to a working library image', async () => {
+    const h = harness(['/working']);
+    h.context.localStorage.setItem('cmv_simple_ambient_last', '/missing');
+    h.context.localStorage.setItem('cmv_simple_ambient_items', JSON.stringify([{ id: 2, preview_url: '/working' }]));
+    await h.run('hydrateAmbient()');
+    assert.equal(h.ambient.classList.contains('has-ambient'), true);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/working');
+    assert.match(h.elements.get('ambient-b').style.backgroundImage, /working/);
+});
+
+test('background selection skips unavailable items and uses the thumbnail fallback', async () => {
+    const h = harness(['/thumb']);
+    h.run(`state.ambient = [
+        {id: 1, original_url: '/gone', preview_url: '/gone-preview'},
+        {id: 2, original_url: '/original', preview_url: '/preview', thumbnail_url: '/thumb'}
+    ]; state.ambientDeck = [...state.ambient];`);
+    await h.run('ambientPick()');
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/thumb');
+    assert.equal(h.run('state.ambientCurrent'), 2);
+});
+
+test('restoration retains available results and removes missing batch entries', async () => {
+    const h = harness(['/thumb']);
+    h.cache([{ id: 1, preview_url: '/gone' }, { id: 2, preview_url: '/preview', thumbnail_url: '/thumb' }]);
+    await h.run('restoreLastResult()');
+    assert.equal(h.elements.get('studio-layout').dataset.view, 'result');
+    assert.equal(h.run('state.last.id'), 2);
+    assert.equal(h.run('state.lastOutputs.length'), 1);
+    assert.match(h.artwork.innerHTML, /src="\/thumb"/);
+    assert.equal(JSON.parse(h.context.localStorage.getItem('cmv_simple_last_result')).data.outputs.length, 1);
+});
+
+test('a late restored result cannot replace a new generation', async () => {
+    const h = harness(['/slow'], ['/slow']);
+    h.cache([{ preview_url: '/slow' }]);
+    const restored = h.run('restoreLastResult()');
+    h.run("clearLastResult(); canvas('generating');");
+    h.pending.get('/slow')?.();
+    await restored;
+    assert.equal(h.elements.get('studio-layout').dataset.view, 'generating');
+    assert.equal(h.run('state.last'), null);
+});
+
+test('an earlier slow background cannot overwrite the latest selection', async () => {
+    const h = harness(['/slow', '/fast'], ['/slow']);
+    const old = h.run("setAmbient('/slow')");
+    await h.run("setAmbient('/fast')");
+    h.pending.get('/slow')?.();
+    await old;
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/fast');
+});
+
+test('an exhausted background pool keeps the neutral fallback and stops retrying', async () => {
+    const h = harness();
+    h.run("state.ambient = [{id: 1, preview_url: '/gone'}]; state.ambientDeck = [...state.ambient];");
+    await h.run('ambientPick()');
+    assert.equal(h.ambient.classList.contains('has-ambient'), false);
+    assert.equal(h.run('state.ambient.length'), 0);
+    assert.equal(h.requests.length, 1);
+});
+
+test('restoring a session result migrates its surviving entries to local storage', async () => {
+    const h = harness(['/good']);
+    h.context.sessionStorage.setItem('cmv_simple_last_result', JSON.stringify({ outputs: [{preview_url: '/gone'}, {preview_url: '/good'}] }));
+    await h.run('restoreLastResult()');
+    assert.equal(h.context.sessionStorage.getItem('cmv_simple_last_result'), null);
+    const cached = JSON.parse(h.context.localStorage.getItem('cmv_simple_last_result')).data;
+    assert.equal(cached.outputs.length, 1);
+    assert.equal(cached.outputs[0].preview_url, '/good');
+});
+
+test('an authoritative empty library never restores old cached backgrounds', async () => {
+    const h = harness(['/old']);
+    h.elements.set('simple-ambient-initial', { textContent: '[]' });
+    h.context.localStorage.setItem('cmv_simple_ambient_last', '/old');
+    h.context.localStorage.setItem('cmv_simple_ambient_items', JSON.stringify([{id: 1, preview_url: '/old'}]));
+    await h.run('hydrateAmbient()');
+    assert.equal(h.ambient.classList.contains('has-ambient'), false);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), null);
+});
+
+test('removing the last library image clears the visible background and pending loads', async () => {
+    const h = harness(['/old', '/slow'], ['/slow']);
+    await h.run("setAmbient('/old')");
+    const pending = h.run("setAmbient('/slow')");
+    h.context.fetch = async () => ({ok: true, json: async () => ({items: []})});
+    await h.run('loadAmbient()');
+    h.pending.get('/slow')();
+    await pending;
+    assert.equal(h.ambient.classList.contains('has-ambient'), false);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), null);
+    assert.equal(h.elements.get('ambient-b').style.backgroundImage, '');
+});
+
+test('generation results do not replace the background chosen from library sources', async () => {
+    const h = harness(['/library', '/generated']);
+    await h.run("setAmbient('/library')");
+    await h.run("renderResult([{preview_url: '/generated'}])");
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/library');
+});
+
+test('source changes refresh the ambient pool through the existing folder event stream', async () => {
+    const h = harness(['/new']);
+    let events;
+    let refreshes = 0;
+    h.context.EventSource = class {
+        constructor(url) { assert.equal(url, '/api/folders/events'); events = this; }
+    };
+    h.context.fetch = async () => {
+        refreshes += 1;
+        return {ok: true, json: async () => ({items: [{id: 2, preview_url: '/new'}]})};
+    };
+    h.run('watchAmbientSources()');
+    events.onmessage({data: JSON.stringify({})});
+    events.onmessage({data: JSON.stringify({2: {image_count: 1, enabled: true, source_status: 'available', revision: 0}})});
+    await new Promise(setImmediate);
+    assert.ok(refreshes > 0);
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/new');
+    const settled = refreshes;
+    events.onmessage({data: JSON.stringify({2: {image_count: 1, enabled: true, source_status: 'available', revision: 0}})});
+    await new Promise(setImmediate);
+    assert.equal(refreshes, settled);
+});
+
+test('a source refresh cancels a pending image outside the new pool', async () => {
+    const h = harness(['/current', '/removed'], ['/removed']);
+    await h.run("setAmbient({id: 1, preview_url: '/current'})");
+    const pending = h.run("setAmbient({id: 2, preview_url: '/removed'})");
+    h.context.fetch = async () => ({ok: true, json: async () => ({items: [{id: 1, preview_url: '/current'}]})});
+    await h.run('loadAmbient()');
+    h.pending.get('/removed')();
+    await pending;
+    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/current');
+});

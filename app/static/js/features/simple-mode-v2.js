@@ -21,6 +21,8 @@ const state = {
     ambientHistory: [],
     ambientCurrent: null,
     ambientLoadingMore: false,
+    ambientRequest: 0,
+    ambientPoolRequest: 0,
     fit: 'cover',
     layer: 0,
     timer: null,
@@ -34,6 +36,7 @@ const state = {
     last: null,
     lastOutputs: [],
     selectedResultIndex: 0,
+    resultRequest: 0,
     history: [],
     downloads: [],
     downloadPoll: null,
@@ -69,24 +72,33 @@ function setCachedJson(key, data, isLocal = false) {
 
 function initialAmbient() {
     try {
-        const embedded = JSON.parse($('simple-ambient-initial')?.textContent || '[]');
-        if (Array.isArray(embedded) && embedded.length) return embedded;
+        const node = $('simple-ambient-initial');
+        const embedded = node ? JSON.parse(node.textContent) : null;
+        if (Array.isArray(embedded)) return embedded;
     } catch {}
     const cached = getCachedJson('cmv_simple_ambient_items', 30 * 60 * 1000);
     return Array.isArray(cached) ? cached : [];
 }
 
-function hydrateAmbient() {
-    const last = localStorage.getItem('cmv_simple_ambient_last');
-    if (last) {
-        state.ambientCurrent = last;
-        state.ambientHistory.push(last);
-        applyAmbient(last);
-    }
+async function hydrateAmbient() {
     state.ambient = initialAmbient();
     refillAmbientDeck();
-    if (!last && state.ambient.length) {
-        ambientPick();
+    if (!state.ambient.length) { resetAmbient(); return; }
+    let last = null;
+    try { last = localStorage.getItem('cmv_simple_ambient_last'); } catch {}
+    const previous = state.ambient.find(item => typeof item === 'string' ? item === last
+        : [item.original_url, item.preview_url, item.thumbnail_url].includes(last));
+    if (last && previous) {
+        const loaded = await setAmbient(previous);
+        if (loaded === null) return; // A newer selection owns the background now.
+        if (!loaded) {
+            try { localStorage.removeItem('cmv_simple_ambient_last'); } catch {}
+        }
+    } else if (last) {
+        try { localStorage.removeItem('cmv_simple_ambient_last'); } catch {}
+    }
+    if (!document.querySelector('.ambient-container.has-ambient') && state.ambient.length) {
+        await ambientPick();
     }
     preloadAmbientPool();
 }
@@ -164,14 +176,63 @@ function restoreLastResult() {
     const outputs = Array.isArray(cached?.outputs)
         ? cached.outputs
         : (cached ? [cached] : []);
-    renderResult(outputs, false);
+    return renderResult(outputs, false);
 }
 
 function clearLastResult() {
+    state.resultRequest += 1;
     state.last = null;
     state.lastOutputs = [];
     state.selectedResultIndex = 0;
     try { localStorage.removeItem('cmv_simple_last_result'); } catch {}
+    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
+}
+
+// Resolve an actual decodable image before exposing it in the result or background.
+function loadImageUrl(item, preferOriginal = false) {
+    const candidates = typeof item === 'string' ? [item]
+        : (preferOriginal
+            ? [item?.original_url, item?.preview_url, item?.thumbnail_url]
+            : [item?.preview_url, item?.thumbnail_url, item?.original_url]);
+    const urls = [...new Set(candidates.filter(url => typeof url === 'string' && url))];
+    return new Promise(resolve => {
+        function next() {
+            const url = urls.shift();
+            if (!url) { resolve(null); return; }
+            const image = new Image();
+            image.onload = () => image.naturalWidth > 0 ? resolve(url) : next();
+            image.onerror = next;
+            image.src = url;
+        }
+        next();
+    });
+}
+
+function ambientKey(item) {
+    return typeof item === 'string' ? item : item?.id || item?.preview_url || item?.original_url || item?.thumbnail_url;
+}
+
+function resetAmbient() {
+    state.ambientRequest += 1;
+    state.ambient = [];
+    state.ambientDeck = [];
+    state.ambientHistory = [];
+    state.ambientCurrent = null;
+    state.layer = 0;
+    document.querySelector('.ambient-container')?.classList.remove('has-ambient');
+    for (const id of ['ambient-a', 'ambient-b', 'ambient-backdrop-a', 'ambient-backdrop-b']) {
+        const layer = $(id);
+        if (layer) {
+            layer.style.backgroundImage = '';
+            layer.classList.remove('active');
+        }
+    }
+    try {
+        localStorage.removeItem('cmv_simple_ambient_last');
+        localStorage.removeItem('cmv_simple_ambient_items');
+    } catch {}
+    try { sessionStorage.removeItem('cmv_simple_ambient_items'); } catch {}
+    restartAmbientTimer();
 }
 
 function openResultFullscreen(startIndex = 0) {
@@ -403,6 +464,7 @@ function init() {
     loadHealth();
     loadDownloads();
     loadAmbient();
+    watchAmbientSources();
     loadAi();
     loadRuntimeSummary();
     refreshCatalog();
@@ -690,15 +752,15 @@ function refillAmbientDeck() {
         return;
     }
     const recentSet = new Set(state.ambientHistory);
-    const unseen = state.ambient.filter(item => !recentSet.has(item.id || item));
-    const seen = state.ambient.filter(item => recentSet.has(item.id || item));
+    const unseen = state.ambient.filter(item => !recentSet.has(ambientKey(item)));
+    const seen = state.ambient.filter(item => recentSet.has(ambientKey(item)));
 
     const shuffledUnseen = shuffleArray(unseen);
     const shuffledSeen = shuffleArray(seen);
     const newDeck = [...shuffledUnseen, ...shuffledSeen];
 
     // Avoid immediate repeat with currently shown image
-    if (newDeck.length > 1 && (newDeck[0]?.id || newDeck[0]) === state.ambientCurrent) {
+    if (newDeck.length > 1 && ambientKey(newDeck[0]) === state.ambientCurrent) {
         const first = newDeck.shift();
         newDeck.push(first);
     }
@@ -708,9 +770,12 @@ function refillAmbientDeck() {
 async function loadMoreAmbient() {
     if (state.ambientLoadingMore) return;
     state.ambientLoadingMore = true;
+    const request = state.ambientPoolRequest;
     try {
         const data = await json('/api/simple/ambient?limit=72');
+        if (request !== state.ambientPoolRequest) return;
         const items = Array.isArray(data.items) ? data.items : [];
+        if (!items.length) { resetAmbient(); return; }
         if (items.length) {
             const existingIds = new Set(state.ambient.map(it => it.id || it));
             const newItems = items.filter(it => !existingIds.has(it.id || it));
@@ -727,45 +792,63 @@ async function loadMoreAmbient() {
 }
 
 async function loadAmbient() {
+    const request = ++state.ambientPoolRequest;
     try {
         const data = await json('/api/simple/ambient?limit=72');
+        if (request !== state.ambientPoolRequest) return;
         const items = Array.isArray(data.items) ? data.items : [];
+        if (!items.length) { resetAmbient(); return; }
         if (items.length) {
+            state.ambientRequest += 1;
             state.ambient = items;
             setCachedJson('cmv_simple_ambient_items', items, true);
             refillAmbientDeck();
             preloadAmbientPool();
-            if (!document.querySelector('.ambient-container.has-ambient')) {
-                ambientPick();
+            if (!document.querySelector('.ambient-container.has-ambient')
+                || !items.some(item => ambientKey(item) === state.ambientCurrent)) {
+                await ambientPick();
             }
             restartAmbientTimer();
         }
     } catch {}
 }
 
-function ambientPick(resetTimer = true) {
+function watchAmbientSources() {
+    const events = new EventSource('/api/folders/events');
+    let previous = null;
+    events.onmessage = event => {
+        try {
+            const sources = JSON.parse(event.data);
+            const signature = JSON.stringify(Object.entries(sources).map(([id, source]) =>
+                [id, source.image_count, source.enabled, source.source_status, source.revision]));
+            if (previous !== null && signature !== previous) loadAmbient();
+            previous = signature;
+        } catch {}
+    };
+}
+
+async function ambientPick(resetTimer = true) {
     if (!state.ambient.length) return;
     if (!state.ambientDeck.length) {
         refillAmbientDeck();
     }
-    let nextItem = state.ambientDeck.shift();
-    if (!nextItem) return;
-
-    // Check if nextItem matches current active image
-    const nextKey = nextItem.id || (typeof nextItem === 'string' ? nextItem : nextItem.preview_url);
-    if (nextKey === state.ambientCurrent && state.ambientDeck.length > 0) {
-        const alt = state.ambientDeck.shift();
-        state.ambientDeck.push(nextItem);
-        nextItem = alt;
+    // Try each candidate at most once; a missing source must not stop the slideshow.
+    const attempts = state.ambientDeck.length;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        let nextItem = state.ambientDeck.shift();
+        if (!nextItem) break;
+        if (ambientKey(nextItem) === state.ambientCurrent && state.ambientDeck.length > 0) {
+            const alt = state.ambientDeck.shift();
+            state.ambientDeck.push(nextItem);
+            nextItem = alt;
+        }
+        // Failover is sequential so only the first working candidate is downloaded/applied.
+        // eslint-disable-next-line no-await-in-loop, no-restricted-syntax
+        const loaded = await setAmbient(nextItem);
+        if (loaded === null) return;
+        if (loaded) break;
+        state.ambient = state.ambient.filter(item => ambientKey(item) !== ambientKey(nextItem));
     }
-
-    state.ambientCurrent = nextItem.id || (typeof nextItem === 'string' ? nextItem : nextItem.preview_url);
-    state.ambientHistory.push(state.ambientCurrent);
-    if (state.ambientHistory.length > 30) {
-        state.ambientHistory.shift();
-    }
-
-    setAmbient(nextItem);
     preloadAmbientPool();
 
     if (resetTimer) {
@@ -788,20 +871,16 @@ function preloadAmbientPool() {
     }
 }
 
-function setAmbient(item) {
-    const primary = typeof item === 'string' ? item : item?.original_url || item?.preview_url;
-    const fallback = typeof item === 'object' ? item?.preview_url || item?.thumbnail_url : null;
-    if (!primary) return;
-    const image = new Image();
-    image.onload = () => applyAmbient(primary);
-    image.onerror = () => {
-        if (fallback && fallback !== primary) {
-            const alt = new Image();
-            alt.onload = () => applyAmbient(fallback);
-            alt.src = fallback;
-        }
-    };
-    image.src = primary;
+async function setAmbient(item) {
+    const request = ++state.ambientRequest;
+    const url = await loadImageUrl(item, true);
+    if (request !== state.ambientRequest) return null;
+    if (!url) return false;
+    applyAmbient(url);
+    state.ambientCurrent = ambientKey(item);
+    state.ambientHistory.push(state.ambientCurrent);
+    if (state.ambientHistory.length > 30) state.ambientHistory.shift();
+    return true;
 }
 
 function applyAmbient(url) {
@@ -1151,6 +1230,7 @@ async function create() {
         : visiblePrompt;
     if (!prompt && !state.ref) return error('Nothing to create', 'Describe an idea or add an image reference.');
     hideError();
+    clearLastResult();
     canvas('generating');
     state.generationProgress = 5;
     createButton(true, 5, 'Starting…');
@@ -1273,16 +1353,22 @@ function playSuccessChime() {
 }
 
 function showResult(outputs) {
-    renderResult(outputs, true);
+    return renderResult(outputs, true);
 }
 
-function renderResult(outputs, persist = false) {
-    const validOutputs = (Array.isArray(outputs) ? outputs : []).filter(output => {
-        const url = output?.preview_url || output?.thumbnail_url;
-        return output && typeof url === 'string' && url;
-    });
+async function renderResult(outputs, persist = false) {
+    const request = ++state.resultRequest;
+    const loaded = await Promise.all((Array.isArray(outputs) ? outputs : []).map(async output => {
+        if (!output || typeof output !== 'object') return null;
+        const url = await loadImageUrl(output);
+        return url ? { ...output, preview_url: url, thumbnail_url: url } : null;
+    }));
+    if (request !== state.resultRequest) return;
+    const validOutputs = loaded.filter(Boolean);
     const first = validOutputs[0];
     if (!first) {
+        clearLastResult();
+        canvas('idle');
         if (persist) error('Result not found', 'Generation finished without an available image.');
         return;
     }
@@ -1293,9 +1379,9 @@ function renderResult(outputs, persist = false) {
 
     updateResultView();
 
-    if (persist) setCachedJson('cmv_simple_last_result', { outputs: validOutputs, ratio: state.ratio }, true);
+    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
+    setCachedJson('cmv_simple_last_result', { outputs: validOutputs, ratio: state.ratio }, true);
     canvas('result');
-    setAmbient(first.preview_url || first.thumbnail_url);
     if (persist && state.sound) playSuccessChime();
 }
 
@@ -1357,7 +1443,6 @@ function selectResultIndex(index) {
         });
     }
 
-    setAmbient(url);
 }
 
 function canvas(view) {
