@@ -169,9 +169,76 @@
 
 .gallery-delete {
     position: absolute;
-    top: 9px;
-    right: 9px;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    opacity: 0;
+    pointer-events: none;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    color: var(--text-muted);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    cursor: pointer;
+    transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.gallery-card:hover .gallery-delete,
+.gallery-card:focus-within .gallery-delete {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.gallery-delete:hover {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+    transform: scale(1.08);
+}
+
+/* Badges on gallery card (Rating & Media type) */
+.gallery-card-badges {
+    position: absolute;
+    top: 8px;
+    left: 8px;
     z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    pointer-events: none;
+}
+
+.gallery-rating-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(15, 23, 42, 0.78);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    color: #fbbf24;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.gallery-rating-badge svg {
+    color: #fbbf24;
+    filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.5));
+}
+
+.gallery-card-badges .media-type-badge {
+    position: static;
 }
 
 /* Skeleton in gallery grid */

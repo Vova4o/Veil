@@ -61,10 +61,34 @@
     min-height: 32px;
     height: 32px;
     padding-top: 6px;
-    padding-right: 40px;
+    padding-right: 64px;
     padding-bottom: 6px;
     background-color: color-mix(in srgb, var(--bg) 84%, var(--surface));
     font-size: 12px;
+}
+
+.viewer-search-clear {
+    position: absolute;
+    top: 50%;
+    right: 33px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.viewer-search-clear:hover {
+    background: var(--surface2);
+    color: var(--text);
 }
 
 .viewer-search-settings {

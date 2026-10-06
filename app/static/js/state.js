@@ -54,6 +54,7 @@ export const dom = {
     albumsSortBtn: document.getElementById('viewer-albums-sort-btn'),
     albumsSortDropdown: document.getElementById('viewer-albums-sort-dropdown-menu'),
     searchInput: document.getElementById('search-input'),
+    searchClearBtn: document.getElementById('search-clear-btn'),
     searchSettingsBtn: document.getElementById('search-settings-btn'),
     searchSettingsDropdown: document.getElementById('search-settings-dropdown'),
     ratingFilterBtn: document.getElementById('viewer-rating-filter-btn'),

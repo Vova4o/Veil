@@ -14,6 +14,15 @@ export function initSearch() {
     dom.searchInput.addEventListener('input', onSearch);
     dom.searchInput.addEventListener('keydown', onKeydown);
 
+    if (dom.searchClearBtn) {
+        dom.searchClearBtn.addEventListener('click', () => {
+            dom.searchInput.value = '';
+            dom.searchClearBtn.hidden = true;
+            dom.searchInput.focus();
+            onSearch({ target: dom.searchInput });
+        });
+    }
+
     if (dom.searchSettingsBtn && dom.searchSettingsDropdown) {
         const setSettingsVisible = visible => {
             dom.searchSettingsDropdown.style.display = visible ? 'flex' : 'none';
@@ -114,6 +123,9 @@ function getMatchPredicate(query) {
 }
 
 function onSearch(event) {
+    if (dom.searchClearBtn) {
+        dom.searchClearBtn.hidden = !event.target.value;
+    }
     const predicate = getMatchPredicate(event.target.value.trim());
 
     document.querySelectorAll('.gallery-card').forEach(card => {
@@ -130,12 +142,16 @@ function onSearch(event) {
 function onKeydown(event) {
     if (event.key !== 'Escape') return;
     event.target.value = '';
+    if (dom.searchClearBtn) dom.searchClearBtn.hidden = true;
     onSearch({ target: event.target });
     event.target.blur();
 }
 
 export function applySearchFilter() {
-    if (dom.searchInput) onSearch({ target: dom.searchInput });
+    if (dom.searchInput) {
+        if (dom.searchClearBtn) dom.searchClearBtn.hidden = !dom.searchInput.value;
+        onSearch({ target: dom.searchInput });
+    }
 }
 
 export function refreshSearchIndex() {

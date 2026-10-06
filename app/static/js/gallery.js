@@ -94,6 +94,16 @@ function galleryCardHtml(img, index) {
             <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="m9 7 8 5-8 5z"></path></svg>
         </span>`
         : '';
+    const ratingNum = Number(img.rating) || 0;
+    const ratingBadge = ratingNum > 0
+        ? `<span class="gallery-rating-badge" title="Rating: ${ratingNum} ★" aria-label="${ratingNum} stars">
+            <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"></path></svg>
+            <span>${ratingNum}</span>
+        </span>`
+        : '';
+    const badgesHtml = (ratingBadge || mediaBadge)
+        ? `<div class="gallery-card-badges">${ratingBadge}${mediaBadge}</div>`
+        : '';
 
     return `
         <div class="gallery-card${isActive}" data-index="${index}" data-image-id="${img.id ?? ''}">
@@ -101,7 +111,7 @@ function galleryCardHtml(img, index) {
                 ${videoPlaceholder}
                 <img src="${src}" alt="${escapeHtml(fileName)}" loading="lazy" decoding="async" draggable="false"${imgStyle} onerror="if(this.dataset.mediaType==='video'){this.hidden=true;}" data-media-type="${isVideo ? 'video' : 'image'}">
                 ${videoPlayOverlay}
-                ${mediaBadge}
+                ${badgesHtml}
             </div>
             <button class="image-delete-btn gallery-delete" data-index="${index}" title="${removeLabel}" aria-label="${removeLabel}: ${escapeHtml(fileName)}">
                 <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
