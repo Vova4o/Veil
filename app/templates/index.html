@@ -254,6 +254,7 @@
             <div class="viewer-context-collection" title="Current collection">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 7h8M8 11h8M8 15h5"></path></svg>
                 <span id="viewer-collection-name">Gallery</span>
+                <span id="viewer-collection-count" class="viewer-count-badge" aria-label="Collection item count"></span>
             </div>
             <div class="viewer-context-search">
                 <input type="text" class="search-input" id="search-input" placeholder="Search metadata... (Ctrl+F)">
@@ -308,6 +309,11 @@
                 <div class="view-toggle context-view-toggle" aria-label="Viewer layout">
                     <button id="btn-view-list" title="Details view" aria-label="Details view"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg><span>Details</span></button>
                     <button id="btn-view-gallery" class="active" title="Gallery view" aria-label="Gallery view"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg><span>Gallery</span></button>
+                </div>
+                <div class="view-toggle context-density-toggle" id="gallery-density-toggle" role="group" aria-label="Grid size">
+                    <button type="button" data-density="sm" title="Compact cards (150px)" aria-label="Compact cards">S</button>
+                    <button type="button" data-density="md" class="active" title="Medium cards (220px)" aria-label="Medium cards">M</button>
+                    <button type="button" data-density="lg" title="Large cards (360px)" aria-label="Large cards">L</button>
                 </div>
                 <div class="sort-container viewer-sort-container">
                     <button class="context-sort-button" id="sort-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sort-dropdown-menu">

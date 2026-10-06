@@ -127,10 +127,15 @@ function reconcileSidebarItems() {
 }
 
 export function updateSidebarImageCount() {
-    if (!dom.imageCount) return;
     const loadedCount = Math.max(images.length, sidebarImages.length);
     const totalCount = totalImages || sidebarTotalImages;
-    dom.imageCount.textContent = formatMediaCountLabel(loadedCount, totalCount);
+    const label = formatMediaCountLabel(loadedCount, totalCount);
+    if (dom.imageCount) dom.imageCount.textContent = label;
+    if (dom.viewerCollectionCount) {
+        const count = totalCount || loadedCount;
+        dom.viewerCollectionCount.textContent = count ? count.toLocaleString() : '';
+        dom.viewerCollectionCount.title = label;
+    }
 }
 
 export function renderSidebar({ reconcile = false } = {}) {

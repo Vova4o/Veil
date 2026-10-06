@@ -6,13 +6,64 @@
 */
 
 .gallery-masonry {
+    --gallery-col-min: 220px;
+    --gallery-gap: 14px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--gallery-col-min), 1fr));
     grid-auto-rows: 10px;
-    gap: 14px;
+    gap: var(--gallery-gap);
     align-items: start;
     width: 100%;
     box-sizing: border-box;
+    transition: gap var(--transition);
+}
+
+.gallery-masonry[data-density="sm"] {
+    --gallery-col-min: 150px;
+    --gallery-gap: 10px;
+}
+
+.gallery-masonry[data-density="md"] {
+    --gallery-col-min: 220px;
+    --gallery-gap: 14px;
+}
+
+.gallery-masonry[data-density="lg"] {
+    --gallery-col-min: 360px;
+    --gallery-gap: 18px;
+}
+
+/* Density-specific card scaling */
+.gallery-masonry[data-density="sm"] .gallery-card .card-info {
+    padding: 24px 8px 8px;
+}
+
+.gallery-masonry[data-density="sm"] .gallery-card .card-name {
+    font-size: 11px;
+}
+
+.gallery-masonry[data-density="sm"] .gallery-card .card-meta {
+    font-size: 9px;
+}
+
+.gallery-masonry[data-density="sm"] .gallery-delete {
+    width: 24px;
+    height: 24px;
+    top: 5px;
+    right: 5px;
+}
+
+.gallery-masonry[data-density="sm"] .gallery-card-badges {
+    top: 5px;
+    left: 5px;
+}
+
+.gallery-masonry[data-density="lg"] .gallery-card .card-name {
+    font-size: 14px;
+}
+
+.gallery-masonry[data-density="lg"] .gallery-card .card-meta {
+    font-size: 11px;
 }
 
 .gallery-card {

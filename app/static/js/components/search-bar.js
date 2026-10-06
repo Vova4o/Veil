@@ -3,7 +3,7 @@
  * gallery and the global Media sidebar.
  */
 
-import { images, sidebarImages, searchSettings, saveState, dom } from '../state.js';
+import { images, sidebarImages, searchSettings, saveState, dom, totalImages } from '../state.js';
 
 export let currentSearchTerms = [];
 export let isExactMatch = false;
@@ -126,17 +126,31 @@ function onSearch(event) {
     if (dom.searchClearBtn) {
         dom.searchClearBtn.hidden = !event.target.value;
     }
-    const predicate = getMatchPredicate(event.target.value.trim());
+    const rawVal = event.target.value || '';
+    const query = rawVal.trim();
+    const predicate = getMatchPredicate(query);
+    let matchCount = 0;
 
     document.querySelectorAll('.gallery-card').forEach(card => {
         const index = Number.parseInt(card.dataset.index, 10);
-        card.style.display = images[index] && predicate(images[index]) ? '' : 'none';
+        const match = Boolean(images[index] && predicate(images[index]));
+        card.style.display = match ? '' : 'none';
+        if (match) matchCount++;
     });
 
     document.querySelectorAll('.image-item').forEach(item => {
         const index = Number.parseInt(item.dataset.index, 10);
         item.style.display = sidebarImages[index] && predicate(sidebarImages[index]) ? '' : 'none';
     });
+
+    if (dom.viewerCollectionCount) {
+        if (query) {
+            dom.viewerCollectionCount.textContent = `${matchCount.toLocaleString()} / ${images.length.toLocaleString()}`;
+        } else {
+            const total = totalImages || images.length;
+            dom.viewerCollectionCount.textContent = total ? total.toLocaleString() : '';
+        }
+    }
 }
 
 function onKeydown(event) {

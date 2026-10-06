@@ -201,6 +201,13 @@ export function initEvents() {
     dom.btnViewList.addEventListener('click', () => setViewMode('list'));
     dom.btnViewGallery.addEventListener('click', () => setViewMode('gallery'));
 
+    dom.galleryDensityToggle?.querySelectorAll('button[data-density]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const { setGalleryDensity } = await import('./gallery.js');
+            setGalleryDensity(btn.dataset.density);
+        });
+    });
+
 
     dom.btnResetIndex?.addEventListener('click', () => performReset({
         factoryReset: false,
@@ -297,6 +304,7 @@ export function setViewMode(mode, { render = true, persist = true } = {}) {
     dom.btnViewList.classList.toggle('active', normalized === 'list');
     dom.btnViewGallery.classList.toggle('active', normalized === 'gallery');
     dom.btnViewUpload?.classList.toggle('active', normalized === 'upload');
+    dom.galleryDensityToggle?.classList.toggle('hidden', normalized !== 'gallery');
     syncViewerContext();
     if (persist) saveState();
     if (render) renderCurrentContent();

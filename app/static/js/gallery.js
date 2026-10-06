@@ -31,6 +31,38 @@ async function fetchJson(url, options) {
     return data;
 }
 
+export let galleryDensity = 'md';
+try {
+    const stored = localStorage.getItem('cmv_gallery_density');
+    if (['sm', 'md', 'lg'].includes(stored)) galleryDensity = stored;
+} catch {
+    // Storage can be unavailable in restricted environments
+}
+
+export function syncGalleryDensityUI() {
+    const toggle = dom.galleryDensityToggle;
+    if (!toggle) return;
+    toggle.querySelectorAll('button[data-density]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.density === galleryDensity);
+    });
+}
+
+export function setGalleryDensity(density) {
+    const valid = ['sm', 'md', 'lg'].includes(density) ? density : 'md';
+    galleryDensity = valid;
+    try {
+        localStorage.setItem('cmv_gallery_density', valid);
+    } catch {
+        // Fallback if localStorage unavailable
+    }
+    const grid = dom.contentArea?.querySelector('.gallery-masonry');
+    if (grid) {
+        grid.dataset.density = valid;
+        resizeAllGridItems();
+    }
+    syncGalleryDensityUI();
+}
+
 let resizeTimeout = null;
 export function resizeAllGridItems(targetCards = null) {
     if (resizeTimeout) cancelAnimationFrame(resizeTimeout);
@@ -42,7 +74,7 @@ export function resizeAllGridItems(targetCards = null) {
         if (!len) return;
 
         const rowHeight = 10;
-        const rowGap = 14;
+        const rowGap = Number.parseInt(getComputedStyle(grid).rowGap, 10) || 14;
         const spans = new Uint16Array(len);
 
         // Phase 1: Pure Read phase (no DOM writes)
@@ -271,7 +303,7 @@ export function loadNextGalleryPage() {
 }
 
 export function renderGallerySkeleton() {
-    let html = '<div class="gallery-masonry">';
+    let html = `<div class="gallery-masonry" data-density="${galleryDensity}">`;
     for (let i = 0; i < 12; i++) html += skeletonGalleryCard();
     html += '</div>';
     dom.contentArea.innerHTML = html;
@@ -326,7 +358,7 @@ export function renderGallery({ appendOnly = false, startIndex = 0, reconcile = 
             resizeAllGridItems(newCards);
             applySearchFilter();
         } else {
-            const html = `<div class="gallery-masonry">${images.map(galleryCardHtml).join('')}</div>`;
+            const html = `<div class="gallery-masonry" data-density="${galleryDensity}">${images.map(galleryCardHtml).join('')}</div>`;
             dom.contentArea.innerHTML = html;
             applySearchFilter();
 

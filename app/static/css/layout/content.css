@@ -27,19 +27,19 @@
 
 .viewer-context-collection {
     min-width: 100px;
-    max-width: 210px;
+    max-width: 300px;
     display: flex;
     align-items: center;
     gap: 7px;
     color: var(--accent);
-    flex: 0 1 210px;
+    flex: 0 1 300px;
 }
 
 .viewer-context-collection svg {
     flex-shrink: 0;
 }
 
-.viewer-context-collection span {
+.viewer-context-collection #viewer-collection-name {
     overflow: hidden;
     color: var(--text);
     font-family: var(--font-title);
@@ -47,6 +47,24 @@
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.viewer-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface2));
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.viewer-count-badge:empty {
+    display: none;
 }
 
 .viewer-context-search {
@@ -139,6 +157,49 @@
 .context-view-toggle button svg {
     width: 15px;
     height: 15px;
+}
+
+.context-density-toggle {
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg) 78%, var(--surface));
+    padding: 2px;
+    gap: 2px;
+}
+
+.context-density-toggle button {
+    height: 26px;
+    min-width: 26px;
+    padding: 0 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: calc(var(--radius-sm) - 2px);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.context-density-toggle button:hover {
+    color: var(--text);
+    background: var(--surface2);
+}
+
+.context-density-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: var(--shadow-sm);
+}
+
+.context-density-toggle.hidden {
+    display: none !important;
 }
 
 .context-sort-button {
