@@ -1280,14 +1280,16 @@ def split_folder_by_metadata(folder_id: int) -> None:
         no_meta_cond = (
             "(error IS NOT NULL OR "
             "(metadata_json IS NOT NULL "
+            "AND json_valid(metadata_json) = 1 "
             "AND json_extract(metadata_json, '$.prompt_parameters') IS NULL "
             "AND json_extract(metadata_json, '$.workflow') IS NULL))"
         )
         has_meta_cond = (
             "(error IS NULL AND "
             "(metadata_json IS NULL "
-            "OR json_extract(metadata_json, '$.prompt_parameters') IS NOT NULL "
-            "OR json_extract(metadata_json, '$.workflow') IS NOT NULL))"
+            "OR (json_valid(metadata_json) = 1 AND ("
+            "json_extract(metadata_json, '$.prompt_parameters') IS NOT NULL "
+            "OR json_extract(metadata_json, '$.workflow') IS NOT NULL))))"
         )
 
         count_no_meta = conn.execute(
@@ -1793,7 +1795,13 @@ def get_images_page(
         main_query = f"""SELECT i.id, i.file_name, i.media_type, i.mime_type,
             i.format, i.width, i.height, i.mode,
             i.duration, i.frame_rate, i.codec, i.preview_status,
-            i.preview_error, i.error, i.metadata_json, i.rating,
+            i.preview_error, i.error,
+            CASE
+                WHEN i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1
+                THEN json_extract(i.metadata_json, '$.prompt_parameters')
+                ELSE NULL
+            END AS prompt_parameters_json,
+            i.rating,
             (i.has_original_data = 0) AS has_local_file,
             i.file_mtime
         FROM ({subquery}) page_ids
@@ -1811,12 +1819,13 @@ def get_images_page(
         for r in rows:
             d = dict(r)
             w, h = d.get("width"), d.get("height")
-            meta_json = d.get("metadata_json")
+            raw_params = d.get("prompt_parameters_json")
             prompt_parameters = None
-            if meta_json:
+            if raw_params:
                 try:
-                    meta_data = json.loads(meta_json)
-                    prompt_parameters = meta_data.get("prompt_parameters")
+                    parsed = json.loads(raw_params)
+                    if isinstance(parsed, dict):
+                        prompt_parameters = parsed
                 except (json.JSONDecodeError, TypeError):
                     pass
             images.append(ImageListItem(

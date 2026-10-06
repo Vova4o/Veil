@@ -480,3 +480,134 @@ def test_legacy_blob_and_thumbnail_migration(tmp_path: Path):
         db.set_db_path(old_path)
 
 
+def test_get_images_page_extracts_prompt_parameters_without_overfetching(temp_db):
+    """Verify get_images_page extracts prompt_parameters without loading giant workflow JSON."""
+    import json
+    folder_id = db.upsert_folder("C:/test_perf_overfetching_images")
+    conn = db.get_conn()
+    try:
+        # Create a large workflow payload (simulating complex ComfyUI graph ~500 KB)
+        large_workflow = {
+            "prompt_parameters": {"model": "sd_xl_base.safetensors", "steps": 30, "cfg": 7.5},
+            "workflow": {
+                "nodes": [{"id": i, "type": "KSampler", "data": "x" * 2000} for i in range(250)]
+            },
+        }
+        large_json_str = json.dumps(large_workflow)
+
+        small_meta = json.dumps({"file": "small.png", "prompt_parameters": None, "workflow": None})
+
+        conn.execute(
+            """INSERT INTO images (folder_id, rel_path, file_name, file_mtime, media_type, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (folder_id, "large.png", "large.png", 2000.0, "image", large_json_str),
+        )
+        conn.execute(
+            """INSERT INTO images (folder_id, rel_path, file_name, file_mtime, media_type, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (folder_id, "small.png", "small.png", 1000.0, "image", small_meta),
+        )
+        conn.commit()
+
+        page = db.get_images_page(folder_id=folder_id, page=1, per_page=10, sort_by="date", sort_dir="desc")
+        assert len(page.images) == 2
+        assert page.images[0].file_name == "large.png"
+        assert page.images[0].prompt_parameters == {"model": "sd_xl_base.safetensors", "steps": 30, "cfg": 7.5}
+
+        assert page.images[1].file_name == "small.png"
+        assert page.images[1].prompt_parameters is None
+    finally:
+        conn.close()
+
+
+def test_get_assets_deferred_join_and_flag_computation_without_overfetching(temp_db):
+    """Verify get_assets computes metadata flags via SQL and preserves deferred join order."""
+    import json
+    from app import library as media_library
+
+    folder_id = db.upsert_folder("C:/test_perf_overfetching_library")
+    conn = db.get_conn()
+    try:
+        # 1. ComfyUI image with large workflow
+        img_meta = json.dumps({
+            "file": "comfy.png",
+            "prompt_parameters": {"prompt": "masterpiece"},
+            "workflow": {"nodes": [{"id": 1}]},
+        })
+        # 2. Plain image without generation metadata
+        plain_meta = json.dumps({"file": "plain.jpg"})
+        # 3. Video with available technical metadata
+        video_avail_meta = json.dumps({
+            "media_type": "video",
+            "technical_metadata": {"status": "available", "duration": 12.0},
+        })
+        # 4. Video with unavailable technical metadata
+        video_unavail_meta = json.dumps({
+            "media_type": "video",
+            "technical_metadata": {"status": "unavailable"},
+        })
+        # 5. Image with AI annotations
+        ai_annot = json.dumps({"reconstructed_prompt": "cyberpunk city"})
+
+        items = [
+            (folder_id, "1_comfy.png", "1_comfy.png", 500.0, "image", img_meta, None),
+            (folder_id, "2_plain.jpg", "2_plain.jpg", 400.0, "image", plain_meta, None),
+            (folder_id, "3_video_ok.mp4", "3_video_ok.mp4", 300.0, "video", video_avail_meta, None),
+            (folder_id, "4_video_bad.mp4", "4_video_bad.mp4", 200.0, "video", video_unavail_meta, None),
+            (folder_id, "5_annotated.png", "5_annotated.png", 100.0, "image", None, ai_annot),
+        ]
+        conn.executemany(
+            """INSERT INTO images (folder_id, rel_path, file_name, file_mtime, media_type, metadata_json, ai_annotations_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            items,
+        )
+        conn.commit()
+
+        # Call get_assets
+        res = media_library.get_assets(per_page=10, sort_by="date", sort_dir="desc")
+        assert res["total"] == 5
+        by_name = {a["file_name"]: a for a in res["assets"]}
+
+        # Check neither metadata_json nor ai_annotations_json are present
+        for asset in res["assets"]:
+            assert "metadata_json" not in asset
+            assert "ai_annotations_json" not in asset
+
+        # Item 1: ComfyUI
+        assert by_name["1_comfy.png"]["has_metadata"] is True
+        assert by_name["1_comfy.png"]["has_embedded_metadata"] is True
+        assert by_name["1_comfy.png"]["has_ai_annotations"] is False
+
+        # Item 2: Plain
+        assert by_name["2_plain.jpg"]["has_metadata"] is False
+        assert by_name["2_plain.jpg"]["has_embedded_metadata"] is True
+        assert by_name["2_plain.jpg"]["has_ai_annotations"] is False
+
+        # Item 3: Video available
+        assert by_name["3_video_ok.mp4"]["has_metadata"] is False
+        assert by_name["3_video_ok.mp4"]["has_embedded_metadata"] is True
+        assert by_name["3_video_ok.mp4"]["has_ai_annotations"] is False
+
+        # Item 4: Video unavailable
+        assert by_name["4_video_bad.mp4"]["has_metadata"] is False
+        assert by_name["4_video_bad.mp4"]["has_embedded_metadata"] is False
+        assert by_name["4_video_bad.mp4"]["has_ai_annotations"] is False
+
+        # Item 5: Annotated
+        assert by_name["5_annotated.png"]["has_metadata"] is False
+        assert by_name["5_annotated.png"]["has_embedded_metadata"] is False
+        assert by_name["5_annotated.png"]["has_ai_annotations"] is True
+
+        # Check deferred join preserved descending date order
+        assert [a["file_name"] for a in res["assets"]] == [
+            "1_comfy.png",
+            "2_plain.jpg",
+            "3_video_ok.mp4",
+            "4_video_bad.mp4",
+            "5_annotated.png",
+        ]
+    finally:
+        conn.close()
+
+
+

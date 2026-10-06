@@ -58,24 +58,22 @@
 ---
 
 #### 4. Неэффективность в `library.py` (Overfetching и отсутствие Deferred Join)
-* **Проблема: Отсутствие Deferred Join в `get_library_page`.**  
-  В отличие от `get_images_page`, функция [get_library_page](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py#L1293-L1306) делает прямую сортировку:
-  ```sql
-  SELECT i.id, ..., i.metadata_json, i.ai_annotations_json ...
-  FROM images i JOIN folders f ...
-  ORDER BY ... LIMIT ? OFFSET ?
-  ```
-  При наличии фильтров SQLite вынужден загружать широкие поля `metadata_json` и `ai_annotations_json` во временные структуры сортировки для всех совпавших строк, а не только для запрашиваемых 80 элементов страницы.
+* **Проблема: Отсутствие Deferred Join в `get_assets` (library).**  
+  В отличие от `get_images_page`, функция [get_assets](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py#L1285) делала прямую сортировку с выборкой всех полей.
+  * **Решение (✅ Реализовано):** Реализован Deferred Join через подзапрос `({subquery}) page_ids`. Подзапрос сортирует и пагинирует лёгкие `id`, а основной запрос подтягивает полные атрибуты только для запрашиваемых элементов страницы (`per_page`).
 * **Проблема: Перекачка гигантских JSON ради двух булевых флагов.**  
-  В `get_library_page`:
+  В `get_assets`:
   ```python
   metadata_json = asset.pop("metadata_json", None)
-  # парсится через json.loads только ради:
+  # парсился через json.loads только ради:
   asset["has_embedded_metadata"] = bool(...)
   asset["has_metadata"] = bool(...)
   ```
-  На 80 картинок со сложными ComfyUI-воркфлоу это может быть 5–15 МБ JSON-текста, который SQLite читает с диска, передаёт в Python и разбирает через `json.loads` на каждый запрос страницы только чтобы узнать `True/False`!
-  * **Решение**: Вычислять эти флаги на стороне SQLite или сохранять признак при индексации в отдельные флаги `has_metadata INTEGER DEFAULT 0`.
+  На 80 картинок со сложными ComfyUI-воркфлоу это было 5–15+ МБ JSON-текста, который SQLite читал с диска, передавал в Python и разбирал через `json.loads` на каждый запрос страницы.
+  * **Решение (✅ Реализовано):** Флаги `has_metadata`, `has_embedded_metadata` и `has_ai_annotations` теперь вычисляются непосредственно на стороне SQLite через безопасные выражения (`CASE WHEN json_valid(...) ... json_extract(...)`), возвращая 1-байтовые булевы значения без передачи и десериализации гигантских строк `metadata_json` и `ai_annotations_json` в Python.
+* **Проблема: Загрузка полного `metadata_json` в `get_images_page` (`database.py`).**  
+  Основной просмотрщик `get_images_page` загружал полный `metadata_json` для страницы только ради извлечения `prompt_parameters`.
+  * **Решение (✅ Реализовано):** В `get_images_page` запрос извлекает только `json_extract(i.metadata_json, '$.prompt_parameters') AS prompt_parameters_json`, не вычитывая графы ComfyUI в Python и парся только компактный словарь параметров генерации.
 
 ---
 
@@ -107,6 +105,6 @@
 | **Pragmas & Cache** | ✅ **Реализовано** (кэш 64 МБ, mmap 256 МБ, 30s busy_timeout, WAL в init_db) | **+30–50%** к скорости чтения страниц и списков | Низкая (10 строк) |
 | **Фильтр рейтинга** | ✅ **Реализовано** (выраженческие индексы `COALESCE(rating, 0)`, авто-миграция) | **+2x–5x** к скорости фильтрации по рейтингу | Низкая |
 | **Вынос BLOB из `images`** | ✅ **Реализовано** (таблица `asset_blobs`, флаг `has_original_data`, удалены рудименты) | **+3x–10x** к скорости сканирования таблицы `images` | Средняя |
-| **Overfetching JSON** | Мегабайты JSON грузятся в Python ради 1–2 флагов | **-70%** трафика памяти и CPU при скроллинге галереи | Средняя |
+| **Overfetching JSON** | ✅ **Реализовано** (Deferred Join в `get_assets`, флаги в SQL, точечный `json_extract`) | **-70%** трафика памяти и CPU при скроллинге галереи | Средняя |
 | **Пакетность воркера и `executemany`** | 1 коммит на каждый файл | **+200–400%** к скорости обработки очереди воркера | Средняя |
 | **Индексация нод/моделей** | `json_tree` сканирует дерево JSON на лету | Мгновенная фильтрация по моделям (вместо секундных задержек) | Выше среднего |

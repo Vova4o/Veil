@@ -1161,6 +1161,7 @@ def get_assets(
         conditions.append(
             """i.media_type = 'image' AND (i.error IS NOT NULL OR (
                 i.metadata_json IS NOT NULL
+                AND json_valid(i.metadata_json) = 1
                 AND json_extract(i.metadata_json, '$.prompt_parameters') IS NULL
                 AND json_extract(i.metadata_json, '$.workflow') IS NULL
             ))"""
@@ -1289,22 +1290,65 @@ def get_assets(
                 [*order_params, *custom_params, *params],
             ).fetchone()["count"]
         )
+
+        subquery = f"""SELECT i.id FROM images i
+            JOIN folders f ON f.id = i.folder_id{album_join}{custom_join}{where}
+            {order_clause}
+            LIMIT ? OFFSET ?"""
+        subquery_params = [*order_params, *custom_params, *params, per_page, offset]
+
+        main_album_join = ""
+        main_custom_join = ""
+        main_params: list[Any] = []
+        if album_custom_order:
+            main_album_join = " JOIN album_images ai ON ai.image_id = i.id AND ai.album_id = ?"
+            main_params.append(album_id)
+        elif custom_scope is not None:
+            main_custom_join = " LEFT JOIN item_positions ip ON ip.scope = ? AND ip.image_id = i.id"
+            main_params.append(custom_scope)
+
         rows = conn.execute(
             f"""SELECT i.id, i.folder_id, i.file_name, i.rel_path, i.file_size,
                 i.file_mtime, i.media_type, i.mime_type, i.format, i.width,
                 i.height, i.duration, i.frame_rate, i.codec, i.error,
-                i.metadata_json, i.ai_annotations_json, i.preview_status,
-                i.preview_error, i.is_favorite, i.rating, i.note, i.indexed_at,
-                i.derived_from_asset_id,
+                i.preview_status, i.preview_error, i.is_favorite, i.rating,
+                i.note, i.indexed_at, i.derived_from_asset_id,
                 i.has_original_data,
                 f.name AS source_name, f.path AS source_path, f.enabled AS source_enabled,
                 f.source_status,
-                r.rank AS ai_rank, r.rank_override AS ai_rank_override, r.status AS ai_rank_status
-            FROM images i JOIN folders f ON f.id = i.folder_id{album_join}{custom_join}
-            LEFT JOIN ai_ratings r ON r.image_id = i.id{where}
-            {order_clause}
-            LIMIT ? OFFSET ?""",
-            [*order_params, *custom_params, *params, per_page, offset],
+                r.rank AS ai_rank, r.rank_override AS ai_rank_override, r.status AS ai_rank_status,
+                CASE
+                    WHEN i.metadata_json IS NOT NULL AND json_valid(i.metadata_json) = 1 AND (
+                        (json_extract(i.metadata_json, '$.prompt_parameters') IS NOT NULL
+                         AND json_extract(i.metadata_json, '$.prompt_parameters') NOT IN ('{{}}', '[]', 'null'))
+                        OR
+                        (json_extract(i.metadata_json, '$.workflow') IS NOT NULL
+                         AND json_extract(i.metadata_json, '$.workflow') NOT IN ('{{}}', '[]', 'null'))
+                    ) THEN 1 ELSE 0
+                END AS has_metadata,
+                CASE
+                    WHEN i.metadata_json IS NOT NULL
+                     AND json_valid(i.metadata_json) = 1
+                     AND i.metadata_json NOT IN ('', '{{}}', '[]', 'null')
+                     AND (
+                        i.media_type != 'video'
+                        OR json_extract(i.metadata_json, '$.technical_metadata.status') = 'available'
+                     ) THEN 1 ELSE 0
+                END AS has_embedded_metadata,
+                CASE
+                    WHEN i.ai_annotations_json IS NOT NULL
+                     AND json_valid(i.ai_annotations_json) = 1
+                     AND i.ai_annotations_json NOT IN ('', '{{}}', '[]', 'null')
+                    THEN 1 ELSE 0
+                END AS has_ai_annotations
+            FROM ({subquery}) page_ids
+            JOIN images i ON i.id = page_ids.id
+            JOIN folders f ON f.id = i.folder_id
+            LEFT JOIN ai_ratings r ON r.image_id = i.id
+            {main_album_join}
+            {main_custom_join}
+            {order_clause}""",
+            [*subquery_params, *main_params],
         ).fetchall()
         assets = [dict(row) for row in rows]
         ids = [int(asset["id"]) for asset in assets]
@@ -1333,8 +1377,6 @@ def get_assets(
 
     for asset in assets:
         image_id = int(asset["id"])
-        metadata_json = asset.pop("metadata_json", None)
-        ai_annotations_json = asset.pop("ai_annotations_json", None)
         asset["favorite"] = bool(asset.pop("is_favorite"))
         asset["source_enabled"] = bool(asset["source_enabled"])
         asset["has_original_data"] = bool(asset["has_original_data"])
@@ -1348,21 +1390,9 @@ def get_assets(
         asset["has_local_file"] = bool(
             asset["available"] and not asset["has_original_data"]
         )
-        asset["has_metadata"] = False
-        asset["has_embedded_metadata"] = False
-        if metadata_json:
-            try:
-                metadata = json.loads(metadata_json)
-                technical = metadata.get("technical_metadata") or {}
-                asset["has_embedded_metadata"] = bool(metadata) and (
-                    asset.get("media_type") != "video"
-                    or technical.get("status") == "available"
-                )
-                asset["has_metadata"] = bool(
-                    metadata.get("prompt_parameters") or metadata.get("workflow")
-                )
-            except (TypeError, ValueError):
-                pass
+        asset["has_metadata"] = bool(asset.pop("has_metadata", 0))
+        asset["has_embedded_metadata"] = bool(asset.pop("has_embedded_metadata", 0))
+        asset["has_ai_annotations"] = bool(asset.pop("has_ai_annotations", 0))
         asset["tags"] = tags_by_asset[image_id]
         asset["album_ids"] = albums_by_asset[image_id]
         asset["user_metadata"] = {
@@ -1371,12 +1401,6 @@ def get_assets(
             "note": asset["note"],
             "tags": asset["tags"],
         }
-        asset["has_ai_annotations"] = False
-        if ai_annotations_json:
-            try:
-                asset["has_ai_annotations"] = bool(json.loads(ai_annotations_json))
-            except (TypeError, ValueError):
-                pass
         ai_rank_val = asset.pop("ai_rank", None)
         ai_override_val = asset.pop("ai_rank_override", None)
         asset["ai_rank"] = ai_override_val if ai_override_val is not None else ai_rank_val
