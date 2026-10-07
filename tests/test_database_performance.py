@@ -523,6 +523,7 @@ def test_get_images_page_extracts_prompt_parameters_without_overfetching(temp_db
 def test_get_assets_deferred_join_and_flag_computation_without_overfetching(temp_db):
     """Verify get_assets computes metadata flags via SQL and preserves deferred join order."""
     import json
+
     from app import library as media_library
 
     folder_id = db.upsert_folder("C:/test_perf_overfetching_library")
@@ -806,6 +807,7 @@ def test_worker_batching_and_commit_worker_batch(temp_db):
 def test_reconciliation_zero_n_plus_one_calls(temp_db, tmp_path: Path):
     """Verify that reconciliation does not call get_image_ids_by_rel_paths for changed/updated files."""
     from unittest.mock import patch
+
     from app import indexing
 
     source_dir = tmp_path / "source_folder"

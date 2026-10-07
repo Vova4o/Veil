@@ -176,7 +176,7 @@ if (-not $poetryCmd) {
         if ($null -eq $contractCode) { $contractCode = 0 }
 
         # Прогоняем тесты Pydantic и контрактов
-        poetry run pytest tests/test_openapi_contract.py tests/test_social_publish_contract.py -q
+        poetry run python -m pytest tests/test_openapi_contract.py tests/test_social_publish_contract.py -q
         $pydanticCode = $LASTEXITCODE
         if ($null -eq $pydanticCode) { $pydanticCode = 0 }
     } finally {
