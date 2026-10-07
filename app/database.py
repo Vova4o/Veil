@@ -2692,6 +2692,9 @@ def get_image_source_info(image_id: int) -> dict[str, Any] | None:
 def iter_asset_original_data(
     asset_id: int,
     chunk_size: int = 1024 * 1024,
+    *,
+    offset: int = 0,
+    length: int | None = None,
 ):
     """Stream an SQLite BLOB without materializing the full value as bytes."""
     conn = get_conn()
@@ -2702,10 +2705,13 @@ def iter_asset_original_data(
             asset_id,
             readonly=True,
         ) as blob:
-            while True:
-                chunk = blob.read(chunk_size)
+            blob.seek(offset)
+            remaining = len(blob) - offset if length is None else length
+            while remaining > 0:
+                chunk = blob.read(min(chunk_size, remaining))
                 if not chunk:
                     break
+                remaining -= len(chunk)
                 yield chunk
     finally:
         conn.close()
@@ -2714,9 +2720,12 @@ def iter_asset_original_data(
 def iter_image_original_data(
     image_id: int,
     chunk_size: int = 1024 * 1024,
+    *,
+    offset: int = 0,
+    length: int | None = None,
 ):
     """Compatibility wrapper for uploaded image BLOB streaming."""
-    yield from iter_asset_original_data(image_id, chunk_size)
+    yield from iter_asset_original_data(image_id, chunk_size, offset=offset, length=length)
 
 
 def get_asset_detail(asset_id: int) -> ImageDetail | None:

@@ -183,9 +183,14 @@ export function initEvents() {
 
     dom.btnOpenFolder?.addEventListener('click', async () => {
         try {
-            const response = await fetch('/api/choose-folder', { method: 'POST' });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Folder picker is unavailable');
+            let data;
+            if (window.cmvDesktop?.chooseFolder) {
+                data = { path: await window.cmvDesktop.chooseFolder() };
+            } else {
+                const response = await fetch('/api/choose-folder', { method: 'POST' });
+                data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Folder picker is unavailable');
+            }
             if (data.path) {
                 await scanFolder(data.path);
             }

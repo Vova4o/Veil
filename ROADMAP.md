@@ -15,7 +15,7 @@
 | **04** | [Advanced Mode & embedded ComfyUI](dev_docs/roadmap/advanced/04_ADVANCED_MODE_AND_COMFYUI_INTEGRATION.md) | `Planned` | Пайплайны Txt2Img, Img2Img, Inpaint, Upscale, IP-Adapter и встроенный UI ComfyUI |
 | **05** | [Character & Environment Studio](dev_docs/roadmap/advanced/05_CHARACTER_AND_ENVIRONMENT_STUDIO.md) | `Planned` | Студия персонажей/локаций, FaceID/IP-Adapter, Vision-паспорта и фильтры |
 | **06** | [Social OAuth & Export](dev_docs/roadmap/oauth/06_SOCIAL_EXPORT_PLAN.md) | `Draft` | Экспорт в Telegram, VK, Instagram, локальный OAuth и AI-постмейкер |
-| **07** | [Desktop packaging and installers](dev_docs/roadmap/desktop/07_DESKTOP_PACKAGING_AND_INSTALLERS.md) | `Deferred` | Финальная упаковка в нативные desktop-инсталляторы (после всего функционала) |
+| **07** | [Desktop packaging and installers](dev_docs/roadmap/desktop/07_DESKTOP_PACKAGING_AND_INSTALLERS.md) | `In Progress` | Electron + Flask: первая Windows-версия развивается вместе с основным функционалом |
 
 ---
 

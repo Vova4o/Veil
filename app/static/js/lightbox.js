@@ -312,7 +312,10 @@ function commitLightboxSource(asset) {
     if (asset.media_type === 'video') {
         if (dom.lbVideo) {
             dom.lbVideo.hidden = false;
-            dom.lbVideo.src = originalUrl(asset);
+            const source = originalUrl(asset);
+            // Reopening the same asset or refreshing metadata must not reload
+            // the video and interrupt an in-flight play/seek operation.
+            if (dom.lbVideo.getAttribute('src') !== source) dom.lbVideo.src = source;
         }
         return;
     }

@@ -437,6 +437,38 @@ class UnifiedMediaAssetTest(unittest.TestCase):
         self.assertEqual(regenerated.status_code, 200)
         self.assertEqual(regenerated.data, b"uploaded-jpeg")
 
+    def test_uploaded_original_byte_ranges_and_head(self) -> None:
+        asset_id, _ = db.insert_upload_asset("seek.mp4", b"0123456789", media_type="video")
+        client = app.test_client()
+        for requested, expected, content_range in (
+            ("bytes=2-5", b"2345", "bytes 2-5/10"),
+            ("bytes=-3", b"789", "bytes 7-9/10"),
+            ("bytes=7-", b"789", "bytes 7-9/10"),
+            ("bytes=7-99", b"789", "bytes 7-9/10"),
+        ):
+            with self.subTest(requested=requested):
+                response = client.get(f"/api/original/{asset_id}", headers={"Range": requested})
+                self.assertEqual(response.status_code, 206)
+                self.assertEqual(response.data, expected)
+                self.assertEqual(response.headers["Content-Range"], content_range)
+                self.assertEqual(response.content_length, len(expected))
+                self.assertEqual(response.headers["Accept-Ranges"], "bytes")
+                response.close()
+        for requested in ("bytes=20-30", "bytes=0-1,3-4"):
+            response = client.get(f"/api/original/{asset_id}", headers={"Range": requested})
+            self.assertEqual(response.status_code, 416)
+            self.assertEqual(response.headers["Content-Range"], "bytes */10")
+            response.close()
+        head = client.head(f"/api/original/{asset_id}", headers={"Range": "bytes=0-1"})
+        self.assertEqual(head.status_code, 200)
+        self.assertEqual(head.data, b"")
+        self.assertEqual(head.content_length, 10)
+        full = client.get(f"/api/original/{asset_id}", headers={"Range": "bytes=0-1", "If-Range": '"unknown"'})
+        self.assertEqual(full.status_code, 200)
+        self.assertEqual(full.data, b"0123456789")
+        full.close()
+        self.assertEqual(b"".join(db.iter_asset_original_data(asset_id, 2, offset=3, length=4)), b"3456")
+
     def test_uploaded_video_survives_missing_ffmpeg_tools(self) -> None:
         video_data = b"video-without-tools"
         client = app.test_client()

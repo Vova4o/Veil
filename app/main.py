@@ -968,12 +968,28 @@ def api_original(image_id: int):
     )
 
     if source["has_original_data"]:
+        total = int(source.get("file_size") or 0)
+        start, end = 0, total
+        partial = False
+        byte_range = request.range
+        if request.method == "GET" and byte_range and byte_range.units == "bytes" and not request.headers.get("If-Range"):
+            bounds = byte_range.range_for_length(total)
+            if bounds is None:
+                from werkzeug.exceptions import RequestedRangeNotSatisfiable
+
+                raise RequestedRangeNotSatisfiable(total)
+            start, end = bounds
+            partial = True
         response = Response(
-            stream_with_context(db.iter_image_original_data(image_id)),
+            stream_with_context(db.iter_image_original_data(image_id, offset=start, length=end - start)),
             mimetype=mime,
             direct_passthrough=True,
+            status=206 if partial else 200,
         )
-        response.content_length = int(source.get("file_size") or 0) or None
+        response.content_length = end - start
+        response.headers["Accept-Ranges"] = "bytes"
+        if partial:
+            response.headers["Content-Range"] = f"bytes {start}-{end - 1}/{total}"
         response.headers["Cache-Control"] = _IMMUTABLE_IMAGE_CACHE
         response.headers["Content-Disposition"] = "inline"
         return response
@@ -1210,20 +1226,6 @@ def main():
         )
         return
 
-    configure_runtime(runtime_paths)
-
-    # Start queue background worker
-    from .worker import start_worker
-    start_worker(storage_path("THUMBNAIL_FOLDER"))
-    from .job_worker import start_job_worker
-    start_job_worker()
-    from .comfyui.civitai_downloader import start_download_worker, stop_download_worker
-
-    start_download_worker(app.config.get("CONFIG_STORE"))
-    from .source_monitor import start_source_monitor, stop_source_monitor
-
-    start_source_monitor(runtime_paths)
-
     port = int(os.environ.get("COMFY_META_PORT", "7860"))
 
     if "--no-browser" not in sys.argv:
@@ -1248,18 +1250,10 @@ def main():
     except ValueError:
         pass
 
-    try:
+    from .runtime import application_runtime
+
+    with application_runtime(runtime_paths):
         app.run(host="127.0.0.1", port=port, debug=False)
-    finally:
-        stop_source_monitor()
-        from .worker import stop_worker
-
-        stop_worker(wait=True)
-        from .job_worker import stop_job_worker
-
-        stop_job_worker(wait=True)
-        stop_download_worker(wait=True)
-        comfy_manager.stop_managed()
 
 
 if __name__ == "__main__":

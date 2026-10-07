@@ -21,12 +21,16 @@ opentelemetry-api = "^1.27"
 opentelemetry-sdk = "^1.27"
 opentelemetry-instrumentation-flask = "^0.48b0"
 opentelemetry-exporter-otlp-proto-http = "^1.27"
+waitress = "^3.0.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1"
 pyrefly = "^1.3.2"
 rich = "14.3.4"
 ruff = "0.16.9"
+
+[tool.poetry.group.desktop.dependencies]
+pyinstaller = "^6.22.3"
 
 [build-system]
 requires = ["poetry-core"]

@@ -126,6 +126,10 @@ separates what works end-to-end today from what is laid out as infrastructure
 
 ## Features
 
+The Electron desktop version preserves the existing Flask UI. On Windows,
+`start.bat` launches the desktop app; use `start.bat --web` for browser development.
+Build and runtime details: [Electron desktop](docs/desktop.md).
+
 <table>
   <tr>
     <td>
@@ -236,8 +240,14 @@ separates what works end-to-end today from what is laid out as infrastructure
 
 ### Prerequisites
 
+The Windows installer includes Electron, Python and the video tools. See
+[desktop build and launch instructions](docs/desktop.md) for the local installer.
+
+For development from source:
+
 - **Python 3.10+**
 - **Poetry** (for dependency management)
+- **Node.js and npm** (for Electron)
 
 ### Installation
 
@@ -247,7 +257,9 @@ git clone https://github.com/Lotargo/ComfyUI-Meta-Viewer.git
 cd ComfyUI-Meta-Viewer
 
 # Install dependencies
+poetry config virtualenvs.in-project true --local
 poetry install --no-root
+npm ci
 ```
 
 ### Running
@@ -256,7 +268,7 @@ poetry install --no-root
 # Start the server (opens browser automatically)
 poetry run python -m app.main
 
-# Or use the launcher script
+# Desktop launcher (uses the built app when available on Windows)
 # Windows:
 start.bat
 # Linux/macOS:
@@ -264,7 +276,8 @@ chmod +x start.sh
 ./start.sh
 ```
 
-The app will be available at **http://localhost:7860**
+The launcher opens the desktop window. Browser mode (`start.bat --web` or
+`./start.sh --web`) is available at **http://localhost:7860**.
 
 ### Usage
 
@@ -283,8 +296,8 @@ The app will be available at **http://localhost:7860**
 ## Known Limitations
 
 - **Custom Nodes & Workflows**: Standard built-in workflow templates cover checkpoint-contained, Flux separate-components, Pony/SDXL GGUF, reference, and video pipelines. Highly customized third-party node workflows can be imported using the mapping wizard, but complex multi-pipeline graphs may require manual node binding or mapping adjustment.
-- **Desktop Installers**: Standalone desktop installers (`.exe` / `.dmg` / `AppImage`), electron/tauri packaging, and auto-update are scheduled for Post-v1. Currently, the application runs as a local Python web application.
-- **FFmpeg Dependency**: Basic image viewing, metadata extraction, and library management work out-of-the-box without extra tools. Video thumbnail preview and technical stream metadata extraction require `ffmpeg` / `ffprobe` binaries on your system `PATH`.
+- **Desktop Distribution**: The first Electron/Flask Windows build and NSIS installer are available locally. Public releases, signing, auto-update and native macOS/Linux desktop acceptance remain later stages.
+- **FFmpeg Dependency**: Packaged desktop builds bundle `ffmpeg` / `ffprobe`. Source/browser development requires those binaries on `PATH` or explicit `COMFY_META_FFMPEG` / `COMFY_META_FFPROBE` paths.
 - **Platform Support**: Primary release platform is Windows; cross-platform validation is performed via GitHub Actions CI for Linux and macOS.
 
 ---

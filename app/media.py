@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -93,7 +94,7 @@ def _subprocess_options() -> dict[str, Any]:
 
 
 def _tool_path(name: str, explicit_path: str | None) -> str:
-    executable = explicit_path or shutil.which(name)
+    executable = explicit_path or os.environ.get(f"COMFY_META_{name.upper()}") or shutil.which(name)
     if not executable:
         raise MediaToolUnavailableError(name)
     return executable

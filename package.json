@@ -1,4 +1,10 @@
 {
+  "name": "comfy-meta-viewer",
+  "version": "1.0.0",
+  "description": "Local image and video library with ComfyUI integration",
+  "author": "Lotargo",
+  "license": "AGPL-3.0-only",
+  "main": ".desktop-build/main.cjs",
   "type": "module",
   "scripts": {
     "lint": "eslint app/static/js",
@@ -6,11 +12,24 @@
     "test:preferences": "node --test tests/test_preferences.mjs",
     "test:custom-order": "node --test tests/test_custom_order.mjs",
     "test:throttle": "node --test tests/test_preview_throttle.mjs",
-    "test": "node --test tests/test_*.mjs"
+    "test": "node --test tests/test_*.mjs",
+    "desktop:compile": "tsc -p desktop/tsconfig.json",
+    "desktop": "npm run desktop:compile && electron .",
+    "desktop:backend": "poetry run python scripts/build_desktop_backend.py",
+    "desktop:package": "npm run desktop:compile && npm run desktop:backend && electron-builder --config desktop/electron-builder.cjs --win",
+    "desktop:smoke": "node scripts/desktop_smoke.cjs"
+  },
+  "overrides": {
+    "brace-expansion": "^5.0.12"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.1",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.0.1",
-    "globals": "^17.7.0"
+    "globals": "^17.7.0",
+    "playwright": "^1.64.0",
+    "typescript": "^7.0.2"
   }
 }
