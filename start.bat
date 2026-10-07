@@ -16,6 +16,11 @@ if %errorlevel% neq 0 (
 
 echo Installing dependencies...
 call poetry install --no-root --quiet
+if errorlevel 1 (
+    echo [ERROR] Failed to install dependencies. Run: poetry install --no-root
+    pause
+    exit /b 1
+)
 
 echo Starting ComfyUI Meta Viewer...
 call poetry run python -m app.main %*

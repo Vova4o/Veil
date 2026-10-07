@@ -152,11 +152,18 @@ class ComfyUIManager:
             self._log(f"[CMV] Launching ComfyUI managed process: {' '.join(cmd)}")
             self._log(f"[CMV] Working directory: {detection.comfy_dir}")
 
+            # Captured Python output must support Unicode even on Windows with a
+            # legacy console code page. Use the same encoding for both pipe ends.
+            child_env = os.environ.copy()
+            child_env["PYTHONIOENCODING"] = "utf-8"
             popen_kwargs: dict[str, Any] = {
                 "cwd": str(detection.comfy_dir),
+                "env": child_env,
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.STDOUT,
                 "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
                 "bufsize": 1,
             }
 

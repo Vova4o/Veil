@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -220,6 +222,28 @@ class ComfyUIManagerTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.mgr.stop_managed()
         self.temp_dir.cleanup()
+
+    def test_managed_process_logs_unicode_with_legacy_parent_encoding(self) -> None:
+        message = "Desktop \U0001f389 \u2014 \u043c\u043e\u0434\u0435\u043b\u044c"
+        (self.base_path / "main.py").write_text(
+            f"import time\nprint({message!r}, flush=True)\ntime.sleep(10)\n",
+            encoding="utf-8",
+        )
+        with (
+            patch.dict(os.environ, {"PYTHONIOENCODING": "cp1251"}),
+            patch.object(self.mgr, "_monitor_loop"),
+        ):
+            self.mgr.start_managed(
+                install_path=self.base_path,
+                custom_python=sys.executable,
+            )
+            deadline = time.monotonic() + 5
+            while message not in self.mgr.get_logs() and time.monotonic() < deadline:
+                time.sleep(0.02)
+
+            self.assertIn(message, self.mgr.get_logs())
+            self.assertIsNone(self.mgr._process.poll())
+            self.assertEqual(os.environ["PYTHONIOENCODING"], "cp1251")
 
     @patch("app.comfyui.manager.detect_comfyui")
     def test_start_managed_with_unsafe_args_raises_value_error(self, mock_detect) -> None:

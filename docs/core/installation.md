@@ -114,6 +114,25 @@ comfy-meta-viewer/
 
 ## Troubleshooting
 
+**After moving the project to another directory:**
+
+The launchers and application storage paths follow the project directory, but a copied
+`.venv` can retain the old absolute path in activation scripts and executable wrappers.
+Even when `poetry run python` works, commands such as `pip` or `pytest` can fail.
+Close the app and terminals using the old environment, move `.venv` to a backup location,
+and recreate it from the new project directory:
+
+```bash
+poetry config virtualenvs.in-project true --local
+poetry install --no-root
+```
+
+For development, use `poetry install --no-root --with dev`. Keep `.comfy_meta_uploads`
+and `cache` with the project to retain the existing library, settings, and previews.
+Review absolute `COMFY_META_DATA_DIR` / `COMFY_META_CACHE_DIR` overrides, saved source
+paths, the ComfyUI installation path, and AI CLI executable paths if those locations
+were also moved. Source folders and ComfyUI can remain outside the project.
+
 **Poetry not found:**
 ```bash
 pip install poetry
