@@ -15,6 +15,7 @@ import { loadFromFiles, loadFromPaths, scanFolder, invalidateApiCache } from './
 import { renderSidebar, updateSidebarImageCount, syncQuickViewsUI, syncCollectionPickers } from './features/sidebar.js';
 import { customConfirm, customPrompt } from './utils.js';
 import { isSupportedMediaFile } from './media-files.js';
+import { clearScrollReturn } from './components/scroll-top-button.js';
 
 function syncViewerContext() {
     if (!dom.viewerCollectionName) return;
@@ -77,6 +78,7 @@ function initHeaderMenus() {
 }
 
 export async function renderCurrentContent({ reconcileGallery = false } = {}) {
+    if (!reconcileGallery) clearScrollReturn(dom.contentArea);
     syncViewerContext();
     updateSidebarImageCount();
     syncQuickViewsUI();

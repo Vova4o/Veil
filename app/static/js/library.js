@@ -1,4 +1,5 @@
 import { showImageContextMenu } from './components/image-context-menu.js';
+import { clearScrollReturn, initScrollTopButton } from './components/scroll-top-button.js';
 import { isSupportedMediaFile } from './media-files.js';
 import { createTrailingThrottle } from './throttle.js';
 
@@ -851,6 +852,7 @@ async function loadAssets({ append = false } = {}) {
     if (append) {
         updateInfiniteScroll();
     } else {
+        clearScrollReturn(document.scrollingElement);
         renderAssets();
     }
     let succeeded = false;
@@ -933,6 +935,7 @@ async function selectCollection(collection, name, albumId = null) {
     state.activeAssetId = null;
     renderCollections();
     if (collection === 'albums') {
+        clearScrollReturn(document.scrollingElement);
         renderAssets();
         updatePreviewPanel();
     } else {
@@ -2683,6 +2686,7 @@ async function initialize() {
         // Initialize sidebar and columns layout
         updateSidebarUI();
         setupInfiniteScroll();
+        initScrollTopButton({ scroller: document.scrollingElement, anchor: document.querySelector('.library-main') });
 
         const storedSort = localStorage.getItem(storageKeys.sort);
         if (storedSort && dom.sort.querySelector(`option[value="${storedSort}"]`)) {

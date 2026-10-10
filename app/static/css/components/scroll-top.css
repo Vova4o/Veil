@@ -1,0 +1,71 @@
+/* === Back to top button === */
+
+.scroll-top-button {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    /* Above content toolbars; below the header, menus, lightbox and toasts. */
+    z-index: 90;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface-glass);
+    backdrop-filter: blur(10px);
+    color: var(--text);
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(12px);
+    transition:
+        opacity var(--transition),
+        transform var(--transition),
+        translate var(--transition),
+        background var(--transition),
+        border-color var(--transition),
+        visibility 0s linear 0.25s;
+}
+
+.scroll-top-button.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: 0s;
+}
+
+.scroll-top-button .viewer-icon {
+    transition: transform var(--transition);
+}
+
+/* After jumping up, the same button points back to the previous position. */
+.scroll-top-button.is-return .viewer-icon {
+    transform: rotate(180deg);
+}
+
+.scroll-top-button:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: hsl(180, 20%, 98%);
+}
+
+.scroll-top-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Gallery toasts share the bottom-right corner. */
+body:has(> .toast.show) .scroll-top-button {
+    translate: 0 -52px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .scroll-top-button,
+    .scroll-top-button .viewer-icon {
+        transition: none;
+    }
+}

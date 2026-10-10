@@ -69,4 +69,8 @@
     <path d="M8 12h13" />
     <path d="M8 19h13" />
   </symbol>
+  <symbol id="arrow-up" viewBox="0 0 24 24">
+    <path d="m5 12 7-7 7 7" />
+    <path d="M12 19V5" />
+  </symbol>
 </svg>
