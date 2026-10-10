@@ -443,7 +443,7 @@ export function renderGallery({ appendOnly = false, startIndex = 0, reconcile = 
                 if (!dom.searchInput?.value.trim() && entries.some(entry => entry.isIntersecting)) {
                     loadNextGalleryPage();
                 }
-            }, { root: null, rootMargin: '600px 0px', threshold: 0 });
+            }, { root: dom.contentArea, rootMargin: `${Math.max(800, dom.contentArea.clientHeight * 2)}px 0px`, threshold: 0 });
             setGalleryScrollObserver(observer);
             observer.observe(sentinel);
         } else {

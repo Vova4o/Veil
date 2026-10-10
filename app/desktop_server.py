@@ -12,6 +12,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request
 
+from .desktop_cache import configure_legacy_cache
 from .desktop_data import import_legacy_library
 
 TOKEN_HEADER = "X-CMV-Desktop-Token"
@@ -55,6 +56,10 @@ def main() -> None:
     import_dir = os.environ.get("COMFY_META_IMPORT_DIR")
     if import_dir:
         import_legacy_library(Path(import_dir), data_dir)
+    legacy_cache = os.environ.get("COMFY_META_IMPORT_CACHE_DIR")
+    eligible = configure_legacy_cache(data_dir, Path(legacy_cache) if legacy_cache else None)
+    if eligible:
+        print(f"[Desktop] Legacy cache available for {eligible} matching assets", flush=True)
 
     if getattr(sys, "frozen", False):
         tools_dir = Path(sys.executable).parent / "tools"

@@ -28,6 +28,7 @@ from .ai import ai_blueprint
 from .comfyui import comfyui_blueprint, editor_blueprint, simple_blueprint
 from .config_store import ConfigStore, ConfigStoreError
 from .cutout import clear_cutout, get_cutout_path, make_cutout_png
+from .desktop_cache import legacy_thumbnail
 from .extractor import (
     has_generation_metadata,
     make_thumbnail_b64,
@@ -864,11 +865,17 @@ def api_thumbnail(image_id: int):
     thumb_path = thumb_dir / f"{image_id}.jpg"
 
     if thumb_path.exists():
-        return Response(thumb_path.read_bytes(), mimetype="image/jpeg", headers=_IMMUTABLE_IMAGE_HEADERS)
+        return _thumbnail_response(thumb_path.read_bytes())
 
     source = db.get_asset_source_info(image_id)
     if not source:
         return jsonify({"error": "not found"}), 404
+    reused = legacy_thumbnail(image_id, source)
+    if reused:
+        try:
+            return _thumbnail_response(reused.read_bytes())
+        except OSError:
+            pass  # Legacy cache removal falls back to normal generation.
     if source.get("media_type") == "video":
         video_path = source.get("path")
         try:
@@ -899,7 +906,7 @@ def api_thumbnail(image_id: int):
         thumb_dir.mkdir(parents=True, exist_ok=True)
         thumb_path.write_bytes(thumb_data)
         db.update_asset_preview_status(image_id, "ready")
-        return Response(thumb_data, mimetype="image/jpeg", headers=_IMMUTABLE_IMAGE_HEADERS)
+        return _thumbnail_response(thumb_data)
 
     original = db.get_image_original_data(image_id)
     if original:
@@ -907,7 +914,7 @@ def api_thumbnail(image_id: int):
         if thumb_data:
             thumb_dir.mkdir(parents=True, exist_ok=True)
             thumb_path.write_bytes(thumb_data)
-            return Response(thumb_data, mimetype="image/jpeg", headers=_IMMUTABLE_IMAGE_HEADERS)
+            return _thumbnail_response(thumb_data)
         return jsonify({"error": "failed"}), 500
 
     img_path = db.get_image_path(image_id)
@@ -919,7 +926,13 @@ def api_thumbnail(image_id: int):
         return jsonify({"error": "failed"}), 500
     thumb_dir.mkdir(parents=True, exist_ok=True)
     thumb_path.write_bytes(thumb_data)
-    return Response(thumb_data, mimetype="image/jpeg", headers=_IMMUTABLE_IMAGE_HEADERS)
+    return _thumbnail_response(thumb_data)
+
+
+def _thumbnail_response(data: bytes) -> Response:
+    # Historic .jpg caches also contain PNG for assets with an alpha channel.
+    mime = "image/png" if data.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+    return Response(data, mimetype=mime, headers=_IMMUTABLE_IMAGE_HEADERS)
 
 
 @app.route("/api/preview/<int:image_id>")

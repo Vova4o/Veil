@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 from . import database as db
+from .desktop_cache import legacy_preview
 from .extractor import (
     make_display_preview_from_bytes,
     make_display_preview_from_path,
@@ -63,6 +64,9 @@ def get_or_create_preview(
     cached = _find_cached_preview(preview_dir, image_id, source)
     if cached:
         return cached
+    reused = legacy_preview(image_id, source, PREVIEW_MAX_SIZE)
+    if reused:
+        return reused
 
     if not _generation_lock.acquire(timeout=10.0):
         raise PreviewBusyError("Preview generator is busy")

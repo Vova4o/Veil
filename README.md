@@ -271,6 +271,8 @@ poetry run python -m app.main
 # Desktop launcher (uses the built app when available on Windows)
 # Windows:
 start.bat
+# Windows, always from source (ignores a built dist/ app):
+desktop.bat
 # Linux/macOS:
 chmod +x start.sh
 ./start.sh

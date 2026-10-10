@@ -6,6 +6,7 @@ import json
 import re
 import struct
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 from PIL import Image, ImageOps
 
 Image.MAX_IMAGE_PIXELS = None
+_thumbnail_slots = threading.BoundedSemaphore(2)
 from PIL.ExifTags import TAGS
 
 from .schemas import ImageMetadata
@@ -1035,26 +1037,32 @@ def scan_paths(paths: list[str]) -> list[ImageMetadata]:
     return results
 
 
-def _thumbnail_image(path: str | Path, max_size: int = 1024) -> tuple[bytes, str] | None:
+def _thumbnail_image(source: str | Path | io.BytesIO, max_size: int = 1024) -> tuple[bytes, str] | None:
     try:
-        img = Image.open(str(path))
-        img = ImageOps.exif_transpose(img)
-        img.thumbnail((max_size, max_size))
-        buf = io.BytesIO()
-        fmt = "JPEG" if img.mode == "RGB" else "PNG"
-        if img.mode in ("RGBA", "P", "LA"):
-            fmt = "PNG"
-        if img.mode not in ("RGB", "RGBA", "L", "P", "LA"):
-            img = img.convert("RGB")
-            fmt = "JPEG"
-        img.save(buf, format=fmt, quality=90)
-        return buf.getvalue(), fmt.lower()
+        with _thumbnail_slots, Image.open(source) as opened:
+            # JPEG can downsample during decoding, before EXIF transpose loads pixels.
+            if opened.format == "JPEG":
+                opened.draft("RGB", (max_size, max_size))
+            # Shrink first: transposing a huge PNG before resizing duplicates
+            # hundreds of MB of decoded pixels for a small gallery thumbnail.
+            opened.thumbnail((max_size, max_size))
+            img = ImageOps.exif_transpose(opened)
+            if img.mode == "P":
+                img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+            has_alpha = "A" in img.getbands()
+            transparent = has_alpha and img.getchannel("A").getextrema()[0] < 255
+            if not transparent and img.mode != "RGB":
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            fmt = "PNG" if transparent else "JPEG"
+            img.save(buf, format=fmt, quality=90)
+            return buf.getvalue(), fmt.lower()
     except Exception:
         return None
 
 
 def make_thumbnail_b64(path: str | Path, max_size: int = 1024) -> str | None:
-    result = _thumbnail_image(path, max_size)
+    result = _thumbnail_image(str(path), max_size)
     if result is None:
         return None
     data, fmt = result
@@ -1063,7 +1071,7 @@ def make_thumbnail_b64(path: str | Path, max_size: int = 1024) -> str | None:
 
 
 def make_thumbnail_bytes(path: str | Path, max_size: int = 1024) -> bytes | None:
-    result = _thumbnail_image(path, max_size)
+    result = _thumbnail_image(str(path), max_size)
     if result is None:
         return None
     data, _ = result
@@ -1071,21 +1079,8 @@ def make_thumbnail_bytes(path: str | Path, max_size: int = 1024) -> bytes | None
 
 
 def make_thumbnail_bytes_from_bytes(data: bytes, max_size: int = 1024) -> bytes | None:
-    try:
-        img = Image.open(io.BytesIO(data))
-        img = ImageOps.exif_transpose(img)
-        img.thumbnail((max_size, max_size))
-        buf = io.BytesIO()
-        fmt = "JPEG" if img.mode == "RGB" else "PNG"
-        if img.mode in ("RGBA", "P", "LA"):
-            fmt = "PNG"
-        if img.mode not in ("RGB", "RGBA", "L", "P", "LA"):
-            img = img.convert("RGB")
-            fmt = "JPEG"
-        img.save(buf, format=fmt, quality=90)
-        return buf.getvalue()
-    except Exception:
-        return None
+    result = _thumbnail_image(io.BytesIO(data), max_size)
+    return result[0] if result else None
 
 
 def _make_display_preview(

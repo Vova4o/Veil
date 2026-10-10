@@ -2662,7 +2662,7 @@ def get_asset_source_info(asset_id: int) -> dict[str, Any] | None:
         row = conn.execute(
             """SELECT i.id, i.rel_path, i.file_name, i.file_size, i.file_mtime,
                 i.media_type, i.mime_type, i.format, i.duration, i.preview_status,
-                i.preview_error, i.has_original_data,
+                i.preview_error, i.has_original_data, i.content_fingerprint,
                 f.path AS folder_path
             FROM images i
             LEFT JOIN folders f ON f.id = i.folder_id

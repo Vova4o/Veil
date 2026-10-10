@@ -10,6 +10,10 @@ release support.
 
 - `start.bat` launches the built Windows app when available, otherwise the
   development Electron shell.
+- `desktop.bat` always launches the development Electron shell from source, so
+  a stale `dist/` build never hides local changes. It installs missing Node.js
+  and `.venv` dependencies and pauses on errors. `desktop.bat --packaged` runs
+  `dist/desktop/win-unpacked/Comfy Meta Viewer.exe`.
 - `npm run desktop` compiles the TypeScript shell and launches it against the
   project's `.venv` (`COMFY_META_PYTHON` can select a different interpreter).
 - `start.bat --web` / `start.sh --web` retain browser development. On Windows,
@@ -61,7 +65,14 @@ in the workspace. `start.bat` also passes that import path to a built app.
 The import uses SQLite backup (including committed WAL data), copies configuration
 and user templates, checks database integrity, and publishes the staged result
 by renaming it. Existing destination data and original sources are preserved.
-Generated caches are recreated. `desktop-import.json` records provenance.
+`desktop-import.json` records provenance. Matching legacy thumbnails and display
+previews are reused through read-only lookup in the old `cache/` directory;
+`COMFY_META_IMPORT_CACHE_DIR` can select another legacy cache. Both databases are
+compared by asset ID, source path, relative path, size, modification time, media
+type and content fingerprint. Each request rechecks the current source identity.
+Existing desktop caches take precedence. Missing/stale legacy entries generate
+normal desktop caches. No bulk cache copy delays startup, and no legacy files
+are changed. Removing the old cache remains safe; it only removes acceleration.
 
 ## Windows build
 
@@ -102,3 +113,18 @@ portrait and landscape frames. The packaged run had only Windows system tools
 on PATH. Full repository checks passed: 550 Python tests with 92 subtests,
 52 JavaScript tests, lint, typing and API contracts. The NSIS installer was built;
 installer execution on a clean Windows machine remains a separate release check.
+
+## Gallery performance
+
+The gallery page observer follows the actual scroll container and requests the
+next page two viewport heights ahead. New image thumbnails shrink before EXIF
+transpose to avoid a second full-resolution pixel buffer, use decoder downsampling
+for JPEG, encode opaque alpha images as JPEG, and preserve genuine transparency
+as PNG. At most two thumbnail decoders run concurrently, including the indexing
+worker. Original pixels and full display-preview resolution are unchanged.
+
+`node scripts/desktop_perf.cjs` compares gallery scrolling and lightbox paint
+with direct HTTP on the same test-owned server/library. Use `--no-cache-reuse`
+for new-cache generation and `--asset-ids <comma-separated IDs>` to include large
+originals. Add `--executable <path>` for the packaged app. Reports are stored in
+`build/desktop-perf-*/performance.json` without owner authentication tokens.

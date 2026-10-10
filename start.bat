@@ -17,22 +17,7 @@ if exist "%~dp0dist\desktop\win-unpacked\Comfy Meta Viewer.exe" (
     exit /b 0
 )
 
-where npm >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Node.js is needed for source development. Use the desktop installer instead.
-    pause
-    exit /b 1
-)
-if not exist "node_modules\electron\package.json" (
-    call npm ci
-    if errorlevel 1 exit /b 1
-)
-if not exist ".venv\Scripts\python.exe" (
-    set "POETRY_VIRTUALENVS_IN_PROJECT=true"
-    call poetry install --no-root --quiet
-    if errorlevel 1 exit /b 1
-)
-call npm run desktop -- %*
+call "%~dp0desktop.bat" %*
 exit /b %errorlevel%
 
 :web
