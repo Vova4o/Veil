@@ -1,0 +1,7 @@
+{
+  "positive_prompt": {"node": "4", "input": "prompt"},
+  "source_image": {"node": "15", "input": "image"},
+  "seed": {"node": "7", "input": "seed"},
+  "width": {"node": "17", "input": "width"},
+  "height": {"node": "17", "input": "height"}
+}

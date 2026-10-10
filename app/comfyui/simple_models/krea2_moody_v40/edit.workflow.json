@@ -1,0 +1,20 @@
+{
+  "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "moodyKrea2Mix_v40.safetensors", "weight_dtype": "default"}},
+  "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen3vl_4b_fp8_scaled.safetensors", "type": "krea2", "device": "default"}},
+  "3": {"class_type": "VAELoader", "inputs": {"vae_name": "qwen_image_vae.safetensors"}},
+  "15": {"class_type": "LoadImage", "inputs": {"image": ""}},
+  "16": {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": ["15", 0], "upscale_method": "lanczos", "megapixels": 1.0, "resolution_steps": 32}},
+  "6": {"class_type": "VAEEncode", "inputs": {"pixels": ["16", 0], "vae": ["3", 0]}},
+  "14": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": "krea2_identity_edit_v1_2_r64.safetensors", "strength_model": 1.0}},
+  "17": {"class_type": "EmptySD3LatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+  "18": {"class_type": "Krea2EditModelPatch", "inputs": {
+    "model": ["14", 0], "source_latent": ["6", 0], "ref_boost": 4.0, "ref_boost_a": 1.0, "fit_mode": "fit",
+    "vae": ["3", 0], "source_image": ["16", 0], "target_latent": ["17", 0]}},
+  "4": {"class_type": "Krea2EditGroundedEncode", "inputs": {"clip": ["2", 0], "image": ["16", 0], "prompt": "", "grounding_px": 768, "system_prompt": ""}},
+  "5": {"class_type": "Krea2EditGroundedEncode", "inputs": {"clip": ["2", 0], "image": ["16", 0], "prompt": "", "grounding_px": 768, "system_prompt": ""}},
+  "7": {"class_type": "KSampler", "inputs": {
+    "seed": 0, "steps": 8, "cfg": 1.0, "sampler_name": "euler_ancestral", "scheduler": "sgm_uniform", "denoise": 1.0,
+    "model": ["18", 0], "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["17", 0]}},
+  "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}},
+  "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "CMV/Create/krea2_edit", "images": ["8", 0]}}
+}

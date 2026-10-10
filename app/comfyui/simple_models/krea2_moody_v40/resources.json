@@ -1,0 +1,57 @@
+{
+  "required": [
+    {
+      "resource_type": "diffusion_model",
+      "folder": "diffusion_models",
+      "filename": "moodyKrea2Mix_v40.safetensors",
+      "aliases": ["moodyKrea2MixUncensoredV8FREEV8_v40_2998244.safetensors"],
+      "display_name": "Moody Krea 2 Mix V4.0 FP8",
+      "download_url": "https://civitai.com/api/download/models/3117958?fileId=2998244",
+      "sha256": "12d42c1f43d94bbbee1cc1ffaf8df1ad31a8cbeb9da7cd90e44f06405feaa1ca"
+    },
+    {
+      "resource_type": "text_encoder",
+      "folder": "text_encoders",
+      "filename": "qwen3vl_4b_fp8_scaled.safetensors",
+      "display_name": "Krea 2 Qwen3-VL text encoder",
+      "download_url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors?download=true"
+    },
+    {
+      "resource_type": "vae",
+      "folder": "vae",
+      "filename": "qwen_image_vae.safetensors",
+      "display_name": "Qwen Image VAE",
+      "download_url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors?download=true"
+    },
+    {
+      "resource_type": "lora",
+      "folder": "loras",
+      "filename": "krea2_turbo_sda_v1.0_comfy.safetensors",
+      "display_name": "Krea 2 Turbo SDA diversity LoRA",
+      "download_url": "https://huggingface.co/F16/krea2-turbo-sda/resolve/main/krea2_turbo_sda_v1.0_comfy.safetensors?download=true",
+      "sha256": "0fafed045c53c4acd6165eb55da6ec04b24785b1eeed6f1be37b2cdcb66dba2b"
+    },
+    {
+      "resource_type": "lora",
+      "folder": "loras",
+      "filename": "krea2_identity_edit_v1_2_r64.safetensors",
+      "display_name": "Krea 2 Identity Edit v1.2 r64",
+      "download_url": "https://civitai.com/api/download/models/3139172?fileId=3025700",
+      "sha256": "f794b47142555c929cf536a2f1e4f335174b9aedbb08572b07d45814d4242423"
+    }
+  ],
+  "custom_nodes": [
+    {
+      "id": "comfyui-krea2edit",
+      "display_name": "Krea 2 Identity Edit nodes",
+      "folder": "comfyui-krea2edit",
+      "repository": "https://github.com/lbouaraba/comfyui-krea2edit",
+      "commit": "86f886dac23013d88996e3a2e99093ba44d322fb",
+      "archive_url": "https://codeload.github.com/lbouaraba/comfyui-krea2edit/zip/86f886dac23013d88996e3a2e99093ba44d322fb",
+      "verify_file": "__init__.py",
+      "verify_sha256": "43c5f9aa2292bd4174dfe9aca0baa10d82713dafe2e04dd1ba2fde2ce89c3d39",
+      "node_classes": ["Krea2EditModelPatch", "Krea2EditGroundedEncode"],
+      "modes": ["edit"]
+    }
+  ]
+}

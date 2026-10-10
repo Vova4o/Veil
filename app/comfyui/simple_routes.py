@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import io
 import logging
 import os
 import random
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 from pydantic import BaseModel
@@ -22,13 +26,21 @@ from app.config_store import ConfigStore
 
 from .client import ComfyUIClient, ComfyUIClientError
 from .detector import detect_comfyui
+from .node_packs import (
+    NodePackInstallError,
+    custom_nodes_root,
+    install_node_pack,
+    installed_node_packs,
+)
 from .simple_downloader import SimpleModelDownloaderError, SimpleModelDownloaderService
 from .simple_profiles import (
     APPROVED_PROFILES,
     ApprovedProfile,
     QualityPresetLevel,
     check_profile_health,
+    compile_edit_workflow,
     compile_simple_workflow,
+    resolve_dimensions,
     serialize_approved_profile,
 )
 from .workflow_execution import WorkflowExecutionService
@@ -191,6 +203,43 @@ def _inventory_or_none():
         return None
 
 
+def _custom_nodes_root() -> Path | None:
+    from .manager import resolve_comfyui_installation
+
+    try:
+        detection = resolve_comfyui_installation(_config_store())
+    except Exception:
+        return None
+    return custom_nodes_root(detection.comfy_dir) if detection else None
+
+
+def _profile_health(profile: ApprovedProfile, inventory: Any | None = None) -> dict[str, Any]:
+    installed = (
+        installed_node_packs(profile.custom_nodes, _custom_nodes_root())
+        if profile.custom_nodes
+        else None
+    )
+    return check_profile_health(
+        profile,
+        inventory if inventory is not None else _inventory_or_none(),
+        installed_node_packs=installed,
+    )
+
+
+def _manual_node_install(pack) -> dict[str, str]:
+    return {
+        "id": pack.id,
+        "display_name": pack.display_name,
+        "repository": pack.repository,
+        "commit": pack.commit,
+        "folder": pack.folder,
+        "command": (
+            f"git clone {pack.repository} custom_nodes/{pack.folder} && "
+            f"git -C custom_nodes/{pack.folder} checkout {pack.commit}"
+        ),
+    }
+
+
 @simple_blueprint.route("/create")
 @simple_blueprint.route("/editor")
 def simple_mode_page():
@@ -245,7 +294,7 @@ def simple_profile_status(profile_id: str):
         invalidate_inventory_cache()
     return jsonify({
         "profile_id": profile_id,
-        "health": check_profile_health(profile, _inventory_or_none()),
+        "health": _profile_health(profile),
     })
 
 
@@ -265,7 +314,7 @@ def simple_install_profile(profile_id: str):
             "open_settings": True,
         }), 409
 
-    health = check_profile_health(profile, _inventory_or_none())
+    health = _profile_health(profile)
     missing_names = {
         str(item.get("filename") or "").casefold()
         for item in health.get("missing_resources", [])
@@ -289,11 +338,39 @@ def simple_install_profile(profile_id: str):
         except SimpleModelDownloaderError as exc:
             unavailable.append(f"{dependency.display_name}: {exc}")
 
+    node_results: list[dict[str, Any]] = []
+    manual_install: list[dict[str, str]] = []
+    restart_required = bool(health.get("restart_required"))
+    if profile.custom_nodes:
+        nodes_root = _custom_nodes_root()
+        on_disk = installed_node_packs(profile.custom_nodes, nodes_root)
+        for pack in profile.custom_nodes:
+            if pack.id in on_disk:
+                continue
+            if nodes_root is None:
+                unavailable.append(f"{pack.display_name}: ComfyUI custom_nodes folder was not found")
+                manual_install.append(_manual_node_install(pack))
+                continue
+            try:
+                node_results.append(install_node_pack(pack, nodes_root))
+                restart_required = True
+            except NodePackInstallError as exc:
+                logger.warning("Node pack %s install failed: %s", pack.id, exc)
+                unavailable.append(f"{pack.display_name}: {exc}")
+                node_results.append({"id": pack.id, "status": "failed", "code": exc.code, "error": str(exc)})
+                manual_install.append(_manual_node_install(pack))
+        if node_results:
+            from .workflow_inventory import invalidate_runtime_inventory
+            invalidate_runtime_inventory()
+
     return jsonify({
         "ok": not unavailable,
         "profile_id": profile.id,
         "model_root": str(model_root),
         "downloads": queued,
+        "node_packs": node_results,
+        "manual_install": manual_install,
+        "restart_required": restart_required,
         "unavailable": unavailable,
     }), 202 if queued else 200
 
@@ -424,6 +501,8 @@ class SimpleGenerateRequest(BaseModel):
     seed: int = -1
     reference_image: str | None = None
     negative_prompt: str | None = None
+    # text: description only; reference: the image guides the prompt; edit: the image is changed.
+    mode: Literal["text", "reference", "edit"] = "text"
 
 
 def _quality_level(value: str) -> QualityPresetLevel:
@@ -526,6 +605,191 @@ def _prepare_prompt(
     return positive_prompt, negative_prompt or "", ai_improved, explanation
 
 
+MAX_SOURCE_IMAGE_BYTES = 40 * 1024 * 1024
+
+
+def _decode_image_data_url(value: str | None) -> tuple[bytes, tuple[int, int]] | None:
+    """Decode a ``data:image/...;base64`` URL and return its bytes and pixel size."""
+    if not value or not value.startswith("data:image/") or "," not in value:
+        return None
+    header, payload = value.split(",", 1)
+    if ";base64" not in header:
+        return None
+    try:
+        data = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not data or len(data) > MAX_SOURCE_IMAGE_BYTES:
+        return None
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            return data, (int(image.width), int(image.height))
+    except (UnidentifiedImageError, OSError):
+        return None
+
+
+def _comfyui_offline_response():
+    return jsonify({
+        "error": "Could not connect to or automatically start ComfyUI.",
+        "code": "comfyui_connection_failed",
+        "suggestion": "ComfyUI is not running and automatic startup failed. Check the ComfyUI path in settings using the gear icon in the header.",
+    }), 503
+
+
+def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
+    """Queue a fixed-recipe profile run: one ComfyUI prompt per image with consecutive seeds."""
+    if req.mode not in profile.modes:
+        return jsonify({"error": f"Mode '{req.mode}' is not supported by {profile.name}.", "code": "mode_unsupported"}), 400
+
+    image = _decode_image_data_url(req.reference_image) if req.mode in {"reference", "edit"} else None
+    if req.mode in {"reference", "edit"} and image is None:
+        return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
+    if req.mode == "edit" and not req.prompt.strip():
+        return jsonify({"error": "Describe what to change in the photo.", "code": "instruction_required"}), 400
+    width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
+
+    from .manager import ensure_comfyui_online
+    from .workflow_inventory import invalidate_runtime_inventory
+
+    if not ensure_comfyui_online(_config_store(), timeout=60.0):
+        return _comfyui_offline_response()
+    inventory = _inventory_or_none()
+    if inventory is not None and not getattr(inventory, "online", False):
+        # The cache may still hold the offline snapshot taken before ComfyUI came up.
+        invalidate_runtime_inventory()
+        inventory = _inventory_or_none()
+
+    health = _profile_health(profile, inventory)
+    if health["status"] == "not_installed":
+        return jsonify({
+            "error": "Required model components are missing.",
+            "code": "model_not_installed",
+            "missing_resources": health["missing_resources"],
+        }), 409
+    if health["modes_ready"].get(req.mode) is False:
+        return jsonify({
+            "error": health["message"],
+            "code": "restart_required" if health["restart_required"] else "nodes_missing",
+            "missing_nodes": health["missing_nodes"],
+        }), 409
+
+    if req.mode == "edit":
+        positive_prompt, ai_improved, ai_explanation = req.prompt.strip(), False, None
+    else:
+        positive_prompt, _negative, ai_improved, ai_explanation = _prepare_prompt(profile, req)
+
+    client = _client()
+    source_name = None
+    if req.mode == "edit":
+        try:
+            uploaded = client.upload_image(f"cmv_source_{uuid.uuid4().hex}.png", image[0], subfolder="cmv")
+        except ComfyUIClientError as exc:
+            return jsonify({"error": f"Could not send the photo to ComfyUI: {exc}", "code": "comfyui_rejected"}), 502
+        subfolder = str(uploaded.get("subfolder") or "")
+        source_name = f"{subfolder}/{uploaded['name']}" if subfolder else str(uploaded["name"])
+
+    batch = max(1, min(int(req.batch_size), profile.max_batch))
+    base_seed = req.seed if req.seed >= 0 else random.randint(0, 1125899906842624 - batch)
+    seeds = [base_seed + index for index in range(batch)]
+
+    wf_store = _workflow_store()
+    draft = wf_store.create_draft(
+        template_id=f"simple-{profile.id}-{req.mode}",
+        template_version="3.0.0",
+        values={
+            "mode": req.mode,
+            "user_request": req.prompt,
+            "positive_prompt": positive_prompt,
+            "aspect_ratio": req.aspect_ratio,
+            "width": width,
+            "height": height,
+            "batch_size": batch,
+            "seeds": seeds,
+            "source_image": source_name,
+        },
+        resource_selections={},
+    )
+
+    client_id = str(uuid.uuid4())
+    runs: list[dict[str, Any]] = []
+    for index, seed in enumerate(seeds):
+        try:
+            if req.mode == "edit":
+                workflow = compile_edit_workflow(
+                    profile,
+                    instruction=positive_prompt,
+                    source_image=source_name,
+                    dimensions=(width, height),
+                    seed=seed,
+                )
+            else:
+                workflow = compile_simple_workflow(
+                    profile,
+                    positive_prompt=positive_prompt,
+                    seed=seed,
+                    mode=req.mode,
+                    dimensions=(width, height),
+                )
+        except Exception as exc:
+            return jsonify({"error": f"Failed to compile workflow: {exc}"}), 500
+        try:
+            result = client.queue_prompt(
+                workflow,
+                client_id=client_id,
+                extra_data={
+                    "comfy_meta_viewer": {
+                        "simple_mode": True,
+                        "profile_id": profile.id,
+                        "mode": req.mode,
+                        "draft_id": draft.id,
+                        "batch_index": index,
+                    },
+                    "extra_pnginfo": {
+                        "cmv_simple_profile": profile.id,
+                        "cmv_create_mode": req.mode,
+                        "cmv_user_request": req.prompt,
+                        "cmv_prompt": positive_prompt,
+                    },
+                },
+            )
+        except ComfyUIClientError as exc:
+            if not runs:
+                return jsonify({
+                    "error": f"ComfyUI rejected prompt: {exc}",
+                    "code": "comfyui_rejected",
+                    "suggestion": "Make sure ComfyUI is running and the selected model components are installed.",
+                }), 502
+            logger.warning("Create batch stopped after %s of %s images: %s", len(runs), batch, exc)
+            break
+        except Exception as exc:
+            if not runs:
+                return jsonify({"error": f"Connection error: {exc}", "code": "comfyui_connection_failed"}), 503
+            logger.warning("Create batch stopped after %s of %s images: %s", len(runs), batch, exc)
+            break
+        prompt_id = str(result["prompt_id"])
+        run = wf_store.create_run(draft_id=draft.id, prompt_id=prompt_id, client_id=client_id)
+        runs.append({"run_id": run.id, "prompt_id": prompt_id, "seed": seed})
+
+    return jsonify({
+        "ok": True,
+        "run_id": runs[0]["run_id"],
+        "run_ids": [item["run_id"] for item in runs],
+        "prompt_id": runs[0]["prompt_id"],
+        "runs": runs,
+        "requested": batch,
+        "profile_id": profile.id,
+        "mode": req.mode,
+        "width": width,
+        "height": height,
+        "positive_prompt": positive_prompt,
+        "negative_prompt": "",
+        "ai_improved": ai_improved,
+        "ai_explanation": ai_explanation,
+    })
+
+
 @simple_blueprint.route("/api/simple/generate", methods=["POST"])
 def simple_generate():
     try:
@@ -542,6 +806,9 @@ def simple_generate():
             "error": "Workflow for this model is still being calibrated.",
             "code": "workflow_pending",
         }), 409
+
+    if profile.fixed_sampling:
+        return _generate_fixed(profile, req)
 
     health = check_profile_health(profile, _inventory_or_none())
     if health["status"] == "not_installed":
@@ -591,7 +858,6 @@ def simple_generate():
             "suggestion": "ComfyUI is not running and automatic startup failed. Check the ComfyUI path in settings using the gear icon in the header.",
         }), 503
 
-    import uuid
     client_id = str(uuid.uuid4())
     try:
         result = _client().queue_prompt(

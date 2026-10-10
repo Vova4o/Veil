@@ -86,7 +86,7 @@ def test_simple_mode_routes(monkeypatch):
     data = json.loads(resp_boot.data)
     assert "profiles" in data
     assert len(data["profiles"]) >= 3
-    assert data["default_profile_id"] == "model_01"
+    assert data["default_profile_id"] == "krea2_moody_v40"
     assert "ai_status" in data
 
     # Test Profile status API

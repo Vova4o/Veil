@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import random
 from dataclasses import dataclass
 from enum import Enum
@@ -27,6 +28,23 @@ class ProfileResourceDependency:
     display_name: str
     download_url: str | None = None
     aliases: tuple[str, ...] = ()
+    sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class CustomNodeRequirement:
+    """A ComfyUI custom node pack pinned to one reviewed commit."""
+
+    id: str
+    display_name: str
+    folder: str
+    repository: str
+    commit: str
+    archive_url: str
+    verify_file: str
+    verify_sha256: str
+    node_classes: tuple[str, ...]
+    modes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -49,6 +67,15 @@ class ApprovedProfile:
     quality_preset_ids: tuple[str, ...]
     required_resources: tuple[ProfileResourceDependency, ...]
     directory: Path
+    max_batch: int = 4
+    modes: tuple[str, ...] = ("text",)
+    sda_modes: tuple[str, ...] = ()
+    custom_nodes: tuple[CustomNodeRequirement, ...] = ()
+
+    @property
+    def fixed_sampling(self) -> bool:
+        """Profiles without quality presets carry their sampling inside the workflow."""
+        return not self.quality_preset_ids
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -83,8 +110,24 @@ def _load_profile(directory: Path) -> ApprovedProfile:
                 display_name=str(raw.get("display_name") or raw.get("filename") or ""),
                 download_url=str(raw.get("download_url") or "") or None,
                 aliases=tuple(str(item) for item in raw.get("aliases", []) if item),
+                sha256=str(raw.get("sha256") or "").casefold() or None,
             )
         )
+    custom_nodes = tuple(
+        CustomNodeRequirement(
+            id=str(raw["id"]),
+            display_name=str(raw.get("display_name") or raw["id"]),
+            folder=str(raw.get("folder") or raw["id"]),
+            repository=str(raw.get("repository") or ""),
+            commit=str(raw["commit"]),
+            archive_url=str(raw["archive_url"]),
+            verify_file=str(raw["verify_file"]),
+            verify_sha256=str(raw["verify_sha256"]).casefold(),
+            node_classes=tuple(str(item) for item in raw.get("node_classes", []) if item),
+            modes=tuple(str(item) for item in raw.get("modes", []) if item),
+        )
+        for raw in resources_data.get("custom_nodes", [])
+    )
     family = PromptFamily(str(manifest.get("prompt_family") or "sdxl"))
     return ApprovedProfile(
         id=str(manifest["id"]),
@@ -111,6 +154,10 @@ def _load_profile(directory: Path) -> ApprovedProfile:
         ),
         required_resources=tuple(resources),
         directory=directory,
+        max_batch=max(1, int(manifest.get("max_batch") or 4)),
+        modes=tuple(str(item) for item in manifest.get("modes", ("text",))),
+        sda_modes=tuple(str(item) for item in manifest.get("sda_modes", ())),
+        custom_nodes=custom_nodes,
     )
 
 
@@ -155,9 +202,39 @@ def _inventory_names(inventory: Any, folder: str) -> set[str]:
     return {Path(str(name)).name.casefold() for name in models.get(folder, [])}
 
 
+def _missing_node_packs(
+    profile: ApprovedProfile,
+    inventory: Any | None,
+    installed_node_packs: set[str] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Return node packs whose classes ComfyUI does not expose, plus whether that is known."""
+    if not profile.custom_nodes:
+        return [], True
+    if inventory is None or not getattr(inventory, "online", False):
+        return [], False
+    exposed = set(getattr(inventory, "node_types", None) or ())
+    installed = installed_node_packs or set()
+    missing: list[dict[str, Any]] = []
+    for pack in profile.custom_nodes:
+        absent = [name for name in pack.node_classes if name not in exposed]
+        if absent:
+            missing.append({
+                "id": pack.id,
+                "display_name": pack.display_name,
+                "repository": pack.repository,
+                "commit": pack.commit,
+                "node_classes": absent,
+                "modes": list(pack.modes),
+                "installed_on_disk": pack.id in installed,
+            })
+    return missing, True
+
+
 def check_profile_health(
     profile: ApprovedProfile,
     inventory: Any | None = None,
+    *,
+    installed_node_packs: set[str] | None = None,
 ) -> dict[str, Any]:
     missing: list[dict[str, Any]] = []
     inventory_known = inventory is not None and isinstance(getattr(inventory, "models", None), dict)
@@ -188,11 +265,33 @@ def check_profile_health(
         status = "ready"
         message = "Готова к генерации"
 
+    missing_nodes, nodes_known = _missing_node_packs(profile, inventory, installed_node_packs)
+    restart_required = bool(missing_nodes) and all(item["installed_on_disk"] for item in missing_nodes)
+    blocked_modes = {mode for item in missing_nodes for mode in item["modes"]}
+    if not nodes_known:
+        blocked_modes |= {mode for pack in profile.custom_nodes for mode in pack.modes}
+    modes_ready = {
+        mode: status == "ready" and mode not in blocked_modes
+        for mode in profile.modes
+    }
+    if status == "ready" and missing_nodes:
+        message = (
+            "Перезапустите ComfyUI, чтобы подключить новые ноды"
+            if restart_required
+            else "Для правки фото не хватает нод ComfyUI"
+        )
+    downloadable = all(item.get("download_url") for item in missing)
+    installable_nodes = any(not item["installed_on_disk"] for item in missing_nodes)
+
     return {
         "status": status,
         "ready": status == "ready",
         "missing_resources": missing,
-        "installable": bool(missing) and all(item.get("download_url") for item in missing),
+        "missing_nodes": missing_nodes,
+        "nodes_known": nodes_known,
+        "restart_required": restart_required,
+        "modes_ready": modes_ready,
+        "installable": (not missing or downloadable) and (bool(missing) or installable_nodes),
         "message": message,
     }
 
@@ -213,6 +312,7 @@ def serialize_approved_profile(
     inventory: Any | None = None,
     *,
     include_health: bool = True,
+    installed_node_packs: set[str] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "id": profile.id,
@@ -228,14 +328,21 @@ def serialize_approved_profile(
         "workflow_ready": profile.workflow_ready,
         "aspect_ratios": list(profile.aspect_ratios),
         "quality_presets": _preset_summary(profile),
+        "fixed_sampling": profile.fixed_sampling,
+        "max_batch": profile.max_batch,
+        "modes": list(profile.modes),
     }
     if include_health:
-        payload["health"] = check_profile_health(profile, inventory)
+        payload["health"] = check_profile_health(profile, inventory, installed_node_packs=installed_node_packs)
     return payload
 
 
-def _set_binding(workflow: dict[str, Any], binding: dict[str, Any] | None, value: Any) -> None:
+def _set_binding(workflow: dict[str, Any], binding: dict[str, Any] | list | None, value: Any) -> None:
     if not binding:
+        return
+    if isinstance(binding, list):
+        for item in binding:
+            _set_binding(workflow, item, value)
         return
     node = workflow.get(str(binding.get("node")))
     if not isinstance(node, dict):
@@ -244,11 +351,40 @@ def _set_binding(workflow: dict[str, Any], binding: dict[str, Any] | None, value
     inputs[str(binding.get("input"))] = value
 
 
-def _load_bindings(profile: ApprovedProfile) -> dict[str, Any]:
-    path = profile.directory / "bindings.json"
+def _load_bindings(profile: ApprovedProfile, workflow_name: str = "") -> dict[str, Any]:
+    path = profile.directory / f"{workflow_name}bindings.json"
     if not path.is_file():
         raise FileNotFoundError(f"Bindings are not prepared yet for {profile.id}")
     return _read_json(path)
+
+
+TARGET_PIXELS = 1024 * 1024
+DIMENSION_STEP = 32
+
+
+def resolve_dimensions(
+    profile: ApprovedProfile,
+    aspect_ratio: str,
+    source_size: tuple[int, int] | None = None,
+) -> tuple[int, int]:
+    """Return generation width/height for a preset ratio or the source photo's own ratio.
+
+    ``aspect_ratio="source"`` keeps the source proportions at about one megapixel,
+    rounded to the latent grid and clamped to a 1:2.5 .. 2.5:1 range.
+    """
+    if aspect_ratio == "source" and source_size and min(source_size) > 0:
+        ratio = min(max(source_size[0] / source_size[1], 0.4), 2.5)
+        width = math.sqrt(TARGET_PIXELS * ratio)
+        height = width / ratio
+        return (
+            max(DIMENSION_STEP, round(width / DIMENSION_STEP) * DIMENSION_STEP),
+            max(DIMENSION_STEP, round(height / DIMENSION_STEP) * DIMENSION_STEP),
+        )
+    item = next(
+        (entry for entry in profile.aspect_ratios if str(entry.get("ratio")) == aspect_ratio),
+        profile.aspect_ratios[0] if profile.aspect_ratios else {"width": 1024, "height": 1024},
+    )
+    return int(item.get("width") or 1024), int(item.get("height") or 1024)
 
 
 def _load_preset(profile: ApprovedProfile, quality: QualityPresetLevel) -> dict[str, Any]:
@@ -267,6 +403,8 @@ def compile_simple_workflow(
     quality: QualityPresetLevel = QualityPresetLevel.STANDARD,
     batch_size: int = 1,
     seed: int = -1,
+    mode: str = "text",
+    dimensions: tuple[int, int] | None = None,
     custom_dir: Path | None = None,
 ) -> dict[str, Any]:
     del custom_dir
@@ -275,12 +413,8 @@ def compile_simple_workflow(
 
     workflow = copy.deepcopy(load_simple_workflow_json(profile))
     bindings = _load_bindings(profile)
-    preset = _load_preset(profile, quality)
 
-    ratio = next(
-        (item for item in profile.aspect_ratios if str(item.get("ratio")) == aspect_ratio),
-        profile.aspect_ratios[0] if profile.aspect_ratios else {"width": 1024, "height": 1024},
-    )
+    width, height = dimensions or resolve_dimensions(profile, aspect_ratio)
     effective_seed = seed if seed >= 0 else random.randint(0, 1125899906842624)
     effective_positive = positive_prompt.strip()
     if profile.prompt_prefix and effective_positive:
@@ -290,13 +424,43 @@ def compile_simple_workflow(
     _set_binding(workflow, bindings.get("positive_prompt"), effective_positive)
     _set_binding(workflow, bindings.get("negative_prompt"), effective_negative or "")
     _set_binding(workflow, bindings.get("seed"), effective_seed)
-    _set_binding(workflow, bindings.get("width"), int(ratio.get("width") or 1024))
-    _set_binding(workflow, bindings.get("height"), int(ratio.get("height") or 1024))
-    _set_binding(workflow, bindings.get("batch_size"), max(1, min(int(batch_size), 4)))
+    _set_binding(workflow, bindings.get("width"), width)
+    _set_binding(workflow, bindings.get("height"), height)
+    _set_binding(workflow, bindings.get("batch_size"), max(1, min(int(batch_size), profile.max_batch)))
+    # The SDA diversity LoRA only acts on the first sampling steps; strength 0 makes it a no-op.
+    _set_binding(workflow, bindings.get("sda_strength"), 1.0 if mode in profile.sda_modes else 0.0)
 
-    preset_bindings = bindings.get("preset") if isinstance(bindings.get("preset"), dict) else {}
-    overrides = preset.get("overrides") if isinstance(preset.get("overrides"), dict) else {}
-    for key, value in overrides.items():
-        _set_binding(workflow, preset_bindings.get(key), value)
+    if not profile.fixed_sampling:
+        preset = _load_preset(profile, quality)
+        preset_bindings = bindings.get("preset") if isinstance(bindings.get("preset"), dict) else {}
+        overrides = preset.get("overrides") if isinstance(preset.get("overrides"), dict) else {}
+        for key, value in overrides.items():
+            _set_binding(workflow, preset_bindings.get(key), value)
 
+    return workflow
+
+
+def has_edit_workflow(profile: ApprovedProfile) -> bool:
+    return "edit" in profile.modes and (profile.directory / "edit.workflow.json").is_file()
+
+
+def compile_edit_workflow(
+    profile: ApprovedProfile,
+    *,
+    instruction: str,
+    source_image: str,
+    dimensions: tuple[int, int],
+    seed: int = -1,
+) -> dict[str, Any]:
+    """Compile the instruction-edit graph for an image already uploaded to ComfyUI input."""
+    if not has_edit_workflow(profile):
+        raise FileNotFoundError(f"Edit workflow is not prepared for {profile.name}")
+    workflow = copy.deepcopy(_read_json(profile.directory / "edit.workflow.json"))
+    bindings = _load_bindings(profile, "edit.")
+    effective_seed = seed if seed >= 0 else random.randint(0, 1125899906842624)
+    _set_binding(workflow, bindings.get("positive_prompt"), instruction.strip())
+    _set_binding(workflow, bindings.get("source_image"), source_image)
+    _set_binding(workflow, bindings.get("seed"), effective_seed)
+    _set_binding(workflow, bindings.get("width"), int(dimensions[0]))
+    _set_binding(workflow, bindings.get("height"), int(dimensions[1]))
     return workflow

@@ -1,0 +1,26 @@
+{
+  "id": "krea2_moody_v40",
+  "name": "Moody Krea2",
+  "technical_name": "Moody Krea 2 Mix V4.0 FP8",
+  "description": "Krea 2: создание по описанию или референсу и правка фото.",
+  "prompt_family": "flux",
+  "architecture": "krea2",
+  "source_url": "https://civitai.red/models/2731187/moody-krea-2-mix-uncensored?modelVersionId=3117958",
+  "source_version_id": 3117958,
+  "vram_min_gb": 8,
+  "vram_rec_gb": 12,
+  "workflow_ready": true,
+  "default_negative_prompt": "",
+  "prompt_prefix": "",
+  "max_batch": 4,
+  "modes": ["text", "reference", "edit"],
+  "sda_modes": ["text"],
+  "aspect_ratios": [
+    {"ratio": "1:1", "width": 1024, "height": 1024, "label": "1:1"},
+    {"ratio": "3:4", "width": 896, "height": 1152, "label": "3:4"},
+    {"ratio": "4:3", "width": 1152, "height": 896, "label": "4:3"},
+    {"ratio": "9:16", "width": 768, "height": 1344, "label": "9:16"},
+    {"ratio": "16:9", "width": 1344, "height": 768, "label": "16:9"}
+  ],
+  "quality_presets": []
+}
