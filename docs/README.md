@@ -59,6 +59,8 @@ This directory contains the public technical and architectural documentation of 
 | Document | Description |
 |----------|-------------|
 | [Simple Mode Redesign](design/simple-mode-redesign.md) | Target UX, verified profile model, AI-assisted generation flow, and migration rules |
+| [Create on Krea2](CREATE-KREA2-PLAN.md) | Active Create v1 plan: three modes on Moody Krea2, calibrated graphs, agent instruction, stage status |
+| [Editor / Studio Runtime Plan](EDITOR-STUDIO-RUNTIME-PLAN.md) | Long-term Studio direction: VisualSession, typed runtime, Agent Lab |
 
 ---
 
@@ -90,3 +92,4 @@ Active strategic plans and technical roadmaps are maintained in [`dev_docs/roadm
 | Add or customize styles | [CSS Architecture > Extension Guidelines](dev/css-architecture.md#extension-guidelines) |
 | Inspect AI prompt pipeline | [AI Prompt Architecture](ai/prompt-architecture.md) |
 | Review Simple Mode spec | [Simple Mode Redesign](design/simple-mode-redesign.md) |
+| Continue Create (Krea2) work | [Create on Krea2](CREATE-KREA2-PLAN.md) |

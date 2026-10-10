@@ -3,6 +3,8 @@
 > **Status:** active architecture plan for the CMV editor / studio.
 >
 > This document describes the direction that should replace the current Simple Mode, model zoo, and the old editor concepts. If implementation work concerns Create, Editor, Studio, visual sessions, image editing, reference composition, typography, or Comfy MCP, start here.
+>
+> **Create v1 (2026-10-10):** the user chose three explicit modes (reference, edit, text) with calibrated Moody Krea2 graphs. The concrete implementation plan and stage status live in [CREATE-KREA2-PLAN.md](CREATE-KREA2-PLAN.md); this document remains the long-term direction.
 
 ## 1. Product direction
 
