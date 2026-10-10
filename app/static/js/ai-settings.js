@@ -1521,7 +1521,7 @@ async function submitProfile(event) {
 
 const DEFAULT_CLI_CATALOG = [
     { type: 'opencode', label: 'OpenCode', multimodal: true, experimental: false, model_discovery: true },
-    { type: 'claude', label: 'Claude Code', multimodal: false, experimental: false, model_discovery: false },
+    { type: 'claude', label: 'Claude Code', multimodal: true, experimental: false, model_discovery: false },
     { type: 'antigravity', label: 'Antigravity CLI', multimodal: true, experimental: true, model_discovery: true },
     { type: 'civitai', label: 'Civitai CLI', multimodal: false, experimental: false, model_discovery: false, provider: false },
 ];

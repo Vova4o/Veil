@@ -8,7 +8,11 @@ from .base import (
     ExecutionMode,
     PreparedPromptExecution,
 )
-from .claude_code import ClaudeCodePromptExecutionError, ClaudeCodePromptExecutor
+from .claude_code import (
+    ClaudeCodePromptExecutionError,
+    ClaudeCodePromptExecutor,
+    is_claude_profile,
+)
 from .direct import DirectPromptExecutionError, DirectPromptExecutor
 from .opencode import OpenCodePromptExecutionError, OpenCodePromptExecutor
 
@@ -113,8 +117,8 @@ class ClaudeCodeAgentHostAdapter:
     adapter_id = "claude_code"
     capabilities = ExecutionCapabilities(
         mode=ExecutionMode.AGENT_HOST,
-        supports_images=False,
-        image_inputs=(),
+        supports_images=True,
+        image_inputs=("file_path",),
         supports_json_output=True,
         supports_skills=False,
         supports_mcp=False,
@@ -126,7 +130,7 @@ class ClaudeCodeAgentHostAdapter:
 
     @staticmethod
     def supports_profile(profile: dict) -> bool:
-        return profile.get("kind") == "cli" and profile.get("cli_type") == "claude_code"
+        return is_claude_profile(profile)
 
     def execute(self, prepared: PreparedPromptExecution) -> AdapterExecutionResult:
         try:
@@ -136,6 +140,7 @@ class ClaudeCodeAgentHostAdapter:
                 user_input=prepared.user_input,
                 image_path=prepared.image_path,
                 bundle=prepared.bundle,
+                on_output_chunk=prepared.on_output_chunk,
             )
         except ClaudeCodePromptExecutionError as exc:
             raise AdapterExecutionError(

@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -39,7 +40,8 @@ CLI_SPECS: dict[str, dict[str, Any]] = {
         "version_args": ("--version",),
         "auth_args": ("auth", "status"),
         "models_args": None,
-        "multimodal": False,
+        # Images are copied into the run folder and read with the Read tool.
+        "multimodal": True,
         "experimental": False,
     },
     "antigravity": {
@@ -194,9 +196,22 @@ def run_command(
     max_timeout: int = 600,
     cwd: str | Path | None = None,
     on_output_chunk: Any = None,
+    input_text: str | None = None,
+    env_overrides: dict[str, str | None] | None = None,
 ) -> CommandResult:
+    """Run a CLI with inactivity and total timeouts.
+
+    ``input_text`` is written to stdin and then stdin is closed; without it
+    stdin is the null device. ``env_overrides`` sets variables, and a ``None``
+    value removes one from the inherited environment.
+    """
     env = os.environ.copy()
     env.setdefault("NO_COLOR", "1")
+    for name, value in (env_overrides or {}).items():
+        if value is None:
+            env.pop(name, None)
+        else:
+            env[name] = value
     started = time.monotonic()
     last_activity = time.monotonic()
 
@@ -205,7 +220,7 @@ def run_command(
             args,
             cwd=str(cwd) if cwd is not None else None,
             env=env,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -244,10 +259,25 @@ def run_command(
             last_activity = time.monotonic()
         process.stderr.close()
 
+    def write_stdin():
+        if process.stdin is None:
+            return
+        try:
+            process.stdin.write(input_text)
+        except OSError:
+            pass
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
     t_out = threading.Thread(target=read_stdout, daemon=True)
     t_err = threading.Thread(target=read_stderr, daemon=True)
     t_out.start()
     t_err.start()
+    if input_text is not None:
+        threading.Thread(target=write_stdin, daemon=True).start()
 
     while True:
         retcode = process.poll()
@@ -667,6 +697,8 @@ def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[s
             *file_args,
         ]
     elif cli_type == "claude":
+        if multimodal:
+            return _run_claude_vision_test(executable, profile)
         args = [
             executable,
             "--print",
@@ -692,7 +724,48 @@ def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[s
             "--sandbox",
             "--dangerously-skip-permissions",
         ]
-    result = run_command(args, timeout=profile["timeout_seconds"])
+    result = run_command(
+        args, timeout=profile["timeout_seconds"], env_overrides=_child_env_overrides(cli_type)
+    )
+    return _cli_test_response(cli_type, result)
+
+
+def _child_env_overrides(cli_type: str) -> dict[str, str | None] | None:
+    # Claude Code refuses to start while the nested-session marker is inherited.
+    return {"CLAUDECODE": None} if cli_type == "claude" else None
+
+
+def _run_claude_vision_test(executable: str, profile: dict[str, Any]) -> dict[str, Any]:
+    if not VISION_TEST_IMAGE.is_file():
+        raise CLIIntegrationError(
+            "The bundled vision test image is missing.", code="incompatible_format"
+        )
+    with tempfile.TemporaryDirectory(prefix="cmv-claude-test-") as temp_dir:
+        shutil.copyfile(VISION_TEST_IMAGE, Path(temp_dir) / "input.jpg")
+        result = run_command(
+            [
+                executable,
+                "--print",
+                "Use the Read tool to open the image input.jpg in the current working "
+                "directory, then reply with exactly CMV_OK and no other text.",
+                "--output-format",
+                "json",
+                "--model",
+                profile["model"],
+                "--no-session-persistence",
+                "--tools",
+                "Read",
+                "--allowedTools",
+                "Read",
+            ],
+            timeout=profile["timeout_seconds"],
+            cwd=temp_dir,
+            env_overrides=_child_env_overrides("claude"),
+        )
+    return _cli_test_response("claude", result)
+
+
+def _cli_test_response(cli_type: str, result: CommandResult) -> dict[str, Any]:
     output = "\n".join(part for part in (result.stdout, result.stderr) if part)
     if result.returncode != 0:
         lowered = output.lower()
