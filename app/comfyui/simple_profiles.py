@@ -47,6 +47,33 @@ class CustomNodeRequirement:
     modes: tuple[str, ...] = ()
 
 
+# Edit-graph knobs a manifest edit profile may set, with the type the node input expects.
+EDIT_SETTING_TYPES: dict[str, type] = {
+    "cfg": float,
+    "steps": int,
+    "ref_boost": float,
+    "ref_boost_a": float,
+    "grounding_px": int,
+}
+
+
+@dataclass(frozen=True)
+class EditProfile:
+    """A calibrated set of edit-graph knobs for one kind of photo edit.
+
+    ``references`` is 1 for a scene-only edit and 2 when a donor photo is wired as the
+    second reference; with two references ``ref_boost`` acts on the donor and
+    ``ref_boost_a`` on the scene.
+    """
+
+    id: str
+    label: str
+    description: str
+    references: int
+    seconds: int
+    settings: dict[str, float | int]
+
+
 @dataclass(frozen=True)
 class ApprovedProfile:
     id: str
@@ -71,6 +98,7 @@ class ApprovedProfile:
     modes: tuple[str, ...] = ("text",)
     sda_modes: tuple[str, ...] = ()
     custom_nodes: tuple[CustomNodeRequirement, ...] = ()
+    edit_profiles: tuple[EditProfile, ...] = ()
 
     @property
     def fixed_sampling(self) -> bool:
@@ -95,6 +123,24 @@ def _load_prompt_style(directory: Path) -> str:
     except OSError:
         return ""
     return content.strip()
+
+
+def _load_edit_profile(raw: dict[str, Any], directory: Path) -> EditProfile:
+    settings_raw = raw.get("settings") or {}
+    unknown = sorted(set(settings_raw) - set(EDIT_SETTING_TYPES))
+    if unknown:
+        raise ValueError(f"Unknown edit settings {unknown} in {directory / 'manifest.json'}")
+    references = int(raw.get("references") or 1)
+    if references not in (1, 2):
+        raise ValueError(f"Edit profile {raw.get('id')} must use 1 or 2 references")
+    return EditProfile(
+        id=str(raw["id"]),
+        label=str(raw.get("label") or raw["id"]),
+        description=str(raw.get("description") or ""),
+        references=references,
+        seconds=int(raw.get("seconds") or 0),
+        settings={key: EDIT_SETTING_TYPES[key](value) for key, value in settings_raw.items()},
+    )
 
 
 def _load_profile(directory: Path) -> ApprovedProfile:
@@ -158,6 +204,7 @@ def _load_profile(directory: Path) -> ApprovedProfile:
         modes=tuple(str(item) for item in manifest.get("modes", ("text",))),
         sda_modes=tuple(str(item) for item in manifest.get("sda_modes", ())),
         custom_nodes=custom_nodes,
+        edit_profiles=tuple(_load_edit_profile(raw, directory) for raw in manifest.get("edit_profiles", [])),
     )
 
 
@@ -331,6 +378,16 @@ def serialize_approved_profile(
         "fixed_sampling": profile.fixed_sampling,
         "max_batch": profile.max_batch,
         "modes": list(profile.modes),
+        "edit_profiles": [
+            {
+                "id": item.id,
+                "label": item.label,
+                "description": item.description,
+                "references": item.references,
+                "seconds": item.seconds,
+            }
+            for item in profile.edit_profiles
+        ],
     }
     if include_health:
         payload["health"] = check_profile_health(profile, inventory, installed_node_packs=installed_node_packs)
@@ -444,6 +501,47 @@ def has_edit_workflow(profile: ApprovedProfile) -> bool:
     return "edit" in profile.modes and (profile.directory / "edit.workflow.json").is_file()
 
 
+def resolve_edit_profile(
+    profile: ApprovedProfile,
+    edit_profile: str | None = None,
+    *,
+    references: int = 1,
+) -> EditProfile | None:
+    """Return the named edit profile, or the first one made for ``references`` photos.
+
+    Profiles without edit profiles keep the knobs stored in their edit graph (``None``).
+    Raises ``ValueError`` for an unknown id or one made for another number of photos.
+    """
+    if not profile.edit_profiles:
+        if edit_profile:
+            raise ValueError(f"{profile.name} has no edit profiles")
+        return None
+    if not edit_profile:
+        return next((item for item in profile.edit_profiles if item.references == references), None)
+    item = next((entry for entry in profile.edit_profiles if entry.id == edit_profile), None)
+    if item is None:
+        raise ValueError(f"Unknown edit profile '{edit_profile}'")
+    if item.references != references:
+        raise ValueError(f"Edit profile '{edit_profile}' needs {item.references} photo(s), got {references}")
+    return item
+
+
+def _add_subject_reference(
+    profile: ApprovedProfile,
+    workflow: dict[str, Any],
+    bindings: dict[str, Any],
+    subject_image: str,
+) -> None:
+    """Wire a donor photo in as the second reference: scene first, subject second."""
+    fragment = profile.directory / "edit.subject.workflow.json"
+    if not fragment.is_file() or not bindings.get("subject_image"):
+        raise FileNotFoundError(f"Second reference is not prepared for {profile.name}")
+    workflow.update(copy.deepcopy(_read_json(fragment)))
+    _set_binding(workflow, bindings["subject_image"], subject_image)
+    for link in bindings.get("subject_links", []):
+        _set_binding(workflow, link, list(link["from"]))
+
+
 def compile_edit_workflow(
     profile: ApprovedProfile,
     *,
@@ -451,16 +549,33 @@ def compile_edit_workflow(
     source_image: str,
     dimensions: tuple[int, int],
     seed: int = -1,
+    edit_profile: str | None = None,
+    subject_image: str | None = None,
+    negative_instruction: str = "",
 ) -> dict[str, Any]:
-    """Compile the instruction-edit graph for an image already uploaded to ComfyUI input."""
+    """Compile the instruction-edit graph for images already uploaded to ComfyUI input.
+
+    ``subject_image`` adds a donor photo as the second reference; ``edit_profile``
+    picks the calibrated knobs (default: the first profile for that photo count).
+    ``negative_instruction`` describes what must disappear (e.g. a removed garment);
+    it is grounded on the same photo and only acts when the profile's cfg is above 1.
+    """
     if not has_edit_workflow(profile):
         raise FileNotFoundError(f"Edit workflow is not prepared for {profile.name}")
+    settings = resolve_edit_profile(profile, edit_profile, references=2 if subject_image else 1)
     workflow = copy.deepcopy(_read_json(profile.directory / "edit.workflow.json"))
     bindings = _load_bindings(profile, "edit.")
     effective_seed = seed if seed >= 0 else random.randint(0, 1125899906842624)
     _set_binding(workflow, bindings.get("positive_prompt"), instruction.strip())
+    _set_binding(workflow, bindings.get("negative_prompt"), negative_instruction.strip())
     _set_binding(workflow, bindings.get("source_image"), source_image)
     _set_binding(workflow, bindings.get("seed"), effective_seed)
     _set_binding(workflow, bindings.get("width"), int(dimensions[0]))
     _set_binding(workflow, bindings.get("height"), int(dimensions[1]))
+    if subject_image:
+        _add_subject_reference(profile, workflow, bindings, subject_image)
+    for key, value in (settings.settings.items() if settings else ()):
+        if not bindings.get(key):
+            raise KeyError(f"Edit setting '{key}' has no binding in {profile.id}")
+        _set_binding(workflow, bindings[key], value)
     return workflow

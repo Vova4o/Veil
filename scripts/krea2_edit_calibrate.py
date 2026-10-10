@@ -9,10 +9,12 @@ calibrated knobs are overridden per run. Usage (plan is a JSON list):
 
 The plan may also be a file: '@plan.json'. Add --front to jump the ComfyUI queue. Optional per-run keys: instruction (overrides the shared command), seed
 (default 20261011), aspect (a profile ratio such as "3:4" or "source"),
-cfg, steps, ref_boost_a, system_prompt, lora / lora_strength (replace the identity edit
-LoRA), extra_lora / extra_lora_strength (chained after it), subject_image (a second reference wired to source_image_b and image_b
-for two-reference LoRAs: scene first, subject second). Results land in ComfyUI
-output under CMV/CalibrationEdit/. See docs/CREATE-KREA2-PLAN.md (section 5.1).
+edit_profile (a manifest edit profile id; the knobs below override it), unet (another
+Krea2 diffusion model file instead of the profile's),
+cfg, steps, ref_boost_a, system_prompt, negative (what must disappear; acts at cfg > 1), lora / lora_strength (replace the identity edit
+LoRA), extra_lora / extra_lora_strength (chained after it), subject_image (a donor photo
+wired by the profile as the second reference: scene first, subject second). Results land in ComfyUI
+output under CMV/CalibrationEdit/. See docs/CREATE-KREA2-PLAN.md (sections 5.1, 5.2).
 """
 import json
 import sys
@@ -48,24 +50,6 @@ def upload(client, path: Path) -> str:
     return "/".join(part for part in (uploaded.get("subfolder"), uploaded["name"]) if part)
 
 
-def add_subject_reference(workflow, subject_name: str) -> None:
-    """Wire a second reference into the patch and both grounded encoders."""
-    scale_id = node_id(workflow, "ImageScaleToTotalPixels")
-    scale = workflow[scale_id]["inputs"]
-    workflow["30"] = {"class_type": "LoadImage", "inputs": {"image": subject_name}}
-    workflow["31"] = {
-        "class_type": "ImageScaleToTotalPixels",
-        "inputs": {**scale, "image": ["30", 0]},
-    }
-    vae_ref = node_of(workflow, "VAEEncode")[0]["inputs"]["vae"]
-    workflow["32"] = {"class_type": "VAEEncode", "inputs": {"pixels": ["31", 0], "vae": vae_ref}}
-    patch = node_of(workflow, "Krea2EditModelPatch")[0]["inputs"]
-    patch["source_latent_b"] = ["32", 0]
-    patch["source_image_b"] = ["31", 0]
-    for encode in node_of(workflow, "Krea2EditGroundedEncode"):
-        encode["inputs"]["image_b"] = ["31", 0]
-
-
 def main():
     source_path = Path(sys.argv[1])
     shared_instruction = sys.argv[2]
@@ -81,12 +65,16 @@ def main():
     queued = []
     for run in plan:
         dimensions = resolve_dimensions(profile, run.get("aspect", "source"), source_size)
+        subject_name = upload(client, Path(run["subject_image"])) if run.get("subject_image") else None
         workflow = compile_edit_workflow(
             profile,
             instruction=run.get("instruction", shared_instruction),
             source_image=source_name,
             dimensions=dimensions,
             seed=int(run.get("seed", DEFAULT_SEED)),
+            edit_profile=run.get("edit_profile"),
+            subject_image=subject_name,
+            negative_instruction=run.get("negative", ""),
         )
         sampler = node_of(workflow, "KSampler")[0]["inputs"]
         sampler["sampler_name"] = run.get("sampler", sampler["sampler_name"])
@@ -100,6 +88,8 @@ def main():
             encode["inputs"]["grounding_px"] = int(run.get("grounding_px", encode["inputs"]["grounding_px"]))
             if "system_prompt" in run:
                 encode["inputs"]["system_prompt"] = run["system_prompt"]
+        if run.get("unet"):
+            node_of(workflow, "UNETLoader")[0]["inputs"]["unet_name"] = run["unet"]
         lora = node_of(workflow, "LoraLoaderModelOnly")[0]["inputs"]
         lora["lora_name"] = run.get("lora", lora["lora_name"])
         lora["strength_model"] = float(run.get("lora_strength", lora["strength_model"]))
@@ -114,8 +104,6 @@ def main():
                 },
             }
             patch["model"] = ["33", 0]
-        if run.get("subject_image"):
-            add_subject_reference(workflow, upload(client, Path(run["subject_image"])))
         node_of(workflow, "SaveImage")[0]["inputs"]["filename_prefix"] = f"CMV/CalibrationEdit/edit_{run['label']}"
         if "--front" in sys.argv:
             payload = {"prompt": workflow, "client_id": str(uuid.uuid4()), "front": True}

@@ -1,0 +1,5 @@
+{
+  "30": {"class_type": "LoadImage", "inputs": {"image": ""}},
+  "31": {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": ["30", 0], "upscale_method": "lanczos", "megapixels": 1.0, "resolution_steps": 32}},
+  "32": {"class_type": "VAEEncode", "inputs": {"pixels": ["31", 0], "vae": ["3", 0]}}
+}

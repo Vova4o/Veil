@@ -41,6 +41,7 @@ from .simple_profiles import (
     compile_edit_workflow,
     compile_simple_workflow,
     resolve_dimensions,
+    resolve_edit_profile,
     serialize_approved_profile,
 )
 from .workflow_execution import WorkflowExecutionService
@@ -503,6 +504,9 @@ class SimpleGenerateRequest(BaseModel):
     negative_prompt: str | None = None
     # text: description only; reference: the image guides the prompt; edit: the image is changed.
     mode: Literal["text", "reference", "edit"] = "text"
+    # edit only: a calibrated edit profile id and an optional donor photo (second reference).
+    edit_profile: str | None = None
+    subject_image: str | None = None
 
 
 def _quality_level(value: str) -> QualityPresetLevel:
@@ -638,6 +642,13 @@ def _comfyui_offline_response():
     }), 503
 
 
+def _upload_input_image(client: ComfyUIClient, prefix: str, data: bytes) -> str:
+    """Upload a photo to ComfyUI input/cmv and return the name a LoadImage node expects."""
+    uploaded = client.upload_image(f"{prefix}_{uuid.uuid4().hex}.png", data, subfolder="cmv")
+    subfolder = str(uploaded.get("subfolder") or "")
+    return f"{subfolder}/{uploaded['name']}" if subfolder else str(uploaded["name"])
+
+
 def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     """Queue a fixed-recipe profile run: one ComfyUI prompt per image with consecutive seeds."""
     if req.mode not in profile.modes:
@@ -648,6 +659,19 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
     if req.mode == "edit" and not req.prompt.strip():
         return jsonify({"error": "Describe what to change in the photo.", "code": "instruction_required"}), 400
+    subject = None
+    edit_profile = None
+    if req.mode == "edit":
+        if req.subject_image:
+            subject = _decode_image_data_url(req.subject_image)
+            if subject is None:
+                return jsonify({"error": "The second photo is not a valid image.", "code": "subject_invalid"}), 400
+        try:
+            edit_profile = resolve_edit_profile(profile, req.edit_profile, references=2 if subject else 1)
+        except ValueError as exc:
+            return jsonify({"error": str(exc), "code": "edit_profile_invalid"}), 400
+    elif req.subject_image or req.edit_profile:
+        return jsonify({"error": "A second photo and edit profiles are only used in edit mode.", "code": "edit_only"}), 400
     width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
 
     from .manager import ensure_comfyui_online
@@ -675,20 +699,22 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
             "missing_nodes": health["missing_nodes"],
         }), 409
 
+    # Edit negatives name what must disappear; they only act on cfg > 1 edit profiles.
+    edit_negative = (req.negative_prompt or "").strip() if req.mode == "edit" else ""
     if req.mode == "edit":
         positive_prompt, ai_improved, ai_explanation = req.prompt.strip(), False, None
     else:
         positive_prompt, _negative, ai_improved, ai_explanation = _prepare_prompt(profile, req)
 
     client = _client()
-    source_name = None
+    source_name = subject_name = None
     if req.mode == "edit":
         try:
-            uploaded = client.upload_image(f"cmv_source_{uuid.uuid4().hex}.png", image[0], subfolder="cmv")
+            source_name = _upload_input_image(client, "cmv_source", image[0])
+            if subject:
+                subject_name = _upload_input_image(client, "cmv_subject", subject[0])
         except ComfyUIClientError as exc:
             return jsonify({"error": f"Could not send the photo to ComfyUI: {exc}", "code": "comfyui_rejected"}), 502
-        subfolder = str(uploaded.get("subfolder") or "")
-        source_name = f"{subfolder}/{uploaded['name']}" if subfolder else str(uploaded["name"])
 
     batch = max(1, min(int(req.batch_size), profile.max_batch))
     base_seed = req.seed if req.seed >= 0 else random.randint(0, 1125899906842624 - batch)
@@ -708,6 +734,9 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
             "batch_size": batch,
             "seeds": seeds,
             "source_image": source_name,
+            "subject_image": subject_name,
+            "edit_profile": edit_profile.id if edit_profile else None,
+            "negative_prompt": edit_negative,
         },
         resource_selections={},
     )
@@ -723,6 +752,9 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
                     source_image=source_name,
                     dimensions=(width, height),
                     seed=seed,
+                    edit_profile=edit_profile.id if edit_profile else None,
+                    subject_image=subject_name,
+                    negative_instruction=edit_negative,
                 )
             else:
                 workflow = compile_simple_workflow(
@@ -751,6 +783,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
                         "cmv_create_mode": req.mode,
                         "cmv_user_request": req.prompt,
                         "cmv_prompt": positive_prompt,
+                        **({"cmv_edit_profile": edit_profile.id} if edit_profile else {}),
+                        **({"cmv_negative_prompt": edit_negative} if edit_negative else {}),
                     },
                 },
             )
@@ -781,10 +815,12 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         "requested": batch,
         "profile_id": profile.id,
         "mode": req.mode,
+        "edit_profile": edit_profile.id if edit_profile else None,
+        "seconds_per_image": edit_profile.seconds if edit_profile else None,
         "width": width,
         "height": height,
         "positive_prompt": positive_prompt,
-        "negative_prompt": "",
+        "negative_prompt": edit_negative,
         "ai_improved": ai_improved,
         "ai_explanation": ai_explanation,
     })

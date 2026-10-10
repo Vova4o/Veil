@@ -15,6 +15,72 @@
   "max_batch": 4,
   "modes": ["text", "reference", "edit"],
   "sda_modes": ["text"],
+  "edit_profiles": [
+    {
+      "id": "light",
+      "label": "Лёгкая правка",
+      "description": "Смена одежды, бельё, причёска, мимика, стиль: лицо и сцена сохраняются почти 1:1.",
+      "references": 1,
+      "seconds": 115,
+      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 4.0, "ref_boost_a": 1.0, "grounding_px": 768}
+    },
+    {
+      "id": "replace",
+      "label": "Замена человека",
+      "description": "Другой человек по описанию, грудь в одежде: исходник держит слабее, кисти и глаза надо описать.",
+      "references": 1,
+      "seconds": 115,
+      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+    },
+    {
+      "id": "body",
+      "label": "Возраст и фигура",
+      "description": "Возраст и телосложение: исходник держит слабо, сцена может сдвинуться.",
+      "references": 1,
+      "seconds": 115,
+      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 0.5, "ref_boost_a": 1.0, "grounding_px": 384}
+    },
+    {
+      "id": "remove",
+      "label": "Снять или убрать",
+      "description": "Снять вещь или убрать предмет: в команде только итог, удаляемое — в негативе. CFG 2.5, примерно вдвое дольше.",
+      "references": 1,
+      "seconds": 210,
+      "settings": {"cfg": 2.5, "steps": 8, "ref_boost": 4.0, "ref_boost_a": 1.0, "grounding_px": 768}
+    },
+    {
+      "id": "heavy",
+      "label": "Другое лицо",
+      "description": "Заменить лицо: CFG 2.5, примерно вдвое дольше.",
+      "references": 1,
+      "seconds": 205,
+      "settings": {"cfg": 2.5, "steps": 8, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+    },
+    {
+      "id": "pose",
+      "label": "Другая поза",
+      "description": "Сменить позу и поворот головы: CFG 2.5 и 16 шагов, около 7 минут на кадр.",
+      "references": 1,
+      "seconds": 400,
+      "settings": {"cfg": 2.5, "steps": 16, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+    },
+    {
+      "id": "donor",
+      "label": "Человек со второго фото",
+      "description": "Перенос человека с фото-донора в сцену; вещи донора назвать в команде.",
+      "references": 2,
+      "seconds": 190,
+      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+    },
+    {
+      "id": "donor_detail",
+      "label": "Деталь со второго фото",
+      "description": "Тату, украшение или вещь с фото-донора: сцена держится сильно, рисунок копируется точно.",
+      "references": 2,
+      "seconds": 190,
+      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 2.0, "ref_boost_a": 4.0, "grounding_px": 768}
+    }
+  ],
   "aspect_ratios": [
     {"ratio": "1:1", "width": 1024, "height": 1024, "label": "1:1"},
     {"ratio": "3:4", "width": 896, "height": 1152, "label": "3:4"},

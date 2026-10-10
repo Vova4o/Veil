@@ -1,7 +1,20 @@
 {
   "positive_prompt": {"node": "4", "input": "prompt"},
+  "negative_prompt": {"node": "5", "input": "prompt"},
   "source_image": {"node": "15", "input": "image"},
   "seed": {"node": "7", "input": "seed"},
   "width": {"node": "17", "input": "width"},
-  "height": {"node": "17", "input": "height"}
+  "height": {"node": "17", "input": "height"},
+  "cfg": {"node": "7", "input": "cfg"},
+  "steps": {"node": "7", "input": "steps"},
+  "ref_boost": {"node": "18", "input": "ref_boost"},
+  "ref_boost_a": {"node": "18", "input": "ref_boost_a"},
+  "grounding_px": [{"node": "4", "input": "grounding_px"}, {"node": "5", "input": "grounding_px"}],
+  "subject_image": {"node": "30", "input": "image"},
+  "subject_links": [
+    {"node": "18", "input": "source_latent_b", "from": ["32", 0]},
+    {"node": "18", "input": "source_image_b", "from": ["31", 0]},
+    {"node": "4", "input": "image_b", "from": ["31", 0]},
+    {"node": "5", "input": "image_b", "from": ["31", 0]}
+  ]
 }

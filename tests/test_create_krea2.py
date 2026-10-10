@@ -20,10 +20,12 @@ from app.comfyui.node_packs import (
 )
 from app.comfyui.simple_profiles import (
     APPROVED_PROFILES,
+    EDIT_SETTING_TYPES,
     check_profile_health,
     compile_edit_workflow,
     compile_simple_workflow,
     resolve_dimensions,
+    resolve_edit_profile,
 )
 from app.main import app
 
@@ -101,6 +103,98 @@ def test_edit_workflow_binds_instruction_source_and_size():
     assert workflow["17"]["inputs"]["height"] == 1216
     assert workflow["7"]["inputs"]["seed"] == 11
     assert workflow["14"]["inputs"]["lora_name"] == "krea2_identity_edit_v1_2_r64.safetensors"
+    assert "30" not in workflow
+    assert "source_latent_b" not in workflow["18"]["inputs"]
+    assert "image_b" not in workflow["4"]["inputs"]
+
+
+def _edit_knobs(workflow):
+    return {
+        "cfg": workflow["7"]["inputs"]["cfg"],
+        "steps": workflow["7"]["inputs"]["steps"],
+        "ref_boost": workflow["18"]["inputs"]["ref_boost"],
+        "ref_boost_a": workflow["18"]["inputs"]["ref_boost_a"],
+        "grounding_px": workflow["4"]["inputs"]["grounding_px"],
+    }
+
+
+def test_edit_profiles_cover_every_knob_and_photo_count():
+    ids = [item.id for item in PROFILE.edit_profiles]
+    assert ids == ["light", "replace", "body", "remove", "heavy", "pose", "donor", "donor_detail"]
+    for item in PROFILE.edit_profiles:
+        assert set(item.settings) == set(EDIT_SETTING_TYPES), item.id
+        assert item.seconds > 0
+    assert resolve_edit_profile(PROFILE).id == "light"
+    assert resolve_edit_profile(PROFILE, references=2).id == "donor"
+
+
+@pytest.mark.parametrize("edit_profile", ["light", "replace", "body", "remove", "heavy", "pose"])
+def test_edit_profile_sets_graph_knobs(edit_profile):
+    item = resolve_edit_profile(PROFILE, edit_profile)
+    workflow = compile_edit_workflow(
+        PROFILE, instruction="x", source_image="cmv/s.png", dimensions=(896, 1152), seed=1, edit_profile=edit_profile
+    )
+    assert _edit_knobs(workflow) == item.settings
+    # The negative grounded encode must see the same image at the same grounding size.
+    assert workflow["5"]["inputs"]["grounding_px"] == item.settings["grounding_px"]
+
+
+def test_default_edit_profile_matches_calibrated_graph():
+    workflow = compile_edit_workflow(PROFILE, instruction="x", source_image="cmv/s.png", dimensions=(896, 1152))
+    assert _edit_knobs(workflow) == {"cfg": 1.0, "steps": 8, "ref_boost": 4.0, "ref_boost_a": 1.0, "grounding_px": 768}
+
+
+def test_edit_negative_goes_to_grounded_negative_encode():
+    workflow = compile_edit_workflow(
+        PROFILE,
+        instruction="She is topless, with both arms bare.",
+        negative_instruction="  a cream knitted sweater with long sleeves  ",
+        source_image="cmv/s.png",
+        dimensions=(896, 1152),
+        edit_profile="remove",
+    )
+    assert workflow["5"]["inputs"]["prompt"] == "a cream knitted sweater with long sleeves"
+    assert workflow["5"]["inputs"]["image"] == ["16", 0]
+    assert workflow["7"]["inputs"]["negative"] == ["5", 0]
+    assert workflow["7"]["inputs"]["cfg"] == 2.5
+
+
+def test_edit_with_subject_wires_second_reference():
+    workflow = compile_edit_workflow(
+        PROFILE,
+        instruction="Copy the tattoo from the second image.",
+        source_image="cmv/scene.png",
+        subject_image="cmv/donor.png",
+        dimensions=(896, 1152),
+        seed=3,
+        edit_profile="donor_detail",
+    )
+    assert workflow["30"]["inputs"]["image"] == "cmv/donor.png"
+    assert workflow["31"]["inputs"]["image"] == ["30", 0]
+    assert workflow["32"]["inputs"]["pixels"] == ["31", 0]
+    patch = workflow["18"]["inputs"]
+    assert patch["source_latent_b"] == ["32", 0]
+    assert patch["source_image_b"] == ["31", 0]
+    # Scene stays the first reference: the main inputs keep the source photo.
+    assert patch["source_image"] == ["16", 0]
+    assert workflow["15"]["inputs"]["image"] == "cmv/scene.png"
+    assert workflow["4"]["inputs"]["image_b"] == ["31", 0]
+    assert workflow["5"]["inputs"]["image_b"] == ["31", 0]
+    assert (patch["ref_boost"], patch["ref_boost_a"]) == (2.0, 4.0)
+    # Every link points at a node that exists in the compiled graph.
+    for node in workflow.values():
+        for value in node["inputs"].values():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[1], int):
+                assert value[0] in workflow
+
+
+def test_edit_profile_must_match_photo_count():
+    with pytest.raises(ValueError):
+        resolve_edit_profile(PROFILE, "donor")
+    with pytest.raises(ValueError):
+        resolve_edit_profile(PROFILE, "heavy", references=2)
+    with pytest.raises(ValueError):
+        resolve_edit_profile(PROFILE, "nope")
 
 
 def test_health_blocks_only_edit_when_nodes_are_missing():
@@ -276,6 +370,81 @@ def test_generate_edit_uploads_source_and_uses_its_ratio(create_env):
     assert workflow["4"]["inputs"]["prompt"] == "Change the dress to deep burgundy red."
     assert abs(data["width"] / data["height"] - 640 / 960) < 0.03
     assert [item["workflow"]["7"]["inputs"]["seed"] for item in fake_client.queued] == [9, 10]
+
+
+def test_generate_edit_with_donor_and_profile(create_env):
+    fake_client, fake_store = create_env
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40",
+        "mode": "edit",
+        "prompt": "Replace the woman with the woman from the second image.",
+        "reference_image": _png_data_url(640, 960),
+        "subject_image": _png_data_url(512, 768),
+        "aspect_ratio": "source",
+        "seed": 4,
+    })
+    assert resp.status_code == 200, resp.data
+    data = resp.get_json()
+    assert data["edit_profile"] == "donor"
+    assert data["seconds_per_image"] > 0
+    assert [name.split("_")[1] for name, _size in fake_client.uploads] == ["source", "subject"]
+    workflow = fake_client.queued[0]["workflow"]
+    assert workflow["30"]["inputs"]["image"].startswith("cmv/cmv_subject_")
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_edit_profile"] == "donor"
+    assert fake_store.drafts[0]["values"]["edit_profile"] == "donor"
+    assert fake_store.drafts[0]["values"]["subject_image"].startswith("cmv/cmv_subject_")
+
+
+def test_generate_edit_heavy_profile_raises_cfg(create_env):
+    fake_client, _ = create_env
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40",
+        "mode": "edit",
+        "edit_profile": "heavy",
+        "prompt": "Change her face.",
+        "reference_image": _png_data_url(),
+    })
+    assert resp.status_code == 200, resp.data
+    assert fake_client.queued[0]["workflow"]["7"]["inputs"]["cfg"] == 2.5
+    assert fake_client.queued[0]["workflow"]["5"]["inputs"]["prompt"] == ""
+    assert len(fake_client.uploads) == 1
+
+
+def test_generate_edit_remove_profile_carries_negative(create_env):
+    fake_client, fake_store = create_env
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40",
+        "mode": "edit",
+        "edit_profile": "remove",
+        "prompt": "She is topless, with both arms bare from the shoulders to the wrists.",
+        "negative_prompt": "a cream knitted sweater with long sleeves",
+        "reference_image": _png_data_url(),
+    })
+    assert resp.status_code == 200, resp.data
+    assert resp.get_json()["negative_prompt"] == "a cream knitted sweater with long sleeves"
+    workflow = fake_client.queued[0]["workflow"]
+    assert workflow["5"]["inputs"]["prompt"] == "a cream knitted sweater with long sleeves"
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_negative_prompt"].startswith("a cream")
+    assert fake_store.drafts[0]["values"]["negative_prompt"].startswith("a cream")
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [
+        ({"mode": "edit", "edit_profile": "donor"}, "edit_profile_invalid"),
+        ({"mode": "edit", "edit_profile": "bogus"}, "edit_profile_invalid"),
+        ({"mode": "edit", "subject_image": "data:image/png;base64,AAAA"}, "subject_invalid"),
+        ({"mode": "reference", "edit_profile": "light"}, "edit_only"),
+    ],
+)
+def test_generate_rejects_bad_edit_options(create_env, payload, code):
+    fake_client, _ = create_env
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40", "prompt": "x", "reference_image": _png_data_url(), **payload,
+    })
+    assert resp.status_code == 400
+    assert resp.get_json()["code"] == code
+    assert fake_client.uploads == [] and fake_client.queued == []
 
 
 def test_generate_edit_requires_image_and_instruction(create_env):
