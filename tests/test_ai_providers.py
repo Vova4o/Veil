@@ -26,6 +26,16 @@ from app.ai.cli import (
     run_cli_test,
     run_command,
 )
+from app.ai.opencode_host import (
+    OpenCodeInstallation,
+    generation_for,
+    installation_kind,
+    parse_verbose_models,
+    parse_version,
+    uses_stock_agent,
+)
+from app.ai.opencode_host import build_run_command as build_opencode_run_command
+from app.ai.opencode_host import list_models as list_opencode_models
 from app.ai.profiles import AIProfileStore, AIProfileStoreError
 from app.ai.secrets import SecretStoreStatus
 from app.ai.transport import (
@@ -256,7 +266,7 @@ class AIRoutesTest(unittest.TestCase):
         integrations = response.get_json()["integrations"]
         self.assertEqual(
             {item["type"] for item in integrations},
-            {"opencode", "claude", "antigravity", "civitai"},
+            {"opencode", "claude", "antigravity", "codex", "civitai"},
         )
         for item in integrations:
             self.assertNotIn("installed", item)
@@ -295,7 +305,23 @@ class AIRoutesTest(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), result)
-        models.assert_called_once_with("opencode", provider="deepseek")
+        models.assert_called_once_with("opencode", None, provider="deepseek")
+
+    def test_cli_models_route_accepts_only_detected_opencode_installations(self):
+        installation = OpenCodeInstallation("desktop", "C:/OpenCode/opencode-cli.exe", "2.0.24", 2)
+        with (
+            patch("app.ai.opencode_host.find_installations", return_value=[installation]),
+            patch("app.ai.routes.list_cli_models", return_value={"models": []}) as models,
+        ):
+            accepted = self.client.get(
+                "/api/ai/cli-integrations/opencode/models?executable=C:/OpenCode/opencode-cli.exe"
+            )
+            rejected = self.client.get(
+                "/api/ai/cli-integrations/opencode/models?executable=C:/Windows/System32/cmd.exe"
+            )
+        self.assertEqual(accepted.status_code, 200)
+        models.assert_called_once_with("opencode", installation.executable, provider=None)
+        self.assertNotEqual(rejected.status_code, 200)
 
 
 class CLIDetectionTest(unittest.TestCase):
@@ -303,7 +329,7 @@ class CLIDetectionTest(unittest.TestCase):
         catalog = cli_catalog()
         self.assertEqual(
             {item["type"] for item in catalog},
-            {"opencode", "claude", "antigravity", "civitai"},
+            {"opencode", "claude", "antigravity", "codex", "civitai"},
         )
         for item in catalog:
             self.assertNotIn("installed", item)
@@ -326,6 +352,18 @@ class CLIDetectionTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "timeout")
         self.assertLess(time.monotonic() - started, 8)
 
+    def test_command_streams_stdout_and_stderr_lines(self):
+        out, err = [], []
+        result = run_command(
+            [sys.executable, "-c", "import sys; print('to out'); print('to err', file=sys.stderr)"],
+            timeout=10,
+            on_output_chunk=out.append,
+            on_error_chunk=err.append,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual([line.strip() for line in out], ["to out"])
+        self.assertEqual([line.strip() for line in err], ["to err"])
+
     def test_opencode_models_can_be_filtered_by_provider(self):
         command_result = CommandResult(
             returncode=0,
@@ -337,16 +375,88 @@ class CLIDetectionTest(unittest.TestCase):
             elapsed_ms=5,
         )
         with (
-            patch("app.ai.cli.find_executable", return_value="C:/tools/opencode.cmd"),
+            patch("app.ai.opencode_host.resolve_executable", return_value="C:/tools/opencode.cmd"),
+            patch("app.ai.opencode_host.read_version", return_value="1.18.34"),
             patch("app.ai.cli.run_command", return_value=command_result) as command,
         ):
             result = list_cli_models("opencode", provider="deepseek")
-        command.assert_called_once_with(
-            ["C:/tools/opencode.cmd", "models", "deepseek"], timeout=30
-        )
+        args = command.call_args_list[0].args[0]
+        self.assertEqual(args, ["C:/tools/opencode.cmd", "models", "deepseek", "--verbose"])
+        self.assertIn("XDG_CONFIG_HOME", command.call_args_list[0].kwargs["env_overrides"])
         self.assertEqual(result["providers"], ["deepseek"])
         self.assertEqual(result["requested_provider"], "deepseek")
         self.assertEqual(len(result["models"]), 2)
+        self.assertEqual(result["generation"], 1)
+
+    def test_opencode_verbose_models_carry_vision_and_free_flags(self):
+        output = (
+            "opencode/big-pickle\n"
+            + json.dumps({
+                "name": "Big Pickle",
+                "cost": {"input": 0, "output": 0},
+                "capabilities": {"input": {"text": True, "image": False}},
+            }, indent=2)
+            + "\nopencode/claude-opus-5\n"
+            + json.dumps({
+                "name": "Claude Opus 5",
+                "cost": {"input": 5, "output": 25},
+                "capabilities": {"input": {"text": True, "image": True}},
+            }, indent=2)
+            + "\n"
+        )
+        models = {item.id: item for item in parse_verbose_models(output)}
+        self.assertEqual(set(models), {"opencode/big-pickle", "opencode/claude-opus-5"})
+        self.assertEqual((models["opencode/big-pickle"].vision, models["opencode/big-pickle"].free), (False, True))
+        self.assertEqual((models["opencode/claude-opus-5"].vision, models["opencode/claude-opus-5"].free), (True, False))
+
+    def test_opencode_desktop_models_come_from_the_service_api(self):
+        payload = {"data": [
+            {"id": "muse-free", "providerID": "opencode", "name": "Muse Free",
+             "capabilities": {"input": ["text", "image"]}, "cost": [{"input": 0, "output": 0}]},
+            {"id": "pickle", "providerID": "opencode", "name": "Pickle",
+             "capabilities": {"input": ["text"]}, "cost": [{"input": 0, "output": 0}]},
+            {"id": "pro", "providerID": "google", "name": "Pro", "enabled": False,
+             "capabilities": {"input": ["text", "image"]}, "cost": [{"input": 1, "output": 2}]},
+        ]}
+        result = CommandResult(returncode=0, stdout=json.dumps(payload), stderr="", elapsed_ms=3)
+        with patch("app.ai.cli.run_command", return_value=result) as command:
+            models = list_opencode_models("C:/OpenCode/opencode-cli.exe", generation=2, provider="opencode")
+        args = command.call_args.args[0]
+        self.assertEqual(args[1:4], ["api", "GET", "/api/model"])
+        self.assertTrue(args[-1].startswith("location[directory]="))
+        self.assertEqual(
+            [(item.id, item.vision, item.free) for item in models],
+            [("opencode/muse-free", True, True), ("opencode/pickle", False, True)],
+        )
+
+    def test_opencode_installations_report_kind_and_generation(self):
+        self.assertEqual(parse_version("opencode v2.0.24"), "2.0.24")
+        self.assertEqual(parse_version("1.18.34"), "1.18.34")
+        self.assertEqual(installation_kind("C:/x/resources/opencode-cli.exe"), "desktop")
+        self.assertEqual(installation_kind("C:/npm/opencode.cmd"), "cli")
+        self.assertEqual(generation_for("C:/x/opencode-cli.exe", "2.0.24"), 2)
+        self.assertEqual(generation_for("C:/npm/opencode.cmd", "1.18.34"), 1)
+        self.assertEqual(generation_for("C:/x/opencode-cli.exe", ""), 2)
+
+    def test_opencode_run_commands_follow_each_dialect(self):
+        files = [Path("C:/w/cmv-task.md"), Path("C:/w/input.jpg")]
+        classic = build_opencode_run_command(
+            "opencode.cmd", generation=1, model="opencode/m", agent="plan",
+            title="t", message="go", files=files,
+        )
+        self.assertEqual(classic[:2], ["opencode.cmd", "--pure"])
+        self.assertLess(classic.index("go"), classic.index(f"--file={files[0]}"))
+        self.assertNotIn("--file", classic)
+        desktop = build_opencode_run_command(
+            "opencode-cli.exe", generation=2, model="opencode/m", agent="plan",
+            title="t", message="go", files=files,
+        )
+        self.assertEqual(desktop[:3], ["opencode-cli.exe", "run", "--standalone"])
+        self.assertNotIn("--pure", desktop)
+        self.assertEqual(desktop[-1], "go")
+        self.assertEqual(desktop[desktop.index("--file") + 1], str(files[0]))
+        self.assertTrue(uses_stock_agent("opencode/muse-spark-1.3-contributor-free"))
+        self.assertFalse(uses_stock_agent("deepseek/deepseek-chat"))
 
     def test_opencode_model_provider_rejects_command_arguments(self):
         with patch("app.ai.cli.find_executable", return_value="C:/tools/opencode.cmd"):
@@ -517,24 +627,30 @@ class CLIDetectionTest(unittest.TestCase):
             "timeout_seconds": 20,
         }
         output = json.dumps({"part": {"text": "CMV_OK"}})
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            captured["args"] = list(args)
+            captured["kwargs"] = kwargs
+            image = next(arg for arg in args if arg.startswith("--file=")).split("=", 1)[1]
+            captured["image_copied"] = Path(image).is_file()
+            return CommandResult(returncode=0, stdout=output, stderr="", elapsed_ms=15)
+
         with (
-            patch("app.ai.cli.find_executable", return_value=profile["executable"]),
-            patch(
-                "app.ai.cli.run_command",
-                return_value=CommandResult(
-                    returncode=0,
-                    stdout=output,
-                    stderr="",
-                    elapsed_ms=15,
-                ),
-            ) as command,
+            patch("app.ai.opencode_host.resolve_executable", return_value=profile["executable"]),
+            patch("app.ai.opencode_host.read_version", return_value="1.18.34"),
+            patch("app.ai.cli.run_command", side_effect=fake_run),
         ):
             result = run_cli_test(profile, multimodal=True)
 
-        args = command.call_args.args[0]
+        args = captured["args"]
         file_args = [arg for arg in args if arg.startswith("--file=")]
-        self.assertEqual(file_args, [f"--file={VISION_TEST_IMAGE}"])
+        self.assertEqual(len(file_args), 1)
+        self.assertTrue(file_args[0].endswith("input.jpg"))
+        self.assertTrue(captured["image_copied"])
         self.assertNotIn("--file", args)
+        self.assertEqual(args[args.index("--agent") + 1], "plan")
+        self.assertIn("XDG_CONFIG_HOME", captured["kwargs"]["env_overrides"])
         self.assertTrue(VISION_TEST_IMAGE.is_file())
         with Image.open(VISION_TEST_IMAGE) as image:
             self.assertEqual(image.format, "JPEG")
@@ -542,6 +658,24 @@ class CLIDetectionTest(unittest.TestCase):
             self.assertGreater(image.height, 1)
         self.assertTrue(any("attached garden image" in arg for arg in args))
         self.assertEqual(result["response_preview"], "CMV_OK")
+
+    def test_opencode_free_tier_refusal_is_reported_plainly(self):
+        profile = {
+            "cli_type": "opencode",
+            "executable": "C:/tools/opencode.cmd",
+            "model": "opencode/muse-free",
+            "timeout_seconds": 20,
+        }
+        refusal = json.dumps({"type": "error", "error": {"name": "APIError", "data": {
+            "message": "OpenCode's free tier can only be used from within OpenCode"}}})
+        with (
+            patch("app.ai.opencode_host.resolve_executable", return_value=profile["executable"]),
+            patch("app.ai.opencode_host.read_version", return_value="1.18.34"),
+            patch("app.ai.cli.run_command", return_value=CommandResult(1, refusal, "", 5)),
+            self.assertRaises(CLIIntegrationError) as caught,
+        ):
+            run_cli_test(profile)
+        self.assertIn("stock OpenCode agent", str(caught.exception))
 
 
 class AITransportSecurityTest(unittest.TestCase):

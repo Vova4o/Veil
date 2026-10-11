@@ -77,6 +77,40 @@ CLI_SPECS: dict[str, dict[str, Any]] = {
             ),
         },
     },
+    "codex": {
+        "label": "Codex CLI",
+        "commands": ("codex",),
+        "version_args": ("--version",),
+        "auth_args": ("login", "status"),
+        "models_args": None,
+        # `codex exec --image` attaches the image to the prompt.
+        "multimodal": True,
+        "experimental": False,
+        "install": {
+            "windows": {
+                "label": "Windows (npm)",
+                "command": "npm install -g @openai/codex",
+                "url": None,
+            },
+            "macos": {
+                "label": "macOS (npm)",
+                "command": "npm install -g @openai/codex",
+                "url": None,
+            },
+            "linux": {
+                "label": "Linux (npm)",
+                "command": "npm install -g @openai/codex",
+                "url": None,
+            },
+            "docs_url": "https://developers.openai.com/codex/cli",
+            "path_setup_command": "npm config get prefix",
+            "verify_command": "codex --version",
+            "note": (
+                "After installing, run 'codex login', restart the application so it "
+                "picks up the updated PATH, then press Re-check."
+            ),
+        },
+    },
     "civitai": {
         "label": "Civitai CLI",
         "commands": ("civitai",),
@@ -197,13 +231,17 @@ def run_command(
     cwd: str | Path | None = None,
     on_output_chunk: Any = None,
     input_text: str | None = None,
+    on_error_chunk: Any = None,
     env_overrides: dict[str, str | None] | None = None,
+    output_limit: int = 16_000,
 ) -> CommandResult:
     """Run a CLI with inactivity and total timeouts.
 
     ``input_text`` is written to stdin and then stdin is closed; without it
     stdin is the null device. ``env_overrides`` sets variables, and a ``None``
-    value removes one from the inherited environment.
+    value removes one from the inherited environment. Each stream is sanitized
+    and cut to ``output_limit`` characters. ``on_output_chunk`` and
+    ``on_error_chunk`` receive stdout and stderr lines as they arrive.
     """
     env = os.environ.copy()
     env.setdefault("NO_COLOR", "1")
@@ -257,6 +295,11 @@ def run_command(
         for line in iter(process.stderr.readline, ""):
             stderr_chunks.append(line)
             last_activity = time.monotonic()
+            if on_error_chunk is not None:
+                try:
+                    on_error_chunk(line)
+                except Exception:
+                    pass
         process.stderr.close()
 
     def write_stdin():
@@ -308,8 +351,8 @@ def run_command(
 
     return CommandResult(
         returncode=process.returncode,
-        stdout=sanitize_output(raw_stdout),
-        stderr=sanitize_output(raw_stderr),
+        stdout=sanitize_output(raw_stdout, maximum=output_limit),
+        stderr=sanitize_output(raw_stderr, maximum=output_limit),
         elapsed_ms=round((time.monotonic() - started) * 1000),
     )
 
@@ -464,18 +507,16 @@ def _authentication_status(cli_type: str, executable: str) -> dict[str, Any]:
                 "message": "OpenCode reports configured provider credentials.",
             }
         return {
-            "status": "missing",
-            "message": "OpenCode is installed but has no configured credentials.",
+            "status": "available",
+            "message": (
+                "No provider credentials are configured; the free OpenCode Zen models "
+                "work without sign-in."
+            ),
         }
     if result.returncode == 0:
-        if cli_type == "civitai":
-            return {
-                "status": "available",
-                "message": "Civitai CLI reports an active authenticated session.",
-            }
         return {
             "status": "available",
-            "message": "Claude Code reports an active authenticated session.",
+            "message": f"{CLI_SPECS[cli_type]['label']} reports an active authenticated session.",
         }
     if cli_type == "civitai":
         return {
@@ -486,9 +527,20 @@ def _authentication_status(cli_type: str, executable: str) -> dict[str, Any]:
     return {"status": "error", "message": detail[:500]}
 
 
+def _opencode_installations() -> list[dict[str, Any]]:
+    from . import opencode_host
+
+    return [item.to_dict() for item in opencode_host.find_installations()]
+
+
 def probe_cli(cli_type: str) -> dict[str, Any]:
     spec = CLI_SPECS[cli_type]
     executable = find_executable(cli_type)
+    installations: list[dict[str, Any]] = []
+    if cli_type == "opencode":
+        installations = _opencode_installations()
+        if installations and executable is None:
+            executable = installations[0]["executable"]
     result: dict[str, Any] = {
         "type": cli_type,
         "label": spec["label"],
@@ -504,6 +556,8 @@ def probe_cli(cli_type: str) -> dict[str, Any]:
         "model_discovery": spec["models_args"] is not None,
         "provider": spec.get("provider", True),
     }
+    if cli_type == "opencode":
+        result["installations"] = installations
     if executable is None:
         ide = detect_ide_installation(cli_type)
         if ide["installed"]:
@@ -541,6 +595,14 @@ def discover_cli_integrations() -> list[dict[str, Any]]:
     return found
 
 
+def _resolve_cli_executable(cli_type: str, requested: str | None) -> str | None:
+    if cli_type == "opencode":
+        from . import opencode_host
+
+        return opencode_host.resolve_executable(requested)
+    return find_executable(cli_type, requested)
+
+
 def list_cli_models(
     cli_type: str,
     executable: str | None = None,
@@ -550,7 +612,7 @@ def list_cli_models(
     if cli_type not in CLI_SPECS:
         raise CLIIntegrationError("Unsupported CLI integration.")
     spec = CLI_SPECS[cli_type]
-    executable = find_executable(cli_type, executable)
+    executable = _resolve_cli_executable(cli_type, executable)
     if executable is None:
         raise CLIIntegrationError(
             f"{spec['label']} was not found in PATH.", code="cli_unavailable"
@@ -578,11 +640,17 @@ def list_cli_models(
             "go": "opencode",
         }
         provider_id = provider_aliases.get(provider_id.lower(), provider_id)
+    if cli_type == "opencode":
+        return _list_opencode_models(executable, provider_id, original_provider)
     if model_args is None:
         return {
             "models": [],
             "source": "manual",
-            "message": "Enter a Claude model ID or supported alias manually.",
+            "message": (
+                "Enter a Codex model ID manually, or 'default' for the model in ~/.codex/config.toml."
+                if cli_type == "codex"
+                else "Enter a Claude model ID or supported alias manually."
+            ),
         }
     command = [executable, *model_args]
     if provider_id is not None:
@@ -625,6 +693,56 @@ def list_cli_models(
     }
 
 
+def opencode_executable_choice(requested: str | None) -> str | None:
+    """Accept only an executable that is a detected OpenCode installation."""
+    if not requested:
+        return None
+
+    def normalized(path: str) -> str:
+        return os.path.normcase(os.path.normpath(os.path.expanduser(path)))
+
+    wanted = normalized(requested)
+    for item in _opencode_installations():
+        if normalized(str(item["executable"])) == wanted:
+            return item["executable"]
+    raise CLIIntegrationError(
+        "This OpenCode executable is not one of the detected installations.",
+        code="cli_unavailable",
+    )
+
+
+def _list_opencode_models(
+    executable: str,
+    provider_id: str | None,
+    original_provider: str | None,
+) -> dict[str, Any]:
+    from . import opencode_host
+
+    items = opencode_host.list_models(executable, provider=provider_id)
+    models: list[str] = []
+    info: list[dict[str, Any]] = []
+    for item in items:
+        model_id = item.id
+        if original_provider and original_provider.lower() == "opencode-go" and model_id.startswith("opencode/"):
+            model_id = "opencode-go/" + model_id[len("opencode/"):]
+        if model_id in models:
+            continue
+        models.append(model_id)
+        info.append({**item.to_dict(), "id": model_id})
+        if len(models) >= 5_000:
+            break
+    return {
+        "models": models,
+        "model_info": info,
+        "providers": list(dict.fromkeys(model.split("/", 1)[0] for model in models)),
+        "requested_provider": original_provider,
+        "executable": executable,
+        "generation": opencode_host.generation_for(executable),
+        "source": "cli",
+        "message": None,
+    }
+
+
 def _parse_cli_response(cli_type: str, output: str) -> str:
     if cli_type == "claude":
         try:
@@ -656,7 +774,7 @@ def _parse_cli_response(cli_type: str, output: str) -> str:
 def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[str, Any]:
     cli_type = profile["cli_type"]
     spec = CLI_SPECS[cli_type]
-    executable = find_executable(cli_type, profile.get("executable"))
+    executable = _resolve_cli_executable(cli_type, profile.get("executable"))
     if executable is None:
         raise CLIIntegrationError(
             f"{spec['label']} was not found in PATH.", code="cli_unavailable"
@@ -669,33 +787,9 @@ def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[s
 
     prompt = "Reply with exactly CMV_OK and no other text. Do not use tools."
     if cli_type == "opencode":
-        file_args: list[str] = []
-        if multimodal:
-            if not VISION_TEST_IMAGE.is_file():
-                raise CLIIntegrationError(
-                    "The bundled vision test image is missing.",
-                    code="incompatible_format",
-                )
-            prompt = (
-                "Inspect the attached garden image, then reply with exactly "
-                "CMV_OK and no other text. Do not use tools."
-            )
-            file_args = [f"--file={VISION_TEST_IMAGE}"]
-        args = [
-            executable,
-            "--pure",
-            "run",
-            "--model",
-            profile["model"],
-            "--format",
-            "json",
-            "--agent",
-            "plan",
-            "--title",
-            "ComfyUI Meta Viewer connection test",
-            prompt,
-            *file_args,
-        ]
+        return _run_opencode_test(executable, profile, multimodal=multimodal)
+    elif cli_type == "codex":
+        return _run_codex_test(executable, profile, multimodal=multimodal)
     elif cli_type == "claude":
         if multimodal:
             return _run_claude_vision_test(executable, profile)
@@ -728,6 +822,52 @@ def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[s
         args, timeout=profile["timeout_seconds"], env_overrides=_child_env_overrides(cli_type)
     )
     return _cli_test_response(cli_type, result)
+
+
+def _run_opencode_test(executable: str, profile: dict[str, Any], *, multimodal: bool) -> dict[str, Any]:
+    from . import opencode_host
+
+    prompt = "Reply with exactly CMV_OK and no other text. Do not use tools."
+    files: list[Path] = []
+    if multimodal:
+        if not VISION_TEST_IMAGE.is_file():
+            raise CLIIntegrationError(
+                "The bundled vision test image is missing.",
+                code="incompatible_format",
+            )
+        prompt = (
+            "Inspect the attached garden image, then reply with exactly "
+            "CMV_OK and no other text. Do not use tools."
+        )
+    with tempfile.TemporaryDirectory(prefix="cmv-opencode-test-", ignore_cleanup_errors=True) as temp_dir:
+        workspace = Path(temp_dir) / "project"
+        config_home = Path(temp_dir) / "config"
+        workspace.mkdir()
+        config_home.mkdir()
+        if multimodal:
+            files.append(workspace / "input.jpg")
+            shutil.copyfile(VISION_TEST_IMAGE, files[0])
+        args = opencode_host.build_run_command(
+            executable,
+            generation=opencode_host.generation_for(executable),
+            model=profile["model"],
+            agent=opencode_host.STOCK_AGENT,
+            title="ComfyUI Meta Viewer connection test",
+            message=prompt,
+            files=files,
+        )
+        result = run_command(
+            args,
+            timeout=profile["timeout_seconds"],
+            cwd=workspace,
+            env_overrides=opencode_host.isolated_env(config_home),
+        )
+    if opencode_host.is_free_tier_refusal(f"{result.stdout}\n{result.stderr}"):
+        raise CLIIntegrationError(opencode_host.FREE_TIER_HINT, code="provider_error")
+    reported = opencode_host.event_error(result.stdout)
+    if reported and not opencode_host.event_texts(result.stdout):
+        raise CLIIntegrationError(reported, code="provider_error")
+    return _cli_test_response("opencode", result)
 
 
 def _child_env_overrides(cli_type: str) -> dict[str, str | None] | None:
@@ -763,6 +903,36 @@ def _run_claude_vision_test(executable: str, profile: dict[str, Any]) -> dict[st
             env_overrides=_child_env_overrides("claude"),
         )
     return _cli_test_response("claude", result)
+
+
+def _run_codex_test(executable: str, profile: dict[str, Any], *, multimodal: bool) -> dict[str, Any]:
+    from .execution.codex import LAST_MESSAGE_FILE, build_codex_command, codex_model
+
+    if multimodal and not VISION_TEST_IMAGE.is_file():
+        raise CLIIntegrationError(
+            "The bundled vision test image is missing.", code="incompatible_format"
+        )
+    prompt = (
+        "Inspect the attached garden image, then reply with exactly CMV_OK and no other text."
+        if multimodal
+        else "Reply with exactly CMV_OK and no other text. Do not run commands."
+    )
+    with tempfile.TemporaryDirectory(prefix="cmv-codex-test-", ignore_cleanup_errors=True) as temp_dir:
+        image_name = None
+        if multimodal:
+            image_name = "input.jpg"
+            shutil.copyfile(VISION_TEST_IMAGE, Path(temp_dir) / image_name)
+        result = run_command(
+            build_codex_command(executable, model=codex_model(profile), image_name=image_name),
+            timeout=profile["timeout_seconds"],
+            cwd=temp_dir,
+            input_text=prompt,
+        )
+        last_message = Path(temp_dir) / LAST_MESSAGE_FILE
+        reply = last_message.read_text(encoding="utf-8", errors="replace").strip() if last_message.is_file() else ""
+    if reply:
+        result = CommandResult(result.returncode, reply, result.stderr, result.elapsed_ms)
+    return _cli_test_response("codex", result)
 
 
 def _cli_test_response(cli_type: str, result: CommandResult) -> dict[str, Any]:

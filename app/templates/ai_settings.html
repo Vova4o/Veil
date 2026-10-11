@@ -264,6 +264,11 @@
                 </div>
 
                 <div id="opencode-model-fields" class="field-wide" hidden>
+                    <div id="opencode-install-field" class="field opencode-install-field" hidden>
+                        <label class="field-label" for="profile-opencode-install">Installation</label>
+                        <select id="profile-opencode-install"></select>
+                        <small>The OpenCode desktop app and the npm CLI both work. Free OpenCode Zen models need no account or key.</small>
+                    </div>
                     <div class="cli-model-grid">
                         <div class="field">
                             <label class="field-label" for="profile-model-provider">Provider</label>
@@ -282,6 +287,7 @@
                             </div>
                         </div>
                     </div>
+                    <p id="opencode-model-capability" class="model-capability" hidden></p>
                     <div class="catalog-settings-row">
                         <small id="model-catalog-hint">Choose which providers and models appear in these lists.</small>
                         <button id="open-model-catalog" class="btn btn-secondary" type="button">Display settings</button>

@@ -15,7 +15,7 @@ from .cli import CLI_SPECS
 from .secrets import SecretStore, SecretStoreError, SystemSecretStore
 
 PROFILE_KINDS = {"openai_compatible", "cli"}
-CLI_TYPES = {"opencode", "claude", "antigravity"}
+CLI_TYPES = {"opencode", "claude", "antigravity", "codex"}
 API_KEY_SOURCES = {"system", "environment", "none"}
 ENVIRONMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _profile_lock = threading.RLock()

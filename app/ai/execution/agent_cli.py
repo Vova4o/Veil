@@ -74,16 +74,28 @@ def validate_image_path(value: str | Path | None) -> Path | None:
 
 
 def render_task_package(
-    bundle: InstructionBundle, user_input: str, *, image_name: str | None = None
+    bundle: InstructionBundle,
+    user_input: str,
+    *,
+    image_name: str | None = None,
+    image_attached: bool = False,
 ) -> str:
-    image_block = (
-        "INPUT IMAGE\n"
-        f"The input image is the file `{image_name}` in the current working directory. "
-        "Open it with your file-reading tool and inspect it before writing. It is the only "
-        "file you may read besides this task package.\n\n"
-        if image_name
-        else ""
-    )
+    """``image_attached`` means the host attaches the image itself (no file reading)."""
+    if image_name and image_attached:
+        image_block = (
+            "INPUT IMAGE\n"
+            "The input image is attached to this message. Inspect it before writing. "
+            "Do not read any files.\n\n"
+        )
+    elif image_name:
+        image_block = (
+            "INPUT IMAGE\n"
+            f"The input image is the file `{image_name}` in the current working directory. "
+            "Open it with your file-reading tool and inspect it before writing. It is the only "
+            "file you may read besides this task package.\n\n"
+        )
+    else:
+        image_block = ""
     return (
         "# CMV agent task\n\n"
         "The instruction bundle below is authoritative. Do not inspect the project, browse, "
@@ -102,8 +114,13 @@ def agent_run_workspace(
     image_path: Path | None = None,
     task_package: str | None = None,
 ) -> Iterator[AgentRunWorkspace]:
-    """Create a throwaway run folder with an optional image copy and task file."""
-    with tempfile.TemporaryDirectory(prefix=prefix) as temp_dir:
+    """Create a throwaway run folder with an optional image copy and task file.
+
+    Some hosts (agy) leave a background process whose working directory is the
+    run folder, so Windows cannot delete it right away. A folder that cannot be
+    removed stays in the temp directory instead of failing a finished run.
+    """
+    with tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True) as temp_dir:
         root = Path(temp_dir)
         task_file = None
         if task_package is not None:

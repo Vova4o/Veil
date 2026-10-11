@@ -157,6 +157,7 @@ class AntigravityPromptExecutor:
                     timeout=timeout_sec,
                     cwd=workspace.root,
                     on_output_chunk=on_output_chunk,
+                    on_error_chunk=on_output_chunk,
                 )
         except CLIIntegrationError as exc:
             logger.error("[Antigravity] CLI execution error: %s", exc)

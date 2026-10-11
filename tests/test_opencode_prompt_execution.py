@@ -77,7 +77,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         event_output = json.dumps({"part": {"text": raw_result}})
         captured = {}
 
-        def fake_run_command(args, *, timeout, cwd=None):
+        def fake_run_command(args, *, timeout, cwd=None, **_kwargs):
             workspace = Path(cwd)
             captured["task"] = (workspace / "cmv-task.md").read_text(
                 encoding="utf-8"
@@ -117,7 +117,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         event_output = json.dumps({"part": {"text": raw_result}})
         captured: dict = {}
 
-        def fake_run_command(args, *, timeout, cwd=None):
+        def fake_run_command(args, *, timeout, cwd=None, **_kwargs):
             workspace = Path(cwd)
             captured["args"] = list(args)
             captured["timeout"] = timeout
@@ -181,6 +181,65 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         self.assertIn("cmv-prompt-smoke", captured["args"])
         self.assertIn("provider/model", captured["args"])
         self.assertEqual(captured["timeout"], 300)
+
+    def test_zen_models_run_on_the_stock_agent_through_the_desktop_cli(self) -> None:
+        raw_result = json.dumps({"positive_prompt": "a garden cottage", "negative_prompt": ""})
+        events = "\n".join([
+            json.dumps({"type": "text", "part": {"text": "Reading the task."}}),
+            json.dumps({"type": "text", "part": {"text": raw_result}}),
+        ])
+        captured: dict = {}
+
+        def fake_run_command(args, *, timeout, cwd=None, **kwargs):
+            captured["args"] = list(args)
+            captured["kwargs"] = kwargs
+            captured["config"] = json.loads((Path(cwd) / "opencode.json").read_text(encoding="utf-8"))
+            captured["config_home_exists"] = Path(kwargs["env_overrides"]["XDG_CONFIG_HOME"]).is_dir()
+            return CommandResult(returncode=0, stdout=events, stderr="", elapsed_ms=30)
+
+        with (
+            patch(
+                "app.ai.execution.opencode.find_executable",
+                return_value="C:/OpenCode/resources/opencode-cli.exe",
+            ),
+            patch("app.ai.opencode_host.read_version", return_value="2.0.24"),
+            patch("app.ai.execution.opencode.run_command", side_effect=fake_run_command),
+        ):
+            executed = OpenCodePromptExecutor().execute(
+                profile=opencode_profile(model="opencode/muse-spark-1.3-contributor-free"),
+                task=portrait_task(),
+                user_input="Create a portrait.",
+            )
+
+        # The stock agent spoke before its answer; the final JSON part still parses.
+        self.assertEqual(executed.result.positive_prompt, "a garden cottage")
+        self.assertEqual(executed.agent, "plan")
+        args = captured["args"]
+        self.assertEqual(args[1:3], ["run", "--standalone"])
+        self.assertEqual(args[args.index("--agent") + 1], "plan")
+        self.assertNotIn("--pure", args)
+        self.assertNotIn("agent", captured["config"])
+        self.assertEqual(captured["config"]["share"], "disabled")
+        self.assertTrue(captured["config_home_exists"])
+
+    def test_free_tier_refusal_has_its_own_code(self) -> None:
+        refusal = json.dumps({"type": "error", "error": {"name": "APIError", "data": {
+            "message": "OpenCode's free tier can only be used from within OpenCode"}}})
+        with (
+            patch("app.ai.execution.opencode.find_executable", return_value="C:/tools/opencode.cmd"),
+            patch("app.ai.opencode_host.read_version", return_value="1.18.34"),
+            patch(
+                "app.ai.execution.opencode.run_command",
+                return_value=CommandResult(returncode=1, stdout=refusal, stderr="", elapsed_ms=9),
+            ),
+            self.assertRaises(OpenCodePromptExecutionError) as caught,
+        ):
+            OpenCodePromptExecutor().execute(
+                profile=opencode_profile(model="opencode/muse-free", multimodal=False),
+                task=portrait_task(),
+                user_input="Create a portrait.",
+            )
+        self.assertEqual(caught.exception.code, "free_tier_refused")
 
     def test_legacy_timeout_is_extended_but_explicit_values_are_preserved(self) -> None:
         self.assertEqual(

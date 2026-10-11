@@ -4,6 +4,7 @@ import ctypes
 import os
 import signal
 import subprocess
+import threading
 import time
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -155,23 +156,28 @@ def _fallback_terminate_process_tree(process: subprocess.Popen[str]) -> None:
             pass
 
 
-def _drain_and_close_pipes(process: subprocess.Popen[str]) -> None:
-    try:
-        process.communicate(timeout=5)
+def _pump(stream: Any, sink: list[str], on_line: Any = None) -> None:
+    if stream is None:
         return
-    except subprocess.TimeoutExpired:
+    try:
+        for line in iter(stream.readline, ""):
+            sink.append(line)
+            if on_line is not None:
+                try:
+                    on_line(line)
+                except Exception:
+                    pass
+    except (OSError, ValueError):
         pass
 
+
+def _close_pipes(process: subprocess.Popen[str]) -> None:
     for stream in (process.stdout, process.stderr):
         if stream is not None:
             try:
                 stream.close()
             except OSError:
                 pass
-    try:
-        process.wait(timeout=2)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
 
 
 def run_managed_command(
@@ -179,61 +185,91 @@ def run_managed_command(
     *,
     timeout: int,
     cwd: str | Path | None = None,
+    env_overrides: dict[str, str | None] | None = None,
+    output_limit: int = 16_000,
+    on_output_chunk: Any = None,
 ) -> CommandResult:
     """Run an OpenCode-style CLI without leaving descendant processes behind.
 
     Windows npm shims can exit before their Node child. That child may keep inherited
     pipes and temporary workspace files open. A Job Object makes the process tree
     lifetime explicit and kills every descendant when the job is terminated or closed.
+    ``timeout`` covers the whole run until both pipes close. ``on_output_chunk``
+    receives every stdout line as it arrives; ``env_overrides`` sets variables, and a
+    ``None`` value removes one.
     """
 
     env = os.environ.copy()
     env.setdefault("NO_COLOR", "1")
+    for name, value in (env_overrides or {}).items():
+        if value is None:
+            env.pop(name, None)
+        else:
+            env[name] = value
     started = time.monotonic()
     process: subprocess.Popen[str] | None = None
     job: _WindowsJob | None = None
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
 
     try:
-        process = subprocess.Popen(
-            args,
-            cwd=str(cwd) if cwd is not None else None,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            **_subprocess_options(),
-        )
+        try:
+            process = subprocess.Popen(
+                args,
+                cwd=str(cwd) if cwd is not None else None,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                **_subprocess_options(),
+            )
+        except OSError as exc:
+            raise CLIIntegrationError(
+                f"Cannot start the CLI executable: {exc}", code="cli_unavailable"
+            ) from exc
         job = _WindowsJob.attach(process)
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        if process is not None:
+        readers = [
+            threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, on_output_chunk), daemon=True),
+            threading.Thread(target=_pump, args=(process.stderr, stderr_chunks), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+        deadline = started + timeout
+        for reader in readers:
+            reader.join(timeout=max(0.0, deadline - time.monotonic()))
+        finished = not any(reader.is_alive() for reader in readers)
+        if finished:
+            try:
+                process.wait(timeout=max(1.0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                finished = False
+        if not finished:
             if job is not None:
                 job.terminate()
                 job.close()
                 job = None
             _fallback_terminate_process_tree(process)
-            _drain_and_close_pipes(process)
+            _close_pipes(process)
+            for reader in readers:
+                reader.join(timeout=2)
+            try:
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
             time.sleep(0.1)
-        raise CLIIntegrationError(
-            f"The CLI did not respond within {timeout} seconds.", code="timeout"
-        ) from exc
-    except OSError as exc:
-        if process is not None:
-            _fallback_terminate_process_tree(process)
-            _drain_and_close_pipes(process)
-        raise CLIIntegrationError(
-            f"Cannot start the CLI executable: {exc}", code="cli_unavailable"
-        ) from exc
+            raise CLIIntegrationError(
+                f"The CLI did not respond within {timeout} seconds.", code="timeout"
+            )
     finally:
         if job is not None:
             job.close()
 
     return CommandResult(
         returncode=process.returncode,
-        stdout=sanitize_output(stdout),
-        stderr=sanitize_output(stderr),
+        stdout=sanitize_output("".join(stdout_chunks), maximum=output_limit),
+        stderr=sanitize_output("".join(stderr_chunks), maximum=output_limit),
         elapsed_ms=round((time.monotonic() - started) * 1000),
     )

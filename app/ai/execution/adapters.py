@@ -13,6 +13,7 @@ from .claude_code import (
     ClaudeCodePromptExecutor,
     is_claude_profile,
 )
+from .codex import CodexPromptExecutionError, CodexPromptExecutor, is_codex_profile
 from .direct import DirectPromptExecutionError, DirectPromptExecutor
 from .opencode import OpenCodePromptExecutionError, OpenCodePromptExecutor
 
@@ -91,6 +92,7 @@ class OpenCodeAgentHostAdapter:
                 user_input=prepared.user_input,
                 image_path=prepared.image_path,
                 bundle=prepared.bundle,
+                on_output_chunk=prepared.on_output_chunk,
             )
         except OpenCodePromptExecutionError as exc:
             raise AdapterExecutionError(
@@ -163,12 +165,61 @@ class ClaudeCodeAgentHostAdapter:
         )
 
 
-class AntigravityAgentHostAdapter:
-    adapter_id = "antigravity"
+class CodexAgentHostAdapter:
+    adapter_id = "codex"
     capabilities = ExecutionCapabilities(
         mode=ExecutionMode.AGENT_HOST,
-        supports_images=False,
-        image_inputs=(),
+        supports_images=True,
+        image_inputs=("file_path",),
+        supports_json_output=True,
+    )
+
+    def __init__(self, executor: CodexPromptExecutor | None = None):
+        self.executor = executor or CodexPromptExecutor()
+
+    @staticmethod
+    def supports_profile(profile: dict) -> bool:
+        return is_codex_profile(profile)
+
+    def execute(self, prepared: PreparedPromptExecution) -> AdapterExecutionResult:
+        try:
+            executed = self.executor.execute(
+                profile=prepared.profile,
+                task=prepared.task,
+                user_input=prepared.user_input,
+                image_path=prepared.image_path,
+                bundle=prepared.bundle,
+                on_output_chunk=prepared.on_output_chunk,
+            )
+        except CodexPromptExecutionError as exc:
+            raise AdapterExecutionError(
+                str(exc),
+                code=exc.code,
+                stage=exc.stage,
+                technical_error=exc.technical_error,
+            ) from exc
+        return AdapterExecutionResult(
+            result=executed.result,
+            bundle=executed.bundle,
+            metadata=executed.metadata(),
+        )
+
+    def cancel(self, run_id: str) -> None:
+        raise AdapterExecutionError(
+            f"Managed Codex run '{run_id}' cannot be cancelled after dispatch.",
+            code="cancellation_unsupported",
+            stage="cancel",
+        )
+
+
+class AntigravityAgentHostAdapter:
+    adapter_id = "antigravity"
+    # The image is copied into the run folder and the task package asks agy to
+    # open it with its file tool, as for Claude Code.
+    capabilities = ExecutionCapabilities(
+        mode=ExecutionMode.AGENT_HOST,
+        supports_images=True,
+        image_inputs=("file_path",),
         supports_json_output=True,
         supports_skills=True,
         supports_mcp=True,
@@ -216,6 +267,7 @@ class AntigravityAgentHostAdapter:
 __all__ = [
     "AntigravityAgentHostAdapter",
     "ClaudeCodeAgentHostAdapter",
+    "CodexAgentHostAdapter",
     "DirectOpenAICompatibleAdapter",
     "OpenCodeAgentHostAdapter",
 ]

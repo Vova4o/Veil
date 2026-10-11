@@ -27,6 +27,7 @@ from .cli import (
     cli_catalog,
     discover_cli_integrations,
     list_cli_models,
+    opencode_executable_choice,
     probe_cli,
 )
 from .enhancement import (
@@ -310,7 +311,13 @@ def ai_cli_integration(cli_type: str):
 
 @ai_blueprint.route("/api/ai/cli-integrations/<cli_type>/models", methods=["GET"])
 def ai_cli_models(cli_type: str):
-    return jsonify(list_cli_models(cli_type, provider=request.args.get("provider")))
+    executable = None
+    if cli_type == "opencode":
+        # Only a detected installation may be chosen; the path is never run as given.
+        executable = opencode_executable_choice(request.args.get("executable"))
+    return jsonify(list_cli_models(
+        cli_type, executable, provider=request.args.get("provider")
+    ))
 
 
 @ai_blueprint.route("/api/ai/jobs/<int:job_id>", methods=["GET"])

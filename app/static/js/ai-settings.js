@@ -31,6 +31,9 @@ const elements = {
     modelOptions: document.getElementById('profile-model-options'),
     modelToggle: document.getElementById('profile-model-toggle'),
     opencodeModelFields: document.getElementById('opencode-model-fields'),
+    opencodeInstallField: document.getElementById('opencode-install-field'),
+    opencodeInstall: document.getElementById('profile-opencode-install'),
+    opencodeModelCapability: document.getElementById('opencode-model-capability'),
     modelProvider: document.getElementById('profile-model-provider'),
     modelProviderCombobox: document.getElementById('profile-model-provider-combobox'),
     modelProviderOptions: document.getElementById('profile-model-provider-options'),
@@ -124,6 +127,10 @@ let modelChoices = [];
 let activeModelOptionIndex = -1;
 let modelProviderLoadingToken = 0;
 const discoveredCatalogModels = new Map();
+// OpenCode model lists per installation and provider, with vision/free flags.
+const opencodeModelCache = new Map();
+let opencodeProviderModels = [];
+let opencodeAutoPickModel = false;
 let catalogDraft = new Map();
 
 function readConnectedCliTypes() {
@@ -350,6 +357,9 @@ function renderProfiles() {
 
         const badges = createElement('div', 'badge-row');
         appendBadge(badges, `${profile.timeout_seconds}s timeout`);
+        if (profile.cli_type === 'opencode' && profile.executable) {
+            appendBadge(badges, /opencode-cli(\.exe)?$/i.test(profile.executable) ? 'Desktop app' : 'npm CLI');
+        }
         if (profile.multimodal) appendBadge(badges, 'Multimodal', 'vision');
         if (!profile.has_credentials) appendBadge(badges, 'Credentials unavailable', 'missing');
         if (defaults.text_profile_id === profile.id) appendBadge(badges, 'Default text');
@@ -632,6 +642,7 @@ function renderCliCard(entry) {
         appendBadge(badges, authenticationLabel(integration.authentication),
             integration.authentication?.status === 'available' ? 'vision' : '');
         if (integration.multimodal) appendBadge(badges, 'Image attachment', 'vision');
+        (integration.installations || []).forEach(item => appendBadge(badges, item.label));
         if (integration.experimental) appendBadge(badges, 'Experimental adapter');
     }
     card.append(badges);
@@ -980,57 +991,160 @@ function visibleProviderChoices(currentProvider = '') {
     }));
 }
 
-function setOpenCodeModelChoices(provider, models) {
+function modelTags(info) {
+    if (!info) return '';
+    const tags = [];
+    if (info.free) tags.push('free');
+    if (info.vision === true) tags.push('sees images');
+    if (info.vision === false) tags.push('text only');
+    return tags.join(' · ');
+}
+
+function wantsVisionRole() {
+    return Boolean(elements.roleVision?.checked && !elements.roleVision.disabled);
+}
+
+function setOpenCodeModelChoices(provider, models, infoById = new Map()) {
     const prefix = `${provider}/`;
-    setPickerChoices(modelNamePicker, models.map(model => {
+    opencodeProviderModels = models.map(model => {
         const fullId = model.startsWith(prefix) ? model : `${prefix}${model}`;
+        return { fullId, name: fullId.slice(prefix.length), info: infoById.get(fullId) || null };
+    });
+    renderOpenCodeModelChoices();
+}
+
+function renderOpenCodeModelChoices() {
+    // The Vision role needs a model that sees images; any model can serve the text roles.
+    const vision = wantsVisionRole();
+    const usable = opencodeProviderModels.filter(model => !vision || model.info?.vision !== false);
+    setPickerChoices(modelNamePicker, usable.map(model => {
+        const tags = modelTags(model.info);
         return {
-            value: fullId.slice(prefix.length),
-            label: fullId.slice(prefix.length),
-            detail: fullId,
+            value: model.name,
+            label: model.name,
+            detail: tags ? `${model.fullId} · ${tags}` : model.fullId,
         };
     }));
+    updateOpenCodeCapability();
+}
+
+function selectedOpenCodeModel() {
+    const provider = elements.modelProvider.value.trim();
+    const name = elements.modelName.value.trim();
+    if (!name) return null;
+    const fullId = name.startsWith(`${provider}/`) ? name : `${provider}/${name}`;
+    return opencodeProviderModels.find(model => model.fullId === fullId) || null;
+}
+
+function updateOpenCodeCapability() {
+    const line = elements.opencodeModelCapability;
+    if (!line) return;
+    const model = selectedOpenCodeModel();
+    line.classList.remove('is-error');
+    if (!model?.info) {
+        line.hidden = true;
+        line.textContent = '';
+        return;
+    }
+    line.hidden = false;
+    if (model.info.vision === false && wantsVisionRole()) {
+        line.textContent = 'This model is text only. Choose a model that sees images for the Vision role, or clear Vision.';
+        line.classList.add('is-error');
+        return;
+    }
+    const parts = [model.info.vision === false ? 'Text only' : model.info.vision ? 'Sees images' : 'Image support unknown'];
+    parts.push(model.info.free ? 'free, no account or key needed' : 'uses your provider account');
+    line.textContent = parts.join(' · ');
+}
+
+function preferredFreeModel(models) {
+    const families = ['muse-spark', 'mimo', 'exo', 'longcat', 'space-bunny', 'step'];
+    const rank = model => {
+        const family = families.findIndex(prefix => model.name.startsWith(prefix));
+        return (model.info?.vision ? 0 : 100) + (family < 0 ? families.length : family);
+    };
+    return models.filter(model => model.info?.free).sort((left, right) => rank(left) - rank(right))[0] || null;
+}
+
+function selectedInstallation() {
+    return elements.opencodeInstall?.value || elements.executable.value || '';
 }
 
 async function loadOpenCodeProviderModels(provider, { preserveModel = false } = {}) {
     const providerId = provider.trim();
     if (!providerId) {
+        opencodeProviderModels = [];
         setPickerChoices(modelNamePicker, []);
+        updateOpenCodeCapability();
         return;
     }
     const currentToken = ++modelProviderLoadingToken;
-    const selectedModels = visibleOpenCodeCatalog[providerId];
     if (!preserveModel) elements.modelName.value = '';
-    if (selectedModels?.length) {
-        setOpenCodeModelChoices(providerId, selectedModels);
+    const executable = selectedInstallation();
+    const cacheKey = `${executable}::${providerId}`;
+    const show = data => {
+        const infoById = new Map((data.model_info || []).map(item => [item.id, item]));
+        const selected = visibleOpenCodeCatalog[providerId];
+        const models = selected?.length
+            ? (data.models || []).filter(model => selected.includes(model))
+            : (data.models || []);
+        setOpenCodeModelChoices(providerId, models, infoById);
+        if (opencodeAutoPickModel && !elements.modelName.value) {
+            const pick = preferredFreeModel(opencodeProviderModels);
+            if (pick) elements.modelName.value = pick.name;
+            opencodeAutoPickModel = false;
+        }
+        updateOpenCodeCapability();
+        const free = opencodeProviderModels.filter(model => model.info?.free).length;
         elements.modelCatalogHint.textContent = (
-            `${selectedModels.length} selected model${selectedModels.length === 1 ? '' : 's'} shown. `
-            + 'No catalog request was needed.'
+            `${models.length} models for ${providerId}${free ? `, ${free} free` : ''}.`
         );
-        return;
-    }
-    if (discoveredCatalogModels.has(providerId)) {
-        const models = discoveredCatalogModels.get(providerId);
-        setOpenCodeModelChoices(providerId, models);
-        elements.modelCatalogHint.textContent = `${models.length} models available for ${providerId}.`;
+    };
+    if (opencodeModelCache.has(cacheKey)) {
+        show(opencodeModelCache.get(cacheKey));
         return;
     }
     elements.modelCatalogHint.textContent = `Loading models for ${providerId}…`;
+    opencodeProviderModels = [];
     setPickerChoices(modelNamePicker, []);
     try {
         const query = new URLSearchParams({ provider: providerId });
+        if (executable) query.set('executable', executable);
         const data = await requestJson(`/api/ai/cli-integrations/opencode/models?${query}`);
         if (currentToken !== modelProviderLoadingToken) return;
-        const models = data.models || [];
-        discoveredCatalogModels.set(providerId, models);
-        setOpenCodeModelChoices(providerId, models);
-        elements.modelCatalogHint.textContent = (
-            `${models.length} models loaded for ${providerId}; other providers were not requested.`
-        );
+        opencodeModelCache.set(cacheKey, data);
+        discoveredCatalogModels.set(providerId, data.models || []);
+        show(data);
     } catch (error) {
         if (currentToken !== modelProviderLoadingToken) return;
         elements.modelCatalogHint.textContent = `Could not load ${providerId}: ${error.message}`;
     }
+}
+
+async function configureOpenCodeInstallations(profile, integration) {
+    let probe = integration || cliProbes.get('opencode');
+    if (!probe?.installations) {
+        try {
+            probe = (await requestJson('/api/ai/cli-integrations/opencode')).integration;
+            cliProbes.set('opencode', probe);
+            writeStoredCliProbes();
+        } catch {
+            probe = null;
+        }
+    }
+    const installations = probe?.installations || [];
+    const select = elements.opencodeInstall;
+    select.replaceChildren();
+    installations.forEach((item, index) => {
+        const label = index === 0 ? `${item.label} (newest)` : item.label;
+        select.append(new Option(label, item.executable));
+    });
+    const saved = profile?.executable || '';
+    const known = installations.some(item => item.executable === saved);
+    if (saved && !known) select.append(new Option(`Custom: ${saved}`, saved));
+    select.value = saved || installations[0]?.executable || '';
+    elements.executable.value = select.value;
+    elements.opencodeInstallField.hidden = select.options.length === 0;
 }
 
 function chooseOpenCodeProvider(provider, options) {
@@ -1045,7 +1159,9 @@ function chooseOpenCodeProvider(provider, options) {
 function configureOpenCodeModelFields(savedModel = '') {
     const saved = splitOpenCodeModel(savedModel);
     const providerIds = Object.keys(visibleOpenCodeCatalog);
-    const provider = saved.provider || (providerIds.length === 1 ? providerIds[0] : '');
+    const provider = saved.provider
+        || (providerIds.length === 1 ? providerIds[0] : '')
+        || (savedModel ? '' : 'opencode');
     elements.modelProvider.value = provider;
     elements.modelProvider.dataset.committedProvider = provider;
     elements.modelName.value = saved.model;
@@ -1377,8 +1493,14 @@ function openProfileDialog(profile = null, integration = null, models = []) {
         if (elements.roleTranslator) elements.roleTranslator.checked = false;
         if (elements.roleVision) elements.roleVision.checked = visionSupported && Boolean(integration.multimodal);
     }
+    elements.opencodeInstallField.hidden = true;
+    elements.opencodeModelCapability.hidden = true;
+    opencodeProviderModels = [];
+    opencodeAutoPickModel = isOpenCode && !profile;
     if (isOpenCode) {
-        configureOpenCodeModelFields(profile?.model || '');
+        if (!profile && elements.roleVision && !elements.roleVision.disabled) elements.roleVision.checked = true;
+        configureOpenCodeInstallations(profile, integration)
+            .then(() => configureOpenCodeModelFields(profile?.model || ''));
     } else {
         setModelChoices(models);
     }
@@ -1436,6 +1558,13 @@ async function submitProfile(event) {
 
         if (selectedRoles.length === 0) {
             elements.formError.textContent = 'Please select at least one profile role (Text, Translator, or Vision).';
+            elements.formError.hidden = false;
+            elements.saveProfile.disabled = false;
+            return;
+        }
+        const isOpenCodeForm = elements.kind.value === 'cli' && elements.cliType.value === 'opencode';
+        if (isOpenCodeForm && selectedRoles.includes('vision') && selectedOpenCodeModel()?.info?.vision === false) {
+            elements.formError.textContent = 'The Vision role needs a model that sees images; this model is text only.';
             elements.formError.hidden = false;
             elements.saveProfile.disabled = false;
             return;
@@ -1523,6 +1652,7 @@ const DEFAULT_CLI_CATALOG = [
     { type: 'opencode', label: 'OpenCode', multimodal: true, experimental: false, model_discovery: true },
     { type: 'claude', label: 'Claude Code', multimodal: true, experimental: false, model_discovery: false },
     { type: 'antigravity', label: 'Antigravity CLI', multimodal: true, experimental: true, model_discovery: true },
+    { type: 'codex', label: 'Codex CLI', multimodal: true, experimental: false, model_discovery: false },
     { type: 'civitai', label: 'Civitai CLI', multimodal: false, experimental: false, model_discovery: false, provider: false },
 ];
 
@@ -1639,6 +1769,16 @@ elements.modelOptions.addEventListener('click', event => {
     if (option) selectModelOption(option);
 });
 providerPicker.onCommit = provider => chooseOpenCodeProvider(provider);
+modelNamePicker.onCommit = () => updateOpenCodeCapability();
+elements.modelName.addEventListener('input', () => updateOpenCodeCapability());
+elements.roleVision?.addEventListener('change', () => {
+    if (!elements.opencodeModelFields.hidden) renderOpenCodeModelChoices();
+});
+elements.opencodeInstall.addEventListener('change', () => {
+    elements.executable.value = elements.opencodeInstall.value;
+    const provider = elements.modelProvider.value.trim();
+    if (provider) loadOpenCodeProviderModels(provider, { preserveModel: true });
+});
 bindPicker(providerPicker);
 bindPicker(modelNamePicker);
 elements.modelProvider.addEventListener('keydown', event => {

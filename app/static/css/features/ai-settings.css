@@ -352,6 +352,21 @@ html {
     gap: 12px;
 }
 
+.opencode-install-field {
+    margin-bottom: 12px;
+}
+
+.model-capability {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.model-capability.is-error {
+    color: color-mix(in srgb, var(--red) 72%, white);
+}
+
 .catalog-settings-row {
     margin-top: 8px;
     display: flex;

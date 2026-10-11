@@ -11,6 +11,7 @@ from ..job_store import (
     PromptDraftSource,
 )
 from ..prompting import (
+    InstructionBundle,
     PromptCompiler,
     PromptCompilerError,
     PromptOperation,
@@ -21,6 +22,7 @@ from ..prompting import (
 from .adapters import (
     AntigravityAgentHostAdapter,
     ClaudeCodeAgentHostAdapter,
+    CodexAgentHostAdapter,
     DirectOpenAICompatibleAdapter,
     OpenCodeAgentHostAdapter,
 )
@@ -67,6 +69,7 @@ class ExecutionRouter:
                 OpenCodeAgentHostAdapter(),
                 ClaudeCodeAgentHostAdapter(),
                 AntigravityAgentHostAdapter(),
+                CodexAgentHostAdapter(),
             )
         )
         if not self.adapters:
@@ -93,7 +96,9 @@ class ExecutionRouter:
         scene_spec: SceneSpec | None = None,
         result_transformer: Callable[[PromptResult], PromptResult] | None = None,
         on_output_chunk: Callable[[str], None] | None = None,
+        bundle: InstructionBundle | None = None,
     ) -> PromptExecutionOutcome:
+        """Run one task; ``bundle`` replaces compiling ``task`` (it must carry the same task)."""
         adapter = self._select_adapter(profile)
         normalized_path = Path(image_path) if image_path is not None else None
         image_kind = self._image_kind(
@@ -136,7 +141,10 @@ class ExecutionRouter:
                     technical_error=str(exc),
                 ) from exc
         try:
-            bundle = self.compiler.compile(task)
+            if bundle is None:
+                bundle = self.compiler.compile(task)
+            elif bundle.task != task:
+                raise PromptCompilerError("The prepared instruction bundle does not match the prompt task.")
             self.job_store.mark_running(job.id, bundle)
         except (PromptCompilerError, AIJobStoreError) as exc:
             self._record_failure(job.id, str(exc))
