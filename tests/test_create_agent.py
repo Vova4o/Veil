@@ -1,0 +1,498 @@
+from __future__ import annotations
+
+import base64
+import io
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from PIL import Image
+
+from app.ai import opencode_host
+from app.ai.cli import CommandResult
+from app.ai.execution import codex as codex_module
+from app.ai.execution.adapters import CodexAgentHostAdapter
+from app.ai.execution.codex import (
+    LAST_MESSAGE_FILE,
+    CodexPromptExecutionError,
+    CodexPromptExecutor,
+    build_codex_command,
+    codex_model,
+)
+from app.ai.execution.router import ExecutionRouter
+from app.ai.prompting import PromptResult
+from app.comfyui import create_agent, simple_routes
+from app.comfyui.create_agent import (
+    CREATE_CONTENT_DIR,
+    CreateAgentError,
+    agent_image_bytes,
+    build_create_bundle,
+    pick_agent_profile,
+    run_create_agent,
+    wants_intimate_module,
+)
+from app.comfyui.simple_profiles import APPROVED_PROFILES
+from app.main import app
+
+PROFILE = APPROVED_PROFILES["krea2_moody_v40"]
+
+
+def _png(width=640, height=960) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (120, 80, 60)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _data_url(width=640, height=960) -> str:
+    return "data:image/png;base64," + base64.b64encode(_png(width, height)).decode("ascii")
+
+
+VISION = {"id": "vision", "name": "Vision agent", "kind": "cli", "cli_type": "claude", "model": "m",
+          "roles": ["vision"], "multimodal": True, "timeout_seconds": 60}
+TEXT = {"id": "text", "name": "Text agent", "kind": "cli", "cli_type": "opencode", "model": "m",
+        "roles": ["text"], "multimodal": False, "timeout_seconds": 60}
+TRANSLATOR = {"id": "tr", "name": "Translator", "kind": "cli", "cli_type": "opencode", "model": "m",
+              "roles": ["translator"], "multimodal": False, "timeout_seconds": 60}
+
+
+@pytest.fixture(autouse=True)
+def _no_local_opencode(monkeypatch, request):
+    """Keep the zero-setup OpenCode fallback away from the machine's real installs."""
+    if not request.node.name.startswith("test_implicit_opencode"):
+        monkeypatch.setattr(create_agent, "implicit_opencode_profile", lambda: None)
+
+
+class FakeStore:
+    def __init__(self, profiles, defaults=None):
+        self.profiles = {item["id"]: item for item in profiles}
+        self.defaults = defaults or {}
+
+    def list(self):
+        return {"profiles": list(self.profiles.values()), "defaults": self.defaults}
+
+    def get(self, profile_id):
+        return self.profiles[profile_id]
+
+    def resolve_api_key(self, profile):
+        return None
+
+
+class FakeRouter:
+    def __init__(self, result: PromptResult, image_inputs=("file_path",)):
+        self.result = result
+        self.image_inputs = image_inputs
+        self.calls = []
+
+    def capabilities_for(self, profile):
+        return SimpleNamespace(image_inputs=self.image_inputs)
+
+    def execute(self, **kwargs):
+        image_path = kwargs.get("image_path")
+        kwargs["image_size"] = Image.open(image_path).size if image_path else None
+        self.calls.append(kwargs)
+        return SimpleNamespace(result=self.result, adapter_id="fake", job_id=7, metadata={"latency_ms": 42})
+
+
+# --- instruction ---------------------------------------------------------------
+
+
+def test_instruction_has_no_child_like_or_t5_rules():
+    text = "\n".join(path.read_text(encoding="utf-8") for path in CREATE_CONTENT_DIR.glob("*.md")).casefold()
+    # Rules of the original instruction.md that were removed on purpose.
+    for phrase in ("pre-adolescent", "neoten", "buccal", "youthful head-to-body", "craniofacial compression",
+                   "age-washing", "legal & safety baseline", "base block (first 500 tokens)", "t5-xxl native"):
+        assert phrase not in text, phrase
+    assert "clearly adults" in text
+    assert "qwen3-vl" in text
+
+
+def test_bundle_modules_follow_the_mode():
+    text = build_create_bundle(PROFILE, "text")
+    assert [section.section_id for section in text.sections] == [
+        "krea2_base", "composition", "wardrobe", "mode_text", "create_krea2",
+    ]
+    edit = build_create_bundle(PROFILE, "edit", intimate=True)
+    assert [section.section_id for section in edit.sections] == [
+        "krea2_base", "wardrobe", "intimate", "mode_edit", "edit_profiles", "create_krea2",
+    ]
+    rendered = edit.render()
+    assert rendered.startswith("CMV CREATE TASK")
+    assert "mode: edit" in rendered
+    assert "family: flux" not in rendered
+    assert "- light:" in rendered and "(not usable now)" in rendered
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("сделай хард", True),
+    ("раздень её до белья", True),
+    ("make her topless", True),
+    ("a cat on a windowsill at dawn", False),
+    ("ночная кофейня у моря", False),
+])
+def test_intimate_module_trigger(text, expected):
+    assert wants_intimate_module(text) is expected
+
+
+# --- agent profile -----------------------------------------------------------------
+
+
+def test_pick_agent_prefers_defaults_and_skips_translators():
+    store = FakeStore([TRANSLATOR, TEXT, VISION], {"text_profile_id": "text", "multimodal_profile_id": "vision"})
+    assert pick_agent_profile(store, wants_image=True)["id"] == "vision"
+    assert pick_agent_profile(store, wants_image=False)["id"] == "text"
+    assert pick_agent_profile(FakeStore([TRANSLATOR]), wants_image=False) is None
+    # A photo task without a vision agent still gets the text agent.
+    assert pick_agent_profile(FakeStore([TEXT]), wants_image=True)["id"] == "text"
+
+
+def _free_models():
+    model = opencode_host.OpenCodeModel
+    return [
+        model("opencode/big-pickle", "opencode", "Big Pickle", vision=False, free=True),
+        model("opencode/claude-opus-5", "opencode", "Claude Opus 5", vision=True, free=False),
+        model("opencode/exo-free", "opencode", "Exo Free", vision=True, free=True),
+        model("opencode/muse-spark-1.3-contributor-free", "opencode", "Muse Spark 1.3 Free", vision=True, free=True),
+    ]
+
+
+def test_implicit_opencode_runs_a_free_vision_model_when_nothing_is_configured(monkeypatch):
+    installation = opencode_host.OpenCodeInstallation("desktop", "C:/OpenCode/opencode-cli.exe", "2.0.24", 2)
+    monkeypatch.setattr(opencode_host, "find_installations", lambda: [installation])
+    monkeypatch.setattr(opencode_host, "list_models", lambda executable, provider=None: _free_models())
+    create_agent._free_model_cache.clear()
+    profile = pick_agent_profile(FakeStore([TRANSLATOR]), wants_image=True)
+    assert profile["id"] == create_agent.IMPLICIT_OPENCODE_PROFILE_ID
+    assert profile["model"] == "opencode/muse-spark-1.3-contributor-free"
+    assert profile["multimodal"] is True and "vision" in profile["roles"]
+    assert profile["executable"] == installation.executable
+    # A configured agent always wins over the fallback.
+    assert pick_agent_profile(FakeStore([TEXT]), wants_image=True)["id"] == "text"
+
+
+def test_implicit_opencode_needs_an_installation_and_a_free_model(monkeypatch):
+    installation = opencode_host.OpenCodeInstallation("cli", "C:/npm/opencode.cmd", "1.18.34", 1)
+    monkeypatch.setattr(opencode_host, "find_installations", list)
+    assert create_agent.implicit_opencode_profile() is None
+    monkeypatch.setattr(opencode_host, "find_installations", lambda: [installation])
+    monkeypatch.setattr(opencode_host, "list_models", lambda executable, provider=None: [_free_models()[1]])
+    create_agent._free_model_cache.clear()
+    assert create_agent.implicit_opencode_profile() is None
+
+
+# --- runs ----------------------------------------------------------------------------
+
+
+def test_reference_mode_needs_an_agent_that_sees_photos():
+    router = FakeRouter(PromptResult(positive_prompt="x"))
+    with pytest.raises(CreateAgentError) as exc_info:
+        run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="reference", request="",
+                         image=_png(), router=router)
+    assert exc_info.value.code == "vision_required"
+    assert router.calls == []
+
+
+def test_no_agent_configured():
+    with pytest.raises(CreateAgentError) as exc_info:
+        run_create_agent(profile=PROFILE, store=FakeStore([]), mode="text", request="a cat",
+                         router=FakeRouter(PromptResult(positive_prompt="x")))
+    assert exc_info.value.code == "no_ai_profile"
+
+
+def test_text_run_passes_bundle_request_and_previous_prompt():
+    router = FakeRouter(PromptResult(positive_prompt="A cat on a sill.", edit_profile="light", note=""))
+    result = run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="кот на окне",
+                              previous_prompt="A dog.", dimensions=(896, 1152), router=router)
+    call = router.calls[0]
+    assert call["bundle"].task.operation.value == "generate"
+    assert "кот на окне" in call["user_input"] and "PREVIOUS PROMPT" in call["user_input"]
+    assert "896x1152" in call["user_input"]
+    assert call["profile"]["timeout_seconds"] >= create_agent.MIN_AGENT_TIMEOUT_SECONDS
+    assert "image_path" not in call
+    # Edit profiles only exist in edit mode.
+    assert result.edit_profile is None
+    assert result.prompt == "A cat on a sill."
+    assert result.to_dict()["agent"]["name"] == "Text agent"
+
+
+def test_edit_run_uses_agent_profile_and_negative():
+    router = FakeRouter(PromptResult(positive_prompt="She is topless.", negative_prompt="sweater",
+                                     edit_profile="remove", note="Try 2-4 images."))
+    result = run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit",
+                              request="сними свитер полностью", image=_png(), router=router)
+    call = router.calls[0]
+    assert call["image_size"] == (640, 960)
+    assert [item.section_id for item in call["bundle"].sections][2] == "intimate"
+    assert (result.edit_profile, result.negative_prompt, result.note) == ("remove", "sweater", "Try 2-4 images.")
+    assert result.saw_image is True
+
+
+def test_edit_run_with_donor_sends_side_by_side_sheet_and_fixes_profile():
+    router = FakeRouter(PromptResult(positive_prompt="Put the person from the second image.", edit_profile="light"))
+    result = run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="swap",
+                              image=_png(), subject=_png(500, 500), router=router)
+    width, height = router.calls[0]["image_size"]
+    assert width > height  # two photos side by side
+    assert "side-by-side" in router.calls[0]["user_input"]
+    # "light" needs one photo; with a donor the first two-photo profile is used.
+    assert result.edit_profile == "donor"
+
+
+def test_edit_without_vision_agent_writes_command_blind():
+    router = FakeRouter(PromptResult(positive_prompt="Make the dress red.", edit_profile="light"))
+    result = run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="edit", request="красное платье",
+                              image=_png(), router=router)
+    assert "image_path" not in router.calls[0]
+    assert "cannot see it" in router.calls[0]["user_input"]
+    assert result.saw_image is False
+
+
+def test_direct_agents_get_a_data_url():
+    router = FakeRouter(PromptResult(positive_prompt="x"), image_inputs=("data_url",))
+    run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="reference", request="", image=_png(),
+                     router=router)
+    assert router.calls[0]["image_data_url"].startswith("data:image/jpeg;base64,")
+
+
+def test_agent_image_is_bounded():
+    data = agent_image_bytes(_png(4000, 3000))
+    assert max(Image.open(io.BytesIO(data)).size) <= create_agent.AGENT_IMAGE_MAX_SIDE
+
+
+def test_agent_route_returns_prompt_and_profile_timing(monkeypatch):
+    router = FakeRouter(PromptResult(positive_prompt="Pose change.", edit_profile="pose", note="~7 min"))
+    monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([VISION]))
+    response = app.test_client().post("/api/simple/agent", json={
+        "mode": "edit", "request": "поверни голову к окну", "reference_image": _data_url(), "aspect_ratio": "source",
+    })
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["positive_prompt"] == "Pose change."
+    assert data["edit_profile"] == "pose"
+    assert data["seconds_per_image"] == 400
+    assert data["agent"]["saw_image"] is True
+    assert data["width"] % 32 == 0
+
+
+def test_agent_profile_override_and_unknown_id(monkeypatch):
+    router = FakeRouter(PromptResult(positive_prompt="x"))
+    store = FakeStore([TEXT, VISION], {"text_profile_id": "text"})
+    run_create_agent(profile=PROFILE, store=store, mode="text", request="a cat", router=router,
+                     agent_profile_id="vision")
+    assert router.calls[0]["profile"]["id"] == "vision"
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: store)
+    response = app.test_client().post("/api/simple/agent", json={"mode": "text", "request": "a cat",
+                                                                 "agent_profile_id": "missing"})
+    assert response.status_code == 404
+    assert response.get_json()["code"] == "profile_not_found"
+
+
+def test_agent_route_reports_missing_agent(monkeypatch):
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([]))
+    response = app.test_client().post("/api/simple/agent", json={"mode": "text", "request": "a cat"})
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "no_ai_profile"
+
+
+# --- streamed progress ---------------------------------------------------------------
+
+
+def _opencode_events(*events):
+    return [json.dumps(event) + "\n" for event in events]
+
+
+def test_opencode_progress_shows_phases_and_the_prompt_not_the_json():
+    seen = []
+    read = create_agent.progress_reader({"kind": "cli", "cli_type": "opencode"}, seen.append)
+    answer = json.dumps({"positive_prompt": "A lantern-lit night market.", "negative_prompt": ""})
+    for line in _opencode_events(
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "reasoning", "part": {"type": "reasoning", "text": ""}},
+        {"type": "text", "part": {"type": "text", "text": f"```json\n{answer}\n```"}},
+    ) + ["not json\n"]:
+        read(line)
+    assert [event["phase"] for event in seen] == ["thinking", "thinking", "writing"]
+    assert seen[-1]["text"] == "A lantern-lit night market."
+    assert "log" not in seen[1]
+
+
+def test_codex_progress_skips_the_echoed_task_and_keeps_the_journal():
+    seen = []
+    read = create_agent.progress_reader({"kind": "cli", "cli_type": "codex"}, seen.append)
+    journal = [
+        "OpenAI Codex v0.160.0", "--------", "model: gpt-x", "--------",
+        "user", "CMV CREATE TASK", "SECTION FAMILY_BASE: secret instruction text", "",
+        "thinking", "**Planning the frame**",
+        "mcp: memory-agent/recall started",
+        "codex", '{"positive_prompt": "x"', "}",
+        "tokens used", "38 612",
+    ]
+    for line in journal:
+        read(line + "\n")
+    logs = [event.get("log") for event in seen if event.get("log")]
+    assert logs == ["**Planning the frame**", "mcp: memory-agent/recall started"]
+    assert not any("secret instruction" in str(event) or "gpt-x" in str(event) for event in seen)
+    assert seen[-1] == {"phase": "writing"}
+    assert create_agent.progress_reader({"kind": "cli", "cli_type": "claude"}, seen.append) is None
+    assert create_agent.progress_reader({"kind": "openai_compatible"}, seen.append) is None
+
+
+def test_run_reports_start_and_forwards_host_lines():
+    seen = []
+
+    class StreamingRouter(FakeRouter):
+        def execute(self, **kwargs):
+            for line in _opencode_events({"type": "step_start"}):
+                kwargs["on_output_chunk"](line)
+            return super().execute(**kwargs)
+
+    router = StreamingRouter(PromptResult(positive_prompt="A cat."))
+    run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="a cat",
+                     router=router, on_progress=seen.append)
+    assert seen[0] == {"phase": "started", "agent": "Text agent", "model": "m", "sees_images": False}
+    assert seen[1] == {"phase": "thinking"}
+    # Without a listener nothing is parsed.
+    plain = FakeRouter(PromptResult(positive_prompt="A cat."))
+    run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="a cat", router=plain)
+    assert plain.calls[0]["on_output_chunk"] is None
+
+
+def _sse_events(response):
+    return [
+        json.loads(line[len("data: "):])
+        for line in response.get_data(as_text=True).splitlines()
+        if line.startswith("data: ")
+    ]
+
+
+def test_agent_route_streams_progress_then_the_result(monkeypatch):
+    def fake_run(**kwargs):
+        kwargs["on_progress"]({"phase": "started", "agent": "Text agent"})
+        kwargs["on_progress"]({"phase": "writing", "text": "A cat."})
+        return create_agent.CreateAgentResult(
+            prompt="A cat.", negative_prompt="", edit_profile=None, note="", agent_name="Text agent",
+            adapter_id="opencode", model="m", saw_image=False, job_id=3, latency_ms=10,
+        )
+
+    monkeypatch.setattr(simple_routes, "run_create_agent", fake_run)
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([TEXT]))
+    response = app.test_client().post("/api/simple/agent?stream=1", json={"mode": "text", "request": "a cat"})
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    events = _sse_events(response)
+    assert [event["event"] for event in events] == ["progress", "progress", "result"]
+    assert events[1]["text"] == "A cat."
+    assert events[-1]["positive_prompt"] == "A cat."
+    assert events[-1]["mode"] == "text" and events[-1]["width"] > 0
+
+
+def test_agent_route_streams_errors_with_their_status(monkeypatch):
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([]))
+    response = app.test_client().post("/api/simple/agent?stream=1", json={"mode": "text", "request": "a cat"})
+    events = _sse_events(response)
+    assert events[-1]["event"] == "error"
+    assert events[-1]["code"] == "no_ai_profile"
+    assert events[-1]["status"] == 409
+    # Validation still answers with plain JSON before any stream starts.
+    invalid = app.test_client().post("/api/simple/agent?stream=1", json={"mode": "edit", "request": "x"})
+    assert invalid.status_code == 400 and invalid.get_json()["code"] == "image_required"
+
+
+# --- Codex ---------------------------------------------------------------------------
+
+
+def test_codex_command_reads_stdin_and_attaches_image_before_flags():
+    command = build_codex_command("codex", model=None, image_name="input.jpg")
+    assert command[:4] == ["codex", "exec", "--image", "input.jpg"]
+    assert command[-1] == "-"
+    assert "--sandbox" in command and command[command.index("--sandbox") + 1] == "read-only"
+    assert "--model" not in command
+    assert build_codex_command("codex", model="gpt-x", image_name=None)[-3:] == ["--model", "gpt-x", "-"]
+    assert codex_model({"model": "default"}) is None
+    assert codex_model({"model": "gpt-x"}) == "gpt-x"
+
+
+def test_router_selects_codex():
+    profile = {"kind": "cli", "cli_type": "codex", "model": "default"}
+    assert ExecutionRouter().capabilities_for(profile) is CodexAgentHostAdapter.capabilities
+
+
+def test_codex_executor_reads_last_message_file(monkeypatch, tmp_path):
+    image = tmp_path / "photo.jpg"
+    image.write_bytes(agent_image_bytes(_png()))
+    calls = []
+
+    def fake_run(args, **kwargs):
+        cwd = Path(kwargs["cwd"])
+        calls.append({"args": args, "files": sorted(p.name for p in cwd.iterdir()), "stdin": kwargs["input_text"]})
+        (cwd / LAST_MESSAGE_FILE).write_text(json.dumps({"schema_version": "1", "positive_prompt": "OK"}))
+        return CommandResult(returncode=0, stdout="progress log", stderr="", elapsed_ms=9)
+
+    monkeypatch.setattr(codex_module, "run_command", fake_run)
+    monkeypatch.setattr(codex_module, "find_executable", lambda *_: "codex")
+    bundle = build_create_bundle(PROFILE, "reference")
+    result = CodexPromptExecutor().execute(
+        profile={"kind": "cli", "cli_type": "codex", "model": "default"},
+        task=bundle.task, user_input="MODE: reference", image_path=image, bundle=bundle,
+    )
+    assert result.result.positive_prompt == "OK"
+    assert calls[0]["files"] == ["input.jpg"]
+    assert "attached to this message" in calls[0]["stdin"]
+    assert len(" ".join(calls[0]["args"])) < 2000
+
+
+def test_codex_executor_without_reply_reports_error(monkeypatch):
+    monkeypatch.setattr(codex_module, "run_command",
+                        lambda args, **kw: CommandResult(returncode=1, stdout="", stderr="Not logged in", elapsed_ms=1))
+    monkeypatch.setattr(codex_module, "find_executable", lambda *_: "codex")
+    bundle = build_create_bundle(PROFILE, "text")
+    with pytest.raises(CodexPromptExecutionError) as exc_info:
+        CodexPromptExecutor().execute(profile={"kind": "cli", "cli_type": "codex", "model": "m"},
+                                      task=bundle.task, user_input="x", bundle=bundle)
+    assert exc_info.value.code == "cli_authentication"
+
+
+# --- reference images from links ------------------------------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, data: bytes, url: str = "https://example.com/pics/dress.png", length: str | None = None):
+        self.data = data
+        self.url = url
+        self.headers = {"Content-Length": length} if length else {}
+
+    def read(self, limit):
+        return self.data[:limit]
+
+    def geturl(self):
+        return self.url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_fetch_image_returns_a_data_url(monkeypatch):
+    monkeypatch.setattr(simple_routes.urllib.request, "urlopen", lambda request, timeout: _FakeResponse(_png(40, 60)))
+    response = app.test_client().post("/api/simple/fetch-image", json={"url": "https://example.com/pics/dress.png"})
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["data_url"].startswith("data:image/png;base64,")
+    assert (data["name"], data["width"], data["height"]) == ("dress.png", 40, 60)
+
+
+def test_fetch_image_rejects_bad_links_pages_and_huge_files(monkeypatch):
+    client = app.test_client()
+    for url in ("file:///C:/Windows/win.ini", "ftp://example.com/a.png", "not a link"):
+        response = client.post("/api/simple/fetch-image", json={"url": url})
+        assert response.status_code == 400 and response.get_json()["code"] == "url_invalid"
+    monkeypatch.setattr(simple_routes.urllib.request, "urlopen", lambda request, timeout: _FakeResponse(b"<html></html>"))
+    page = client.post("/api/simple/fetch-image", json={"url": "https://example.com/"})
+    assert page.status_code == 415 and page.get_json()["code"] == "not_an_image"
+    big = str(simple_routes.MAX_SOURCE_IMAGE_BYTES + 1)
+    monkeypatch.setattr(simple_routes.urllib.request, "urlopen", lambda request, timeout: _FakeResponse(b"x", length=big))
+    huge = client.post("/api/simple/fetch-image", json={"url": "https://example.com/big.png"})
+    assert huge.status_code == 413 and huge.get_json()["code"] == "image_too_large"

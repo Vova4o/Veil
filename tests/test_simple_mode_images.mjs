@@ -30,7 +30,7 @@ function harness(available = [], delayed = []) {
         };
     };
     const elements = new Map(['studio-layout', 'result', 'generating', 'ambient-a', 'ambient-b',
-        'ambient-backdrop-a', 'ambient-backdrop-b', 'result-thumbnails'].map(id => [id, element()]));
+        'ambient-backdrop-a', 'ambient-backdrop-b', 'result-thumbnails', 'result-compare'].map(id => [id, element()]));
     elements.get('studio-layout').dataset.view = 'idle';
     const ambient = element();
     const artwork = element();
@@ -65,7 +65,7 @@ function harness(available = [], delayed = []) {
     });
     vm.runInContext(source, context);
     // Keep layout measurement out of this image-loading integration seam.
-    vm.runInContext(`resizePrompt = () => {}; syncCanvasAspect = () => {};`, context);
+    vm.runInContext(`resizePrompt = () => {}; syncCanvasAspect = () => {}; paintRefs = () => {}; animateLayout = mutate => mutate();`, context);
     return {
         context, elements, ambient, artwork, requests, pending, timers,
         run: code => vm.runInContext(code, context),

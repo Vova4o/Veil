@@ -1,21 +1,58 @@
 const $ = id => document.getElementById(id);
-const MAX_REF = 20 * 1024 * 1024;
+const MAX_PHOTO = 20 * 1024 * 1024;
+const TXT2IMG_SECONDS = 50;
+const SESSION_LIMIT = 40;
+const RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
+
+const MODE_COPY = {
+    text: {
+        label: 'From text',
+        hint: 'Describe the picture in your own words. The agent turns it into a detailed prompt.',
+        placeholder: 'For example: a night café by the sea, warm window light, light fog and wet pavement',
+        button: 'Create',
+    },
+    reference: {
+        label: 'From photo',
+        hint: 'Add a photo as a reference. The agent describes it and applies your wishes; the photo itself is not changed.',
+        placeholder: 'Optional: what to change, for example "the same scene at night in the rain"',
+        button: 'Create from photo',
+    },
+    edit: {
+        label: 'Edit photo',
+        hint: 'Add a photo and say what to change. The face, light and scene stay as they are.',
+        placeholder: 'For example: change her sweater to a black satin camisole',
+        button: 'Edit photo',
+    },
+};
+
+// Titles of the reference blocks per mode; a mode without an entry hides that block.
+const REF_COPY = {
+    reference: {
+        eyebrow: 'PHOTO',
+        main: ['Reference photo', 'The agent describes it and applies your text'],
+    },
+    edit: {
+        eyebrow: 'PHOTOS',
+        main: ['Photo to edit', 'Face, light and scene stay as they are'],
+        subject: ['Reference to bring in', 'Optional: a person, a garment or a tattoo'],
+    },
+};
+const LAYOUT_EASING = 'cubic-bezier(.16,1,.3,1)';
 
 const state = {
     models: [],
     modelId: '',
     health: null,
+    mode: 'text',
     ratio: '1:1',
-    quality: 'standard',
+    photoRatio: 'source',
     batch: 1,
-    improve: true,
-    alwaysImprove: false,
+    photo: null,
+    subject: null,
+    slotFocus: 'main',
+    refineFrom: null,
+    agentStatus: null,
     canvasWidth: null,
-    aiOriginalPrompt: null,
-    aiExpandedPrompt: null,
-    applyingAiPrompt: false,
-    ref: null,
-    refUrl: null,
     ambient: [],
     ambientDeck: [],
     ambientHistory: [],
@@ -33,20 +70,1358 @@ const state = {
     opacity: 44,
     blur: 10,
     sound: false,
-    run: null,
+    job: null,
     poll: null,
-    generationProgress: 0,
+    agentTimer: null,
+    agentTick: null,
+    agentPhase: 'started',
+    agentName: '',
     last: null,
     lastOutputs: [],
+    resultRefs: [],
     selectedResultIndex: 0,
     resultRequest: 0,
-    history: [],
+    lastRun: null,
+    dialogRun: null,
+    session: [],
     downloads: [],
     downloadPoll: null,
-    modelMenuOpen: false,
     runtimeConfig: null,
     runtimeStatus: null,
 };
+
+function catalog() {
+    try { return JSON.parse($('simple-model-catalog')?.textContent || '[]'); }
+    catch { return []; }
+}
+
+function restore() {
+    try {
+        const mode = localStorage.getItem('cmv_create_mode');
+        if (MODE_COPY[mode]) state.mode = mode;
+        const ratio = localStorage.getItem('cmv_simple_ratio');
+        if (RATIOS.includes(ratio)) state.ratio = ratio;
+        const photoRatio = localStorage.getItem('cmv_create_photo_ratio');
+        if (photoRatio === 'source' || RATIOS.includes(photoRatio)) state.photoRatio = photoRatio;
+        state.batch = Math.max(1, Math.min(4, Number(localStorage.getItem('cmv_simple_batch')) || 1));
+        const savedCanvasWidth = Number(localStorage.getItem('cmv_simple_canvas_width'));
+        if (Number.isFinite(savedCanvasWidth) && savedCanvasWidth > 0) state.canvasWidth = savedCanvasWidth;
+
+        const rawInterval = localStorage.getItem('cmv_simple_ambient_interval');
+        state.interval = rawInterval !== null && !isNaN(Number(rawInterval)) ? Number(rawInterval) : 300000;
+        const rawOpacity = localStorage.getItem('cmv_simple_glass_opacity');
+        const numOpacity = Number(rawOpacity);
+        if (rawOpacity !== null && !isNaN(numOpacity) && numOpacity >= 5 && numOpacity <= 98) state.opacity = numOpacity;
+        else if (rawOpacity === 'ultra') state.opacity = 18;
+        else if (rawOpacity === 'high') state.opacity = 30;
+        else if (rawOpacity === 'solid') state.opacity = 82;
+        const rawBlur = localStorage.getItem('cmv_simple_ambient_blur');
+        state.blur = rawBlur !== null && !isNaN(Number(rawBlur)) ? Number(rawBlur) : 10;
+        state.fit = localStorage.getItem('cmv_simple_ambient_fit') || 'cover';
+        state.sound = localStorage.getItem('cmv_simple_sound_alert') === 'true';
+
+        const savedPrompt = localStorage.getItem('cmv_simple_prompt');
+        if (savedPrompt !== null) $('prompt').value = savedPrompt;
+        const session = JSON.parse(localStorage.getItem('cmv_create_session') || '[]');
+        if (Array.isArray(session)) state.session = session.slice(0, SESSION_LIMIT);
+        const lastRun = JSON.parse(localStorage.getItem('cmv_create_last_run') || 'null');
+        if (lastRun && typeof lastRun.prompt === 'string') state.lastRun = lastRun;
+    } catch {}
+}
+
+function init() {
+    state.models = catalog();
+    state.modelId = document.body.dataset.defaultModelId || state.models[0]?.id || '';
+    restore();
+    applyVisualSettings();
+    hydrateAmbient();
+    wire();
+    wireCanvasResize();
+    setMode(state.mode, { keepRefine: false, quiet: true });
+    syncBatch();
+    resizePrompt();
+    $('prompt-clear').hidden = !$('prompt').value.trim();
+    restoreLastResult();
+    paintSession();
+    paintHealth({ status: 'checking' });
+    loadHealth();
+    loadDownloads();
+    loadAgentStatus();
+    loadAmbient();
+    watchAmbientSources();
+    loadRuntimeSummary();
+}
+
+// --- modes ---------------------------------------------------------------------------
+
+function setMode(mode, { keepRefine = false, quiet = false } = {}) {
+    if (!MODE_COPY[mode]) return;
+    const changed = state.mode !== mode;
+    state.mode = mode;
+    save('cmv_create_mode', mode);
+    document.querySelectorAll('[data-mode]').forEach(button => {
+        const active = button.dataset.mode === mode;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-checked', String(active));
+    });
+    const copy = MODE_COPY[mode];
+    $('mode-hint').textContent = copy.hint;
+    $('prompt').placeholder = copy.placeholder;
+    $('create-label').textContent = copy.button;
+    if (!keepRefine && state.refineFrom && state.refineFrom.mode !== mode) clearRefine();
+    animateLayout(paintRefs);
+    syncRatio();
+    paintAgentLine();
+    if (state.health) paintHealth(state.health);
+    if (changed && !quiet) hideError();
+}
+
+function currentRatio() {
+    return state.mode === 'text' ? state.ratio : state.photoRatio;
+}
+
+function ratioValue() {
+    const ratio = currentRatio();
+    if (ratio === 'source') {
+        const photo = state.photo;
+        return photo?.width && photo?.height ? photo.width / photo.height : 3 / 4;
+    }
+    const [width, height] = ratio.split(':').map(Number);
+    return width / height;
+}
+
+function syncRatio() {
+    const ratio = currentRatio();
+    document.querySelectorAll('[data-ratio]').forEach(button => {
+        if (button.dataset.ratio === 'source') button.hidden = state.mode === 'text';
+        button.classList.toggle('active', button.dataset.ratio === ratio);
+    });
+    syncCanvasAspect();
+}
+
+function syncBatch() {
+    document.querySelectorAll('[data-batch]').forEach(button => {
+        button.classList.toggle('active', Number(button.dataset.batch) === state.batch);
+    });
+}
+
+// --- photos --------------------------------------------------------------------------
+
+function readPhoto(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = String(reader.result);
+            const image = new Image();
+            image.onload = () => resolve({
+                dataUrl,
+                objectUrl: URL.createObjectURL(file),
+                name: file.name || 'photo',
+                width: image.naturalWidth,
+                height: image.naturalHeight,
+                size: file.size,
+            });
+            image.onerror = () => reject(new Error('The file is not a readable image.'));
+            image.src = dataUrl;
+        };
+        reader.onerror = () => reject(new Error('Could not read the file.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function setPhoto(slot, file) {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+        error('Could not add the photo', 'Choose an image file.');
+        return false;
+    }
+    if (file.size > MAX_PHOTO) {
+        error('The photo is too large', 'Choose a file smaller than 20 MB.');
+        return false;
+    }
+    try {
+        const photo = await readPhoto(file);
+        const key = slot === 'subject' ? 'subject' : 'photo';
+        if (state[key]?.objectUrl) URL.revokeObjectURL(state[key].objectUrl);
+        state[key] = photo;
+    } catch (err) {
+        error('Could not add the photo', err.message);
+        return false;
+    }
+    hideError();
+    paintRefs();
+    syncRatio();
+    return true;
+}
+
+function clearPhoto(slot) {
+    const key = slot === 'subject' ? 'subject' : 'photo';
+    if (state[key]?.objectUrl) URL.revokeObjectURL(state[key].objectUrl);
+    state[key] = null;
+    const input = slot === 'subject' ? $('subject-input') : $('photo-input');
+    if (input) input.value = '';
+    paintRefs();
+    syncRatio();
+}
+
+function paintRefBlock(slot, photo, copy) {
+    const block = $(`ref-${slot}`);
+    if (!block) return;
+    block.hidden = !copy;
+    if (!copy) return;
+    block.querySelector('.ref-title').textContent = copy[0];
+    block.querySelector('.ref-hint').textContent = photo ? `${photo.name} · ${photo.width}×${photo.height}` : copy[1];
+    block.classList.toggle('is-filled', Boolean(photo));
+    block.querySelector('.ref-empty').hidden = Boolean(photo);
+    block.querySelector('.ref-tools').hidden = !photo;
+    const preview = block.querySelector('.ref-preview');
+    preview.hidden = !photo;
+    if (photo) preview.querySelector('img').src = photo.objectUrl;
+}
+
+/** The left panel: one block for the reference mode, two for edits (scene and donor). */
+function paintRefs() {
+    const layout = $('studio-layout');
+    const copy = REF_COPY[state.mode];
+    layout.dataset.refs = String(Boolean(copy));
+    $('refs-card').hidden = !copy;
+    if (copy) {
+        $('refs-eyebrow').textContent = copy.eyebrow;
+        paintRefBlock('main', state.photo, copy.main);
+        paintRefBlock('subject', state.subject, copy.subject);
+        $('refs-card').dataset.blocks = copy.subject ? '2' : '1';
+    }
+    syncCanvasRowHeight();
+}
+
+/** Layout changes slide the cards from their old place to the new one (FLIP). */
+function animateLayout(mutate) {
+    const layout = $('studio-layout');
+    const signature = () => `${layout.dataset.view}|${layout.dataset.refs}|${layout.dataset.blocks || ''}`;
+    const cards = () => [...layout.children].filter(card => !card.hidden && card.getClientRects().length);
+    const before = signature();
+    const rects = new Map(cards().map(card => [card, card.getBoundingClientRect()]));
+    mutate();
+    if (signature() === before || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for (const card of cards()) {
+        const now = card.getBoundingClientRect();
+        const old = rects.get(card);
+        if (!old) {
+            card.animate(
+                [{ opacity: 0, transform: 'translateX(28px) scale(.985)' }, { opacity: 1, transform: 'none' }],
+                { duration: 420, easing: LAYOUT_EASING },
+            );
+            continue;
+        }
+        const dx = old.left - now.left;
+        const dy = old.top - now.top;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+        card.animate(
+            [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }],
+            { duration: 460, easing: LAYOUT_EASING },
+        );
+    }
+}
+
+function wirePhotoSlots() {
+    $('photo-input').onchange = event => {
+        if (event.target.files?.[0]) setPhoto('main', event.target.files[0]);
+    };
+    $('subject-input').onchange = event => {
+        if (event.target.files?.[0]) setPhoto('subject', event.target.files[0]);
+    };
+    document.querySelectorAll('[data-pick]').forEach(button => {
+        button.onclick = () => (button.dataset.pick === 'subject' ? $('subject-input') : $('photo-input')).click();
+    });
+    document.querySelectorAll('[data-paste]').forEach(button => {
+        button.onclick = () => pasteFromClipboard(button.dataset.paste);
+    });
+    document.querySelectorAll('[data-remove]').forEach(button => {
+        button.onclick = () => clearPhoto(button.dataset.remove);
+    });
+    document.querySelectorAll('[data-view-ref]').forEach(button => {
+        button.onclick = () => openViewer({ kind: 'ref', slot: button.dataset.viewRef });
+    });
+    document.querySelectorAll('[data-url]').forEach(form => {
+        const input = form.querySelector('input');
+        form.onsubmit = event => {
+            event.preventDefault();
+            importImageUrl(input.value, form.dataset.url);
+        };
+        // A pasted link is imported right away.
+        input.addEventListener('paste', () => setTimeout(() => {
+            if (/^https?:\/\/\S+$/i.test(input.value.trim())) importImageUrl(input.value, form.dataset.url);
+        }));
+    });
+    for (const [element, slot] of [[$('ref-main'), 'main'], [$('ref-subject'), 'subject'], [$('prompt-box'), 'main']]) {
+        element.addEventListener('focusin', () => { state.slotFocus = slot; });
+        element.addEventListener('pointerdown', () => { state.slotFocus = slot; });
+        ['dragenter', 'dragover'].forEach(name => element.addEventListener(name, event => {
+            const types = [...(event.dataTransfer?.types || [])];
+            if (!types.includes('Files') && !types.includes('text/uri-list')) return;
+            event.preventDefault();
+            element.classList.add('is-dragging-reference');
+        }));
+        ['dragleave', 'drop'].forEach(name => element.addEventListener(name, () => {
+            element.classList.remove('is-dragging-reference');
+        }));
+        element.addEventListener('drop', event => {
+            const file = [...(event.dataTransfer?.files || [])].find(item => item.type.startsWith('image/'));
+            // An image dragged from another browser tab often arrives as a link only.
+            const link = (event.dataTransfer?.getData('text/uri-list') || '').split('\n').find(line => /^https?:/i.test(line.trim()));
+            if (!file && !link) return;
+            event.preventDefault();
+            if (file) acceptImage(file, slot);
+            else importImageUrl(link.trim(), slot);
+        });
+    }
+    // Images on the clipboard go to the focused slot; text pastes are left alone, except an
+    // image link pasted outside the text fields.
+    document.addEventListener('paste', event => {
+        const item = [...(event.clipboardData?.items || [])].find(entry => entry.kind === 'file' && entry.type.startsWith('image/'));
+        const file = item?.getAsFile();
+        if (file) {
+            event.preventDefault();
+            acceptImage(file, state.slotFocus);
+            return;
+        }
+        const typing = event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]');
+        const text = event.clipboardData?.getData('text/plain')?.trim() || '';
+        if (!typing && state.mode !== 'text' && /^https?:\/\/\S+$/i.test(text)) {
+            event.preventDefault();
+            importImageUrl(text, state.slotFocus);
+        }
+    });
+}
+
+/** Download an image from a link on the server (browsers block most foreign images). */
+async function importImageUrl(url, slot) {
+    const link = String(url || '').trim();
+    if (!/^https?:\/\//i.test(link)) {
+        error('Not an image link', 'Paste a link that starts with http:// or https://.');
+        return;
+    }
+    const target = slot === 'subject' && state.mode === 'edit' ? 'subject' : 'main';
+    const block = $(`ref-${target}`);
+    const loading = block?.querySelector('.ref-loading');
+    if (loading) loading.hidden = false;
+    try {
+        const data = await json('/api/simple/fetch-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: link }),
+        });
+        const blob = await (await fetch(data.data_url)).blob();
+        const added = await acceptImage(new File([blob], data.name || 'image', { type: blob.type }), target);
+        if (added !== false && block) block.querySelector('.ref-url input').value = '';
+    } catch (err) {
+        error('Could not add the image from the link', err.message);
+    } finally {
+        if (loading) loading.hidden = true;
+    }
+}
+
+function acceptImage(file, slot) {
+    if (state.mode === 'text') {
+        setMode('reference');
+        showNote('The photo is used as a reference for a new picture. Choose "Edit photo" to change the photo itself.');
+    }
+    const target = slot === 'subject' && state.mode === 'edit' ? 'subject' : 'main';
+    return setPhoto(target, file);
+}
+
+async function pasteFromClipboard(slot) {
+    if (!navigator.clipboard?.read) {
+        error('Paste is not available here', 'Press Ctrl+V on the page instead.');
+        return;
+    }
+    try {
+        const items = await navigator.clipboard.read();
+        const item = items.find(entry => entry.types.some(value => value.startsWith('image/')));
+        if (!item) {
+            error('No image on the clipboard', 'Copy an image first, then press Paste.');
+            return;
+        }
+        const type = item.types.find(value => value.startsWith('image/'));
+        const blob = await item.getType(type);
+        await acceptImage(new File([blob], `pasted.${type.split('/')[1] || 'png'}`, { type }), slot);
+    } catch (err) {
+        error('Could not read the clipboard', err.message || 'The browser refused access.');
+    }
+}
+
+// --- agent ---------------------------------------------------------------------------
+
+function currentAgent() {
+    if (!state.agentStatus) return null;
+    return state.mode === 'text' ? state.agentStatus.text : state.agentStatus.photo;
+}
+
+async function loadAgentStatus() {
+    try {
+        state.agentStatus = await json('/api/simple/agent-status');
+    } catch {
+        state.agentStatus = { available: false, text: null, photo: null, instruction_files: [] };
+    }
+    paintAgentLine();
+    paintInstructionFiles();
+}
+
+function paintAgentLine() {
+    const line = $('agent-line');
+    const text = $('agent-text');
+    if (!line || !text) return;
+    line.classList.remove('is-missing', 'is-ready');
+    if (!state.agentStatus) {
+        text.textContent = 'Checking the agent…';
+        return;
+    }
+    const agent = currentAgent();
+    if (!agent) {
+        line.classList.add('is-missing');
+        text.innerHTML = state.mode === 'reference'
+            ? 'No agent configured. <a href="/settings/ai">Set one up in Integrations</a>'
+            : 'No agent: your text goes to the model as is. <a href="/settings/ai">Integrations</a>';
+        return;
+    }
+    if (state.mode === 'reference' && !agent.sees_images) {
+        line.classList.add('is-missing');
+        text.innerHTML = `${esc(agent.name)} cannot see photos. <a href="/settings/ai">Choose a vision agent</a>`;
+        return;
+    }
+    line.classList.add('is-ready');
+    const sees = state.mode !== 'text' && agent.sees_images ? ' · sees the photo' : '';
+    text.textContent = `Agent: ${agent.name}${sees}`;
+}
+
+function paintInstructionFiles() {
+    const list = $('session-instruction-files');
+    if (!list) return;
+    const files = state.agentStatus?.instruction_files || [];
+    list.innerHTML = files.map(path => {
+        const name = String(path).split(/[\\/]/).pop();
+        return `<li><button type="button" class="instruction-file" data-path="${esc(path)}" title="${esc(path)} — click to copy the path">${esc(name)}</button></li>`;
+    }).join('');
+    list.querySelectorAll('[data-path]').forEach(button => {
+        button.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(button.dataset.path);
+                button.classList.add('is-copied');
+                setTimeout(() => button.classList.remove('is-copied'), 1200);
+            } catch {}
+        };
+    });
+}
+
+const AGENT_PHASES = {
+    started: 'The agent is reading the task…',
+    thinking: 'The agent is thinking…',
+    working: 'The agent is working…',
+    writing: 'The agent is writing the prompt…',
+};
+const AGENT_LOG_LINES = 6;
+
+function startAgentTimer() {
+    const started = Date.now();
+    clearInterval(state.agentTimer);
+    state.agentPhase = 'started';
+    state.agentName = currentAgent()?.name || 'Agent';
+    const tick = () => {
+        const seconds = Math.round((Date.now() - started) / 1000);
+        setGenerating(AGENT_PHASES[state.agentPhase] || AGENT_PHASES.started, `${state.agentName} · ${seconds} s`);
+        createButton(true, Math.min(7, 2 + seconds / 20), `Agent · ${seconds} s`);
+    };
+    state.agentTick = tick;
+    tick();
+    state.agentTimer = setInterval(tick, 1000);
+}
+
+function resetAgentStream() {
+    $('agent-stream').hidden = true;
+    $('agent-stream-log').replaceChildren();
+    $('agent-stream-text').hidden = true;
+    $('agent-stream-text').textContent = '';
+}
+
+/** One server-sent progress event of the agent: phase, a journal line or the prompt text. */
+function paintAgentProgress(event) {
+    if (event.phase === 'started' && event.agent) state.agentName = event.agent;
+    if (AGENT_PHASES[event.phase]) state.agentPhase = event.phase;
+    if (event.log) {
+        const log = $('agent-stream-log');
+        const item = document.createElement('li');
+        item.textContent = event.log;
+        item.title = event.log;
+        log.append(item);
+        while (log.children.length > AGENT_LOG_LINES) log.firstElementChild.remove();
+        $('agent-stream').hidden = false;
+    }
+    if (event.text) {
+        const text = $('agent-stream-text');
+        text.textContent = event.text;
+        text.hidden = false;
+        $('agent-stream').hidden = false;
+    }
+    state.agentTick?.();
+}
+
+function stopAgentTimer() {
+    clearInterval(state.agentTimer);
+    state.agentTimer = null;
+    state.agentTick = null;
+}
+
+// --- health --------------------------------------------------------------------------
+
+function paintHealth(health) {
+    state.health = health || {};
+    const badge = $('model-health');
+    const statusText = $('model-status-text');
+    const panel = $('model-health-panel');
+    const install = $('model-install');
+    const resources = health?.missing_resources || [];
+    const nodes = health?.missing_nodes || [];
+    const modeBlocked = health?.status === 'ready' && health?.modes_ready?.[state.mode] === false;
+    let className = 'is-checking';
+    let label = 'Checking';
+    let text = 'Checking local components';
+    if (health?.status === 'ready' && !modeBlocked) {
+        [className, label, text] = ['is-ready', 'Ready', 'Everything is installed'];
+    } else if (modeBlocked) {
+        className = 'is-missing';
+        label = health.restart_required ? 'Restart ComfyUI' : 'Setup needed';
+        text = health.restart_required
+            ? 'Restart ComfyUI to load the photo-edit nodes'
+            : 'Photo editing needs extra ComfyUI nodes';
+    } else if (health?.status === 'not_installed') {
+        [className, label] = ['is-missing', 'Setup needed'];
+        text = `${resources.length} component${resources.length === 1 ? '' : 's'} missing`;
+    } else if (health?.status === 'workflow_pending') {
+        [className, label, text] = ['is-pending', 'Not ready', 'The recipe is not prepared yet'];
+    } else if (health?.status === 'unknown') {
+        [className, label, text] = ['is-checking', 'Not checked', 'ComfyUI is offline; components will be checked when it starts'];
+    }
+    badge.className = `model-health-badge ${className}`;
+    badge.textContent = label;
+    statusText.textContent = text;
+    $('model-health-message').textContent = resources.length || nodes.length ? 'Missing:' : '';
+    $('model-missing').innerHTML = [
+        ...resources.map(item => `<div class="model-missing-row"><span>${esc(item.display_name || item.filename)}</span><small>${esc(item.folder || '')}</small></div>`),
+        ...nodes.map(item => `<div class="model-missing-row"><span>${esc(item.display_name || item.id)}</span><small>${item.installed_on_disk ? 'installed, restart ComfyUI' : 'ComfyUI nodes'}</small></div>`),
+    ].join('');
+    const activeDownloads = state.downloads.some(item => ['queued', 'downloading'].includes(item.status));
+    const failedDownloads = state.downloads.some(item => ['failed', 'error'].includes(item.status));
+    const canInstall = health?.installable !== false && (health?.status === 'not_installed' || nodes.some(item => !item.installed_on_disk));
+    install.hidden = !canInstall;
+    install.disabled = activeDownloads;
+    install.querySelector('span').textContent = activeDownloads ? 'Downloading…' : 'Download missing';
+    panel.hidden = !(resources.length || nodes.length || activeDownloads || failedDownloads);
+}
+
+async function loadHealth(force = false) {
+    const id = state.modelId;
+    if (!id) return;
+    try {
+        const data = await json(`/api/simple/models/${encodeURIComponent(id)}/status${force ? '?refresh=1' : ''}`);
+        paintHealth(data.health || {});
+    } catch {
+        if (!state.health || state.health.status === 'checking') paintHealth({ status: 'unknown' });
+    }
+}
+
+function blocking() {
+    const health = state.health || {};
+    if (health.status === 'not_installed') return 'Download the missing components first.';
+    if (health.status === 'workflow_pending') return 'The recipe is not prepared yet.';
+    if (health.status === 'ready' && health.modes_ready?.[state.mode] === false) {
+        return health.restart_required
+            ? 'Restart ComfyUI so it loads the photo-edit nodes.'
+            : 'Photo editing needs extra ComfyUI nodes: press "Download missing".';
+    }
+    return '';
+}
+
+// --- create flow ---------------------------------------------------------------------
+
+async function create() {
+    if (state.job) return;
+    const mode = state.mode;
+    const request = $('prompt').value.trim();
+    if (mode !== 'text' && !state.photo) {
+        return error('Add a photo', 'This mode needs a photo: drop it here, choose a file or paste it with Ctrl+V.');
+    }
+    if (mode === 'edit' && !request) return error('Nothing to change', 'Describe what to change in the photo.');
+    if (mode === 'text' && !request) return error('Nothing to create', 'Describe the picture you want.');
+    const why = blocking();
+    if (why) return error('Not ready yet', why);
+    const agent = currentAgent();
+    const useAgent = Boolean(agent) && !(mode === 'reference' && !agent.sees_images);
+    if (mode === 'reference' && !useAgent) {
+        return error('The photo mode needs an agent that sees photos', 'Add a vision agent on the Integrations page, or use "Edit photo".');
+    }
+    hideError();
+    hideNote();
+    const job = { phase: 'agent', cancelled: false };
+    state.job = job;
+    state.resultRequest += 1; // a late restored result must not cover this run
+    canvas('generating');
+    $('generation-stop').hidden = false;
+    const photo = mode === 'text' ? null : state.photo;
+    const subject = mode === 'edit' ? state.subject : null;
+    const copy = REF_COPY[mode];
+    state.resultRefs = [
+        photo && { label: copy.main[0], src: photo.dataUrl },
+        subject && { label: copy.subject[0], src: subject.dataUrl },
+    ].filter(Boolean);
+    const ratio = currentRatio();
+    let plan;
+    resetAgentStream();
+    if (useAgent) {
+        startAgentTimer();
+        job.controller = new AbortController();
+        try {
+            plan = await streamJson('/api/simple/agent?stream=1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: job.controller.signal,
+                body: JSON.stringify({
+                    profile_id: state.modelId,
+                    mode,
+                    request,
+                    previous_prompt: state.refineFrom?.mode === mode ? state.refineFrom.prompt : null,
+                    aspect_ratio: ratio,
+                    reference_image: photo?.dataUrl || null,
+                    subject_image: subject?.dataUrl || null,
+                }),
+            }, event => {
+                if (state.job === job && !job.cancelled) paintAgentProgress(event);
+            });
+        } catch (err) {
+            stopAgentTimer();
+            if (state.job !== job || job.cancelled) return;
+            abortJob();
+            return error('The agent could not write the prompt', err.message, err.data?.technical_error);
+        }
+        stopAgentTimer();
+    } else {
+        plan = {
+            positive_prompt: request,
+            negative_prompt: '',
+            edit_profile: null,
+            note: 'No agent is configured, so your text went to the model as is. Set up an agent in Integrations for better results.',
+            agent: null,
+        };
+    }
+    if (state.job !== job || job.cancelled) return;
+    await runGeneration({
+        mode,
+        prompt: plan.positive_prompt,
+        negative: plan.negative_prompt || '',
+        editProfile: plan.edit_profile || null,
+        editProfileLabel: plan.edit_profile_label || '',
+        seconds: plan.seconds_per_image || null,
+        agentName: plan.agent?.name || null,
+        userRequest: request,
+        note: plan.note || '',
+        photo,
+        subject,
+        ratio,
+    }, job);
+}
+
+async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
+    state.job = job;
+    job.phase = 'queue';
+    canvas('generating');
+    $('generation-stop').hidden = false;
+    setGenerating('Sending to ComfyUI…', plan.agentName ? `Prompt by ${plan.agentName}` : '');
+    createButton(true, 8, 'Queueing…');
+    if (plan.note) showNote(plan.note);
+    let data;
+    try {
+        data = await json('/api/simple/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                profile_id: state.modelId,
+                mode: plan.mode,
+                prompt: plan.prompt,
+                user_request: plan.userRequest || '',
+                negative_prompt: plan.mode === 'edit' ? plan.negative || '' : null,
+                edit_profile: plan.mode === 'edit' ? plan.editProfile || null : null,
+                reference_image: plan.mode === 'text' ? null : plan.photo?.dataUrl || null,
+                subject_image: plan.mode === 'edit' ? plan.subject?.dataUrl || null : null,
+                aspect_ratio: plan.ratio,
+                batch_size: state.batch,
+                agent_name: plan.agentName,
+            }),
+        });
+    } catch (err) {
+        if (state.job !== job) return;
+        abortJob();
+        handleGenerateError(err);
+        return;
+    }
+    if (state.job !== job) return;
+    plan.editProfile = data.edit_profile || plan.editProfile;
+    plan.seconds = data.seconds_per_image || plan.seconds || TXT2IMG_SECONDS;
+    plan.width = data.width;
+    plan.height = data.height;
+    Object.assign(job, {
+        phase: 'running',
+        plan,
+        runIds: data.run_ids || [data.run_id],
+        done: new Set(),
+        outputs: new Map(),
+        failed: [],
+        live: new Map(),
+        startedAt: Date.now(),
+    });
+    job.total = job.runIds.length;
+    state.lastRun = { ...plan, runIds: job.runIds, time: Date.now() };
+    persistLastRun();
+    addSessionEntry(state.lastRun);
+    clearRefine();
+    pollRuns(job);
+}
+
+const LIVE_STAGES = {
+    queued: 'Waiting in the ComfyUI queue',
+    loading: 'Loading the model',
+    encoding: 'Reading the prompt',
+    decoding: 'Decoding the image',
+    saving: 'Saving',
+    working: 'Working',
+};
+
+/** Seconds per image: measured on finished images of this job, else the profile estimate. */
+function secondsPerImage(job) {
+    const measured = job.runIds.map(id => job.live.get(id)?.duration_seconds).filter(value => value > 0);
+    if (measured.length) return measured.reduce((sum, value) => sum + value, 0) / measured.length;
+    return job.plan.seconds || TXT2IMG_SECONDS;
+}
+
+/** Progress, stage line and time left from ComfyUI's live events, with the estimate as fallback. */
+function runProgress(job) {
+    const total = job.total;
+    const finished = job.done.size;
+    const per = secondsPerImage(job);
+    const currentId = job.runIds.find(id => !job.done.has(id));
+    const live = currentId ? job.live.get(currentId) : null;
+    const queuedAfter = Math.max(0, total - finished - 1);
+    let fraction;
+    let stage;
+    let remaining;
+    if (live && live.state !== 'queued' && live.steps) {
+        fraction = Math.min(0.98, live.step / live.steps);
+        // ComfyUI reports a step once it is done; show the one in progress.
+        stage = live.stage === 'sampling' || (live.step > 0 && live.stage === 'working')
+            ? `Step ${Math.min(live.step + 1, live.steps)} of ${live.steps}`
+            : LIVE_STAGES[live.stage] || '';
+        const current = live.eta_seconds ?? Math.max(1, per - (live.elapsed_seconds || 0));
+        remaining = current + queuedAfter * per;
+    } else {
+        const elapsed = (Date.now() - job.startedAt) / 1000;
+        fraction = Math.min(0.9, Math.max(0, elapsed - finished * per) / per);
+        stage = live ? LIVE_STAGES[live.stage] || '' : '';
+        remaining = Math.max(0, per * (total - finished) - Math.max(0, elapsed - finished * per));
+    }
+    const elapsedNow = live?.elapsed_seconds;
+    return {
+        percent: Math.round(8 + 90 * Math.min(0.97, (finished + fraction) / total)),
+        stage,
+        eta: remaining > 0 ? `about ${formatDuration(remaining)} left` : 'almost done',
+        elapsed: elapsedNow ? `${formatDuration(elapsedNow)} in` : '',
+    };
+}
+
+function pollRuns(job) {
+    clearInterval(state.poll);
+    const tick = async () => {
+        if (state.job !== job || job.phase !== 'running') return;
+        const pending = job.runIds.filter(id => !job.done.has(id));
+        await Promise.all(pending.map(async id => {
+            try {
+                const data = await json(`/api/simple/runs/${id}`);
+                if (data.live) job.live.set(id, data.live);
+                if (Array.isArray(data.outputs) && data.outputs.length) job.outputs.set(id, data.outputs);
+                if (data.is_complete) {
+                    job.done.add(id);
+                    if (data.status !== 'completed') job.failed.push(data);
+                }
+            } catch {}
+        }));
+        if (state.job !== job) return;
+        const outputs = job.runIds.flatMap(id => job.outputs.get(id) || []);
+        if (outputs.length && outputs.length !== state.lastOutputs.length) await renderResult(outputs, false);
+        const finished = job.done.size;
+        const total = job.total;
+        const current = Math.min(total, finished + 1);
+        const progress = runProgress(job);
+        createButton(true, progress.percent, total > 1 ? `${Math.min(finished, total)} of ${total} ready` : `${progress.percent}%`);
+        const detail = [job.plan.editProfileLabel, progress.stage, progress.elapsed, progress.eta].filter(Boolean).join(' · ');
+        if (!outputs.length) setGenerating(total > 1 ? `Creating image ${current} of ${total}…` : 'Creating the image…', detail);
+        paintResultProgress(finished < total ? `Image ${current} of ${total} · ${[progress.stage, progress.eta].filter(Boolean).join(' · ')}` : '');
+        if (finished >= total) finishRuns(job, outputs);
+    };
+    state.poll = setInterval(tick, 1000);
+    tick();
+}
+
+function finishRuns(job, outputs) {
+    clearInterval(state.poll);
+    state.poll = null;
+    state.job = null;
+    createButton(false);
+    $('generation-stop').hidden = true;
+    paintResultProgress('');
+    if (outputs.length) {
+        renderResult(outputs, true);
+        const durations = job.runIds.map(id => job.live.get(id)?.duration_seconds).filter(value => value > 0);
+        updateSessionOutputs(job.runIds, outputs, durations);
+        if (job.failed.length) showNote(`${job.failed.length} of ${job.total} images failed. ${runErrorText(job.failed[0])}`);
+        return;
+    }
+    canvas(state.lastOutputs.length ? 'result' : 'idle');
+    const failed = job.failed[0];
+    if (job.cancelled || failed?.status === 'cancelled') {
+        showNote('Generation was stopped.');
+        return;
+    }
+    error('Generation failed', runErrorText(failed)
+        || 'The run finished without a picture. ComfyUI may not have processed the task; check its log.');
+}
+
+function runErrorText(data) {
+    const raw = data?.run?.error || data?.run?.last_error || '';
+    if (typeof raw === 'string') return raw;
+    if (raw && typeof raw === 'object') {
+        const message = raw.message || raw.error || '';
+        const technical = raw.technical_message || '';
+        const node = raw.class_type ? ` (node: ${raw.class_type})` : '';
+        return technical && technical !== message ? `${message}${node}\n${technical}` : `${message}${node}` || JSON.stringify(raw);
+    }
+    return '';
+}
+
+async function stopGeneration() {
+    const job = state.job;
+    if (!job) return;
+    job.cancelled = true;
+    if (job.phase === 'agent' || job.phase === 'queue') {
+        job.controller?.abort();
+        stopAgentTimer();
+        abortJob();
+        showNote('Stopped. The agent may still finish in the background; its answer is ignored.');
+        return;
+    }
+    $('generation-stop').disabled = true;
+    const pending = (job.runIds || []).filter(id => !job.done.has(id));
+    await Promise.allSettled(pending.map(id => json(`/api/simple/runs/${id}/cancel`, { method: 'POST' })));
+    $('generation-stop').disabled = false;
+}
+
+function abortJob() {
+    clearInterval(state.poll);
+    state.poll = null;
+    state.job = null;
+    stopAgentTimer();
+    createButton(false);
+    $('generation-stop').hidden = true;
+    canvas(state.lastOutputs.length ? 'result' : 'idle');
+}
+
+function handleGenerateError(err) {
+    const code = err.data?.code;
+    if (err.data?.missing_resources) {
+        paintHealth({ ...(state.health || {}), status: 'not_installed', missing_resources: err.data.missing_resources, installable: true });
+    }
+    if (code === 'restart_required' || code === 'nodes_missing') {
+        loadHealth(true);
+        return error('Photo editing is not ready', code === 'restart_required'
+            ? 'Restart ComfyUI so it loads the new nodes, then try again.'
+            : 'Press "Download missing" to install the photo-edit nodes.');
+    }
+    if (err.status === 502 || err.status === 503 || code === 'comfyui_rejected' || code === 'comfyui_connection_failed') {
+        return error('ComfyUI is unavailable or rejected the task',
+            err.data?.suggestion || err.message || 'Make sure ComfyUI is running. Configure the address with the gear icon in the header.');
+    }
+    return error('Could not start generation', err.message);
+}
+
+function formatDuration(seconds) {
+    const value = Math.round(seconds);
+    if (value < 60) return `${value} s`;
+    const minutes = Math.floor(value / 60);
+    const rest = value % 60;
+    return rest >= 10 ? `${minutes} min ${rest} s` : `${minutes} min`;
+}
+
+function setGenerating(text, sub = '') {
+    $('generating-text').textContent = text;
+    $('generating-sub').textContent = sub;
+}
+
+function paintResultProgress(text) {
+    const node = $('result-progress');
+    node.hidden = !text;
+    node.textContent = text;
+}
+
+// --- results -------------------------------------------------------------------------
+
+function restoreLastResult() {
+    const cached = getCachedJson('cmv_simple_last_result');
+    const outputs = Array.isArray(cached?.outputs) ? cached.outputs : (cached ? [cached] : []);
+    return renderResult(outputs, false);
+}
+
+function clearLastResult() {
+    state.resultRequest += 1;
+    state.last = null;
+    state.lastOutputs = [];
+    state.selectedResultIndex = 0;
+    try { localStorage.removeItem('cmv_simple_last_result'); } catch {}
+    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
+}
+
+async function renderResult(outputs, persist = false) {
+    const request = ++state.resultRequest;
+    const loaded = await Promise.all((Array.isArray(outputs) ? outputs : []).map(async output => {
+        if (!output || typeof output !== 'object') return null;
+        const url = await loadImageUrl(output);
+        return url ? { ...output, preview_url: url, thumbnail_url: output.thumbnail_url || url } : null;
+    }));
+    if (request !== state.resultRequest) return;
+    const valid = loaded.filter(Boolean);
+    if (!valid.length) {
+        clearLastResult();
+        if (!state.job) canvas('idle');
+        if (persist) error('Result not found', 'Generation finished without an available image.');
+        return;
+    }
+    const keepIndex = state.lastOutputs.length && state.selectedResultIndex < valid.length ? state.selectedResultIndex : 0;
+    state.lastOutputs = valid;
+    state.selectedResultIndex = keepIndex;
+    state.last = valid[keepIndex];
+    updateResultView();
+    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
+    setCachedJson('cmv_simple_last_result', { outputs: valid }, true);
+    canvas('result');
+    if (persist && state.sound) playSuccessChime();
+}
+
+function updateResultView() {
+    const outputs = state.lastOutputs || [];
+    const index = Math.max(0, Math.min(outputs.length - 1, state.selectedResultIndex || 0));
+    state.selectedResultIndex = index;
+    const current = outputs[index] || state.last;
+    if (!current) return;
+    state.last = current;
+    const artwork = document.querySelector('.canvas-artwork-wrap');
+    if (artwork) {
+        artwork.innerHTML = `<img id="result-img" class="canvas-result-img" src="${esc(current.preview_url || current.thumbnail_url)}" alt="Result ${index + 1}" decoding="async">`;
+        artwork.onclick = () => openResultFullscreen(state.selectedResultIndex);
+    }
+    const strip = $('result-thumbnails');
+    if (outputs.length > 1) {
+        strip.hidden = false;
+        strip.innerHTML = outputs.map((output, i) => `<button type="button" class="canvas-thumb-btn${i === index ? ' active' : ''}" data-index="${i}" aria-label="Result ${i + 1}"><img src="${esc(output.thumbnail_url || output.preview_url)}" alt="" class="canvas-thumb-img" decoding="async"></button>`).join('');
+        strip.querySelectorAll('.canvas-thumb-btn').forEach(button => {
+            button.onclick = event => {
+                event.stopPropagation();
+                selectResultIndex(Number(button.dataset.index));
+            };
+        });
+    } else {
+        strip.hidden = true;
+        strip.innerHTML = '';
+    }
+    for (const id of ['result-refine', 'result-prompt']) {
+        const button = $(id);
+        if (button) button.disabled = !state.lastRun;
+    }
+}
+
+function canvas(view) {
+    const layout = $('studio-layout');
+    animateLayout(() => {
+        layout.dataset.view = view;
+        $('generating').hidden = view !== 'generating';
+        $('result').hidden = view !== 'result';
+        $('canvas')?.classList.toggle('has-result', view === 'result');
+        paintRefs();
+    });
+    resizePrompt();
+    $('result-compare').hidden = !(view === 'result' && state.resultRefs.length);
+    if (view === 'generating' || view === 'result') {
+        syncCanvasAspect();
+        requestAnimationFrame(() => {
+            syncCanvasRowHeight();
+            requestAnimationFrame(syncCanvasRowHeight);
+        });
+    } else {
+        layout.style.removeProperty('--studio-split-height');
+    }
+}
+
+function syncCanvasAspect() {
+    const ratio = ratioValue();
+    const defaultWidth = Math.round(Math.min(760, Math.max(360, 520 * ratio / (3 / 4))));
+    const limits = canvasWidthLimits();
+    const width = state.canvasWidth
+        ? Math.round(Math.max(limits.min, Math.min(limits.max, state.canvasWidth)))
+        : defaultWidth;
+    if (state.canvasWidth) state.canvasWidth = width;
+    const aspect = `${ratio.toFixed(4)} / 1`;
+    $('studio-layout').style.setProperty('--canvas-column-width', `${width}px`);
+    document.querySelector('.studio-canvas-card')?.style.setProperty('--canvas-aspect', aspect);
+    $('canvas')?.style.setProperty('--canvas-aspect', aspect);
+    syncCanvasRowHeight();
+}
+
+function syncCanvasRowHeight() {
+    const layout = $('studio-layout');
+    if (!layout || !['generating', 'result'].includes(layout.dataset.view)) return;
+    const controls = document.querySelector('.studio-controls-card');
+    const canvasCard = document.querySelector('.studio-canvas-card');
+    const height = Math.max(
+        Math.ceil(controls?.getBoundingClientRect().height || 0),
+        Math.ceil(canvasCard?.getBoundingClientRect().height || 0),
+    );
+    if (height > 0) layout.style.setProperty('--studio-split-height', `${height}px`);
+}
+
+function createButton(running, percent = 0, text = 'Creating…') {
+    const button = $('create');
+    button.classList.toggle('running', running);
+    button.disabled = running;
+    $('progress-fill').style.width = `${running ? percent : 0}%`;
+    $('progress-text').textContent = running ? text : 'Starting…';
+}
+
+function error(title, text, technical) {
+    $('error-title').textContent = title;
+    $('error-text').textContent = text || '';
+    const details = $('error-details');
+    details.hidden = !technical;
+    $('error-technical').textContent = technical || '';
+    $('error').hidden = false;
+}
+
+function hideError() { $('error').hidden = true; }
+
+function showNote(text) {
+    if (!text) return;
+    $('note-text').textContent = text;
+    $('note').hidden = false;
+}
+
+function hideNote() { $('note').hidden = true; }
+
+// --- result actions ------------------------------------------------------------------
+
+async function editThis() {
+    const current = state.last;
+    if (!current || state.job) return;
+    const url = current.id ? `/api/original/${current.id}` : current.preview_url;
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const blob = await response.blob();
+        const file = new File([blob], current.filename || 'result.png', { type: blob.type || 'image/png' });
+        setMode('edit');
+        clearPhoto('subject');
+        if (!(await setPhoto('main', file))) return;
+        clearRefine();
+        $('prompt').value = '';
+        $('prompt').dispatchEvent(new Event('input'));
+        $('prompt').focus();
+        showNote('This result is now the photo to edit. Describe the next change.');
+    } catch (err) {
+        error('Could not take this image', err.message);
+    }
+}
+
+function refine() {
+    const run = state.lastRun;
+    if (!run || state.job) return;
+    if (state.mode !== run.mode) setMode(run.mode);
+    state.refineFrom = { prompt: run.prompt, mode: run.mode };
+    $('refine-chip').hidden = false;
+    $('prompt').value = '';
+    $('prompt').dispatchEvent(new Event('input'));
+    $('prompt').focus();
+}
+
+function clearRefine() {
+    state.refineFrom = null;
+    $('refine-chip').hidden = true;
+}
+
+function downloadResult() {
+    const url = state.last?.id ? `/api/original/${state.last.id}` : state.last?.preview_url;
+    if (!url) return;
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = state.last.filename || `creation-${Date.now()}.png`;
+    anchor.click();
+}
+
+// --- prompt dialog -------------------------------------------------------------------
+
+function openPromptDialog(run = state.lastRun) {
+    if (!run) return;
+    state.dialogRun = run;
+    const parts = [
+        MODE_COPY[run.mode]?.label,
+        run.agentName ? `written by ${run.agentName}` : 'typed by hand',
+        run.editProfileLabel ? `edit type: ${run.editProfileLabel}` : '',
+    ].filter(Boolean);
+    $('prompt-dialog-meta').textContent = parts.join(' · ') + (run.userRequest ? `\nRequest: ${run.userRequest}` : '');
+    $('prompt-dialog-label').textContent = run.mode === 'edit' ? 'Edit command' : 'Prompt';
+    $('prompt-dialog-text').value = run.prompt || '';
+    $('prompt-dialog-negative-wrap').hidden = run.mode !== 'edit';
+    $('prompt-dialog-negative').value = run.negative || '';
+    $('prompt-backdrop').hidden = false;
+    $('prompt-dialog').hidden = false;
+    document.body.classList.add('simple-modal-open');
+    $('prompt-dialog-text').focus();
+}
+
+function closePromptDialog() {
+    if ($('prompt-dialog').hidden) return;
+    $('prompt-backdrop').hidden = true;
+    $('prompt-dialog').hidden = true;
+    document.body.classList.remove('simple-modal-open');
+}
+
+async function rerunFromDialog() {
+    const run = state.dialogRun;
+    const prompt = $('prompt-dialog-text').value.trim();
+    if (!run || !prompt || state.job) return;
+    const photo = run.mode === 'text' ? null : (run.photo || state.photo);
+    if (run.mode !== 'text' && !photo) {
+        closePromptDialog();
+        return error('Add the photo again', 'The photo of this run is no longer loaded. Add it, then open Prompt again.');
+    }
+    const why = blocking();
+    if (why) return error('Not ready yet', why);
+    closePromptDialog();
+    hideError();
+    hideNote();
+    if (state.mode !== run.mode) setMode(run.mode);
+    await runGeneration({
+        ...run,
+        prompt,
+        negative: $('prompt-dialog-negative').value.trim(),
+        agentName: null,
+        note: '',
+        photo,
+        subject: run.mode === 'edit' ? (run.subject || state.subject) : null,
+        ratio: run.ratio || currentRatio(),
+    });
+}
+
+// --- session log ---------------------------------------------------------------------
+
+function sessionRecord(run) {
+    return {
+        key: (run.runIds || []).join(','),
+        time: run.time || Date.now(),
+        mode: run.mode,
+        userRequest: run.userRequest || '',
+        prompt: run.prompt,
+        negative: run.negative || '',
+        editProfile: run.editProfile || null,
+        editProfileLabel: run.editProfileLabel || '',
+        agentName: run.agentName || null,
+        note: run.note || '',
+        ratio: run.ratio,
+        outputs: [],
+    };
+}
+
+function persistLastRun() {
+    try { localStorage.setItem('cmv_create_last_run', JSON.stringify(sessionRecord(state.lastRun))); } catch {}
+}
+
+function saveSession() {
+    try { localStorage.setItem('cmv_create_session', JSON.stringify(state.session.slice(0, SESSION_LIMIT))); } catch {}
+}
+
+function addSessionEntry(run) {
+    state.session.unshift(sessionRecord(run));
+    state.session = state.session.slice(0, SESSION_LIMIT);
+    saveSession();
+    paintSession();
+}
+
+function updateSessionOutputs(runIds, outputs, durations = []) {
+    const entry = state.session.find(item => item.key === runIds.join(','));
+    if (!entry) return;
+    entry.outputs = outputs.map(item => ({ id: item.id, thumbnail_url: item.thumbnail_url }));
+    // ComfyUI execution time per image, from execution start to the saved file.
+    if (durations.length) entry.seconds = Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
+    saveSession();
+    paintSession();
+}
+
+function paintSession() {
+    const count = $('session-count');
+    count.hidden = !state.session.length;
+    count.textContent = String(state.session.length);
+    const list = $('session-list');
+    if (!state.session.length) {
+        list.innerHTML = '<div class="assistant-message assistant-message-system"><strong>Nothing yet</strong><p>Each run shows up here with the request, the prompt the agent wrote and its notes.</p></div>';
+        return;
+    }
+    list.innerHTML = state.session.map((entry, index) => {
+        const time = new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const took = entry.seconds ? `${formatDuration(entry.seconds)} per image` : '';
+        const meta = [MODE_COPY[entry.mode]?.label, entry.agentName || 'no agent', entry.editProfileLabel, took].filter(Boolean).join(' · ');
+        const thumbs = (entry.outputs || []).map(item => `<img src="${esc(item.thumbnail_url || `/api/thumbnail/${item.id}`)}" alt="" loading="lazy">`).join('');
+        return `<article class="session-entry">
+            <header><strong>${esc(time)}</strong><span>${esc(meta)}</span></header>
+            ${entry.userRequest ? `<p class="session-request">${esc(entry.userRequest)}</p>` : ''}
+            <details><summary>${entry.mode === 'edit' ? 'Edit command' : 'Prompt'}</summary><p class="session-prompt">${esc(entry.prompt)}</p>${entry.negative ? `<p class="session-negative">Remove: ${esc(entry.negative)}</p>` : ''}</details>
+            ${entry.note ? `<p class="session-note">${esc(entry.note)}</p>` : ''}
+            ${thumbs ? `<div class="session-thumbs">${thumbs}</div>` : ''}
+            <div class="session-actions"><button type="button" class="download-mini-btn" data-session-open="${index}">Open prompt</button></div>
+        </article>`;
+    }).join('');
+    list.querySelectorAll('[data-session-open]').forEach(button => {
+        button.onclick = () => {
+            const entry = state.session[Number(button.dataset.sessionOpen)];
+            if (!entry) return;
+            closeSession();
+            openPromptDialog({ ...entry, runIds: [] });
+        };
+    });
+}
+
+function openSession() {
+    $('session-backdrop').hidden = false;
+    $('session').hidden = false;
+}
+
+function closeSession() {
+    $('session-backdrop').hidden = true;
+    $('session').hidden = true;
+}
+
+// --- wiring --------------------------------------------------------------------------
+
+function wire() {
+    document.querySelectorAll('[data-mode]').forEach(button => {
+        button.onclick = () => setMode(button.dataset.mode);
+    });
+    document.querySelectorAll('[data-ratio]').forEach(button => {
+        button.onclick = () => {
+            const ratio = button.dataset.ratio;
+            if (state.mode === 'text') {
+                state.ratio = ratio;
+                save('cmv_simple_ratio', ratio);
+            } else {
+                state.photoRatio = ratio;
+                save('cmv_create_photo_ratio', ratio);
+            }
+            syncRatio();
+        };
+    });
+    document.querySelectorAll('[data-batch]').forEach(button => {
+        button.onclick = () => {
+            state.batch = Number(button.dataset.batch);
+            save('cmv_simple_batch', state.batch);
+            syncBatch();
+        };
+    });
+    wirePhotoSlots();
+
+    $('prompt').oninput = () => {
+        resizePrompt();
+        $('prompt-clear').hidden = !$('prompt').value.trim();
+        save('cmv_simple_prompt', $('prompt').value);
+    };
+    $('prompt-clear').onclick = () => {
+        $('prompt').value = '';
+        $('prompt').dispatchEvent(new Event('input'));
+        $('prompt').focus();
+    };
+    $('refine-cancel').onclick = clearRefine;
+    $('create').onclick = create;
+    $('generation-stop').onclick = stopGeneration;
+    $('error-close').onclick = hideError;
+    $('note-close').onclick = hideNote;
+
+    $('result-download').onclick = downloadResult;
+    $('result-edit-this').onclick = editThis;
+    $('result-compare').onclick = () => openViewer({ kind: 'result', index: state.selectedResultIndex }, { compare: true });
+    $('result-refine').onclick = refine;
+    $('result-prompt').onclick = () => openPromptDialog();
+
+    $('prompt-dialog-close').onclick = closePromptDialog;
+    $('prompt-dialog-cancel').onclick = closePromptDialog;
+    $('prompt-backdrop').onclick = closePromptDialog;
+    $('prompt-dialog-run').onclick = rerunFromDialog;
+    $('prompt-dialog-copy').onclick = async () => {
+        try { await navigator.clipboard.writeText($('prompt-dialog-text').value); } catch {}
+    };
+
+    $('session-open').onclick = openSession;
+    $('session-close').onclick = closeSession;
+    $('session-backdrop').onclick = closeSession;
+    $('session-clear').onclick = () => {
+        state.session = [];
+        saveSession();
+        paintSession();
+    };
+
+    $('model-install').onclick = installModel;
+    $('model-recheck').onclick = async () => {
+        const button = $('model-recheck');
+        button.disabled = true;
+        button.textContent = 'Checking…';
+        try {
+            await loadHealth(true);
+            await loadDownloads();
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Check again';
+        }
+    };
+    $('model-downloads').addEventListener('click', event => {
+        const button = event.target.closest('[data-download-action]');
+        if (button) downloadAction(Number(button.dataset.downloadId), button.dataset.downloadAction);
+    });
+
+    $('runtime-settings-open').onclick = openRuntimeSettings;
+    $('runtime-settings-close').onclick = closeRuntimeSettings;
+    $('runtime-settings-cancel').onclick = closeRuntimeSettings;
+    $('runtime-settings-backdrop').onclick = closeRuntimeSettings;
+    $('runtime-browse').onclick = browseRuntimePath;
+    $('runtime-test').onclick = testRuntime;
+    $('runtime-settings-form').onsubmit = saveRuntimeSettings;
+
+    addEventListener('keydown', event => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            if (!$('prompt-dialog').hidden) rerunFromDialog();
+            else create();
+        }
+        if (event.key === 'Escape') {
+            closePromptDialog();
+            closeSession();
+            closeRuntimeSettings();
+            closeContextMenu();
+        }
+    });
+    addEventListener('resize', () => syncCanvasRowHeight());
+    document.addEventListener('contextmenu', openStudioContextMenu);
+    document.addEventListener('click', event => {
+        if (!event.target.closest('.image-context-menu')) closeContextMenu();
+    });
+    window.addEventListener('scroll', closeContextMenu, { passive: true });
+}
 
 function getCachedJson(key, maxAgeMs = 0) {
     try {
@@ -106,15 +1481,6 @@ async function hydrateAmbient() {
     preloadAmbientPool();
 }
 
-function catalog() {
-    try { return JSON.parse($('simple-model-catalog')?.textContent || '[]'); }
-    catch { return []; }
-}
-
-function model() {
-    return state.models.find(item => item.id === state.modelId) || null;
-}
-
 function save(key, value) {
     try { localStorage.setItem(key, String(value)); } catch {}
 }
@@ -158,58 +1524,6 @@ function ambientPoolUrl() {
     const current = Number(state.ambientCurrent);
     return '/api/simple/ambient?limit=72'
         + (Number.isSafeInteger(current) && current > 0 ? `&current_id=${current}` : '');
-}
-
-function restore() {
-    try {
-        state.modelId = localStorage.getItem('cmv_simple_model') || document.body.dataset.defaultModelId || '';
-        state.ratio = localStorage.getItem('cmv_simple_ratio') || '1:1';
-        state.quality = localStorage.getItem('cmv_simple_quality') || 'standard';
-        state.batch = Math.max(1, Math.min(4, Number(localStorage.getItem('cmv_simple_batch')) || 1));
-        const ai = localStorage.getItem('cmv_simple_ai_improve');
-        if (ai !== null) state.improve = ai === 'true';
-        state.alwaysImprove = localStorage.getItem('cmv_simple_ai_always') === 'true';
-        const savedCanvasWidth = Number(localStorage.getItem('cmv_simple_canvas_width'));
-        if (Number.isFinite(savedCanvasWidth)) state.canvasWidth = savedCanvasWidth;
-
-        const rawInterval = localStorage.getItem('cmv_simple_ambient_interval');
-        state.interval = rawInterval !== null && !isNaN(Number(rawInterval)) ? Number(rawInterval) : 300000;
-
-        const rawOpacity = localStorage.getItem('cmv_simple_glass_opacity');
-        const numOpacity = Number(rawOpacity);
-        if (rawOpacity !== null && !isNaN(numOpacity) && numOpacity >= 5 && numOpacity <= 98) {
-            state.opacity = numOpacity;
-        } else if (rawOpacity === 'ultra') state.opacity = 18;
-        else if (rawOpacity === 'high') state.opacity = 30;
-        else if (rawOpacity === 'solid') state.opacity = 82;
-        else state.opacity = 44;
-
-        const rawBlur = localStorage.getItem('cmv_simple_ambient_blur');
-        state.blur = rawBlur !== null && !isNaN(Number(rawBlur)) ? Number(rawBlur) : 10;
-        state.fit = localStorage.getItem('cmv_simple_ambient_fit') || 'cover';
-        state.sound = localStorage.getItem('cmv_simple_sound_alert') === 'true';
-        const savedPrompt = localStorage.getItem('cmv_simple_prompt');
-        if (savedPrompt !== null && $('prompt')) $('prompt').value = savedPrompt;
-        state.aiOriginalPrompt = localStorage.getItem('cmv_simple_ai_original_prompt');
-        state.aiExpandedPrompt = localStorage.getItem('cmv_simple_ai_expanded_prompt');
-    } catch {}
-}
-
-function restoreLastResult() {
-    const cached = getCachedJson('cmv_simple_last_result');
-    const outputs = Array.isArray(cached?.outputs)
-        ? cached.outputs
-        : (cached ? [cached] : []);
-    return renderResult(outputs, false);
-}
-
-function clearLastResult() {
-    state.resultRequest += 1;
-    state.last = null;
-    state.lastOutputs = [];
-    state.selectedResultIndex = 0;
-    try { localStorage.removeItem('cmv_simple_last_result'); } catch {}
-    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
 }
 
 // Resolve an actual decodable image before exposing it in the result or background.
@@ -262,101 +1576,141 @@ function resetAmbient() {
 }
 
 function openResultFullscreen(startIndex = 0) {
-    const outputs = (state.lastOutputs || []).filter(item => item?.preview_url || item?.thumbnail_url);
-    if (!outputs.length) return;
-    let currentIndex = typeof startIndex === 'number'
-        ? Math.max(0, Math.min(outputs.length - 1, startIndex))
-        : (state.selectedResultIndex || 0);
-    if (currentIndex < 0 || currentIndex >= outputs.length) currentIndex = 0;
+    openViewer({ kind: 'result', index: startIndex });
+}
 
+/** Items of the viewer: the photos of the shown result (or the panel) and every result. */
+function viewerItems() {
+    const results = (state.lastOutputs || [])
+        .filter(item => item?.preview_url || item?.thumbnail_url)
+        .map((item, index, all) => ({
+            kind: 'result',
+            index,
+            label: all.length > 1 ? `Result ${index + 1}` : 'Result',
+            src: item.preview_url || item.thumbnail_url,
+        }));
+    const copy = REF_COPY[state.mode];
+    const panel = copy ? [
+        state.photo && { kind: 'ref', slot: 'main', label: copy.main[0], src: state.photo.objectUrl },
+        copy.subject && state.subject && { kind: 'ref', slot: 'subject', label: copy.subject[0], src: state.subject.objectUrl },
+    ].filter(Boolean) : [];
+    return { panel, results, compareRefs: state.resultRefs.length ? state.resultRefs : panel };
+}
+
+/**
+ * Full-screen viewer. ``start`` is ``{kind: 'ref', slot}`` or ``{kind: 'result', index}``;
+ * ``compare`` opens the side-by-side view of the photos and the selected result.
+ */
+function openViewer(start = { kind: 'result', index: 0 }, { compare = false } = {}) {
+    const { panel, results, compareRefs } = viewerItems();
+    const items = [...panel, ...results];
+    if (!items.length) return;
+    let index = Math.max(0, items.findIndex(item => item.kind === start.kind
+        && (start.kind === 'ref' ? item.slot === start.slot : item.index === (start.index ?? state.selectedResultIndex))));
+    let sideBySide = compare && results.length > 0;
     let scale = 1;
+
     const overlay = document.createElement('div');
     overlay.className = 'result-lightbox';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'Full-screen result preview');
-
+    overlay.setAttribute('aria-label', 'Full-screen preview');
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'result-lightbox-close';
     close.setAttribute('aria-label', 'Close preview');
     close.textContent = '×';
-
-    const preview = document.createElement('img');
-    preview.className = 'result-lightbox-image';
-    const initialItem = outputs[currentIndex];
-    preview.src = initialItem.preview_url || initialItem.thumbnail_url;
-    preview.alt = `Generated result ${currentIndex + 1}`;
-
-    const controls = document.createElement('div');
-    controls.className = 'result-lightbox-controls';
-    const makeNavButton = (label, direction) => {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'viewer-toolbar';
+    const label = document.createElement('span');
+    label.className = 'viewer-label';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'viewer-toggle';
+    toggle.hidden = !(results.length && compareRefs.length);
+    toolbar.append(label, toggle);
+    const stage = document.createElement('div');
+    stage.className = 'viewer-stage';
+    const makeNav = (text, direction) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = `result-lightbox-nav ${direction}`;
-        button.setAttribute('aria-label', label);
+        button.setAttribute('aria-label', text);
         button.textContent = direction === 'prev' ? '‹' : '›';
         return button;
     };
-    const previous = makeNavButton('Previous result', 'prev');
-    const next = makeNavButton('Next result', 'next');
-    if (outputs.length > 1) controls.append(previous, next);
+    const previous = makeNav('Previous image', 'prev');
+    const next = makeNav('Next image', 'next');
 
-    const updatePreview = () => {
-        const current = outputs[currentIndex];
+    const render = () => {
+        stage.replaceChildren();
+        overlay.classList.toggle('is-compare', sideBySide);
+        previous.hidden = next.hidden = sideBySide || items.length < 2;
+        toggle.textContent = sideBySide ? 'One image' : 'Compare with the photos';
+        if (sideBySide) {
+            const current = items[index].kind === 'result' ? items[index] : results[state.selectedResultIndex] || results[0];
+            label.textContent = 'Photos and result';
+            for (const item of [...compareRefs, current]) {
+                const figure = document.createElement('figure');
+                figure.className = 'viewer-figure';
+                const image = document.createElement('img');
+                image.src = item.src;
+                image.alt = item.label;
+                const caption = document.createElement('figcaption');
+                caption.textContent = item.label;
+                figure.append(image, caption);
+                stage.append(figure);
+            }
+            return;
+        }
+        const item = items[index];
+        label.textContent = items.length > 1 ? `${item.label} · ${index + 1} of ${items.length}` : item.label;
         scale = 1;
-        preview.src = current.preview_url || current.thumbnail_url;
-        preview.alt = `Generated result ${currentIndex + 1}`;
-        preview.style.transform = 'scale(1)';
-        selectResultIndex(currentIndex);
+        const image = document.createElement('img');
+        image.className = 'result-lightbox-image';
+        image.src = item.src;
+        image.alt = item.label;
+        image.addEventListener('wheel', event => {
+            event.preventDefault();
+            scale = Math.max(.5, Math.min(3, scale + (event.deltaY < 0 ? .15 : -.15)));
+            image.style.transform = `scale(${scale})`;
+        }, { passive: false });
+        image.addEventListener('dblclick', () => {
+            scale = 1;
+            image.style.transform = 'scale(1)';
+        });
+        stage.append(image);
+        if (item.kind === 'result') selectResultIndex(item.index);
     };
     const move = direction => {
-        currentIndex = (currentIndex + direction + outputs.length) % outputs.length;
-        updatePreview();
+        index = (index + direction + items.length) % items.length;
+        render();
     };
     previous.addEventListener('click', () => move(-1));
     next.addEventListener('click', () => move(1));
-    preview.addEventListener('wheel', event => {
-        event.preventDefault();
-        scale = Math.max(.5, Math.min(3, scale + (event.deltaY < 0 ? .15 : -.15)));
-        preview.style.transform = `scale(${scale})`;
-    }, { passive: false });
-    preview.addEventListener('dblclick', () => {
-        scale = 1;
-        preview.style.transform = 'scale(1)';
+    toggle.addEventListener('click', () => {
+        sideBySide = !sideBySide;
+        render();
     });
-
-    overlay.append(close, controls, preview);
+    overlay.append(close, toolbar, previous, next, stage);
     const dismiss = () => {
         overlay.remove();
         document.removeEventListener('keydown', onKeydown);
     };
     const onKeydown = event => {
         if (event.key === 'Escape') dismiss();
-        if (event.key === 'ArrowLeft' && outputs.length > 1) move(-1);
-        if (event.key === 'ArrowRight' && outputs.length > 1) move(1);
+        if (!sideBySide && event.key === 'ArrowLeft' && items.length > 1) move(-1);
+        if (!sideBySide && event.key === 'ArrowRight' && items.length > 1) move(1);
     };
     close.addEventListener('click', dismiss);
     overlay.addEventListener('click', event => {
-        if (event.target === overlay) dismiss();
+        if (event.target === overlay || event.target === stage) dismiss();
     });
     document.addEventListener('keydown', onKeydown);
+    render();
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('is-open'));
     close.focus();
-}
-
-function applyAiPrompt(suggestedPrompt, originalPrompt = $('prompt').value.trim()) {
-    const nextPrompt = String(suggestedPrompt || '').trim();
-    if (!nextPrompt) return;
-    state.aiOriginalPrompt = originalPrompt;
-    state.aiExpandedPrompt = nextPrompt;
-    save('cmv_simple_ai_original_prompt', originalPrompt);
-    save('cmv_simple_ai_expanded_prompt', nextPrompt);
-    state.applyingAiPrompt = true;
-    $('prompt').value = nextPrompt;
-    $('prompt').dispatchEvent(new Event('input'));
-    state.applyingAiPrompt = false;
 }
 
 function esc(value) {
@@ -365,96 +1719,54 @@ function esc(value) {
     return div.innerHTML;
 }
 
-function translateStaticUi() {
-    document.title = 'Create — ComfyUI Meta Viewer';
-    const text = {
-        '.ai-assistant-trigger span': 'AI assistant',
-        '.studio-title': 'What are we creating?',
-        '.studio-subtitle': 'Describe your idea or add an image as a reference.',
-        '.reference-upload-btn span:last-child': 'Add image',
-        '#prompt-clear': 'Clear',
-        '.model-select-kicker': 'Selected model',
-        '#model-install span': 'Download missing',
-        '#model-recheck': 'Check again',
-        '.studio-create-btn .create-btn-content span': 'Create',
-        '#progress-text': 'Starting…',
-        '#generating-text': 'Preparing…',
-        '#result-download': 'Download',
-        '.canvas-actions-left a': 'Library',
-        '#result-edit': 'Edit prompt',
-        '#runtime-settings-title': 'Connect to ComfyUI',
-        '#runtime-browse': 'Browse…',
-        '#runtime-test': 'Test',
-        '#runtime-settings-cancel': 'Cancel',
-        '#runtime-save': 'Save',
-        '.assistant-title-wrap h2': 'Prompt assistant',
-        '#assistant-new': 'New conversation',
-    };
-    Object.entries(text).forEach(([selector, value]) => {
-        const node = document.querySelector(selector);
-        if (node) node.textContent = value;
-    });
-    const prompt = $('prompt');
-    if (prompt) prompt.placeholder = 'For example: a night café by the sea, warm window light, light fog and wet pavement';
-    const labels = document.querySelectorAll('.section-label');
-    ['Model', 'Aspect ratio', 'Quality', 'Images'].forEach((value, index) => {
-        if (labels[index]) labels[index].textContent = value;
-    });
-    const hint = document.querySelector('.section-hint');
-    if (hint) hint.textContent = 'Eight ready-to-use models. Technical names are hidden behind our labels.';
-    const improve = document.querySelector('.ai-improve-pill span');
-    if (improve) improve.textContent = 'Add details';
-    const aiWrap = $('ai-toggle-wrap');
-    if (aiWrap && !$('ai-always-toggle')) {
-        const alwaysWrap = document.createElement('label');
-        alwaysWrap.id = 'ai-always-wrap';
-        alwaysWrap.className = 'ai-improve-toggle';
-        alwaysWrap.innerHTML = '<input id="ai-always-toggle" type="checkbox"><span class="ai-improve-pill">↻ <span>Always add details</span></span>';
-        alwaysWrap.querySelector('input').checked = state.alwaysImprove;
-        const toolbar = aiWrap.parentElement;
-        const group = document.createElement('div');
-        group.className = 'ai-improve-toggle-group';
-        group.append(aiWrap, alwaysWrap);
-        toolbar.appendChild(group);
-    }
-    const qualityLabels = [
-        ['Fast', 'Quick option'],
-        ['Standard', 'Default mode'],
-        ['Detailed', 'More refinement'],
-    ];
-    document.querySelectorAll('.quality-card').forEach((card, index) => {
-        if (qualityLabels[index]) {
-            card.querySelector('strong').textContent = qualityLabels[index][0];
-            card.querySelector('.quality-meta').textContent = qualityLabels[index][1];
+/**
+ * POST that answers with server-sent events: ``progress`` events go to ``onProgress``,
+ * the ``result`` event resolves and an ``error`` event rejects like ``json()`` does.
+ * A plain JSON answer (a validation error before the stream starts) is handled too.
+ */
+async function streamJson(url, options, onProgress) {
+    const response = await fetch(url, options);
+    const type = response.headers.get('Content-Type') || '';
+    if (!type.includes('text/event-stream')) {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw Object.assign(new Error(data.error || `${response.status} ${response.statusText}`), { data, status: response.status });
         }
-    });
-    const runtimeFields = document.querySelectorAll('.simple-settings-field > span');
-    ['ComfyUI folder', 'Python', 'Host', 'Port', 'Civitai API token'].forEach((value, index) => {
-        if (runtimeFields[index]) runtimeFields[index].childNodes[0].textContent = value;
-    });
-    const runtimeHelp = document.querySelector('#runtime-settings-dialog .simple-settings-field small');
-    if (runtimeHelp) runtimeHelp.textContent = 'Optional';
-    const runtimeDetection = document.querySelector('#runtime-detection-title');
-    if (runtimeDetection) runtimeDetection.textContent = 'Path not checked yet';
-    const themeLabel = document.querySelector('.header-theme-dropdown .header-menu-label');
-    if (themeLabel) themeLabel.textContent = 'Theme';
-    document.querySelectorAll('.theme-option small').forEach((node, index) => {
-        node.textContent = ['Dark', 'Light', 'Pastel', 'Dark berry', 'System'][index] || node.textContent;
-    });
-    const referenceKicker = document.querySelector('.reference-preview-kicker');
-    if (referenceKicker) referenceKicker.textContent = 'Image reference';
-    const assistantInput = $('assistant-input');
-    if (assistantInput) assistantInput.placeholder = 'Refine the idea, composition or lighting…';
-    const runtimeDescription = document.querySelector('#runtime-settings-dialog header p');
-    if (runtimeDescription) runtimeDescription.textContent = 'Point to an existing installation. Models from Create will be downloaded into its models folder.';
-    const runtimePathHelp = document.querySelector('#runtime-install-path')?.closest('.simple-settings-field')?.querySelector('small');
-    if (runtimePathHelp) runtimePathHelp.textContent = 'Choose a folder containing main.py or a portable root containing ComfyUI.';
-    const pythonInput = $('runtime-python');
-    if (pythonInput) pythonInput.placeholder = 'Path to python.exe, if it is not detected automatically';
-    const civitaiInput = $('runtime-civitai-token');
-    if (civitaiInput) civitaiInput.placeholder = 'Leave empty to keep the saved token';
-    const detectionText = $('runtime-detection-text');
-    if (detectionText) detectionText.textContent = 'Choose a folder or enter a path manually.';
+        return data;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+        // eslint-disable-next-line no-await-in-loop, no-restricted-syntax -- stream chunks arrive in order, one at a time
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary >= 0) {
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            boundary = buffer.indexOf('\n\n');
+            const payload = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
+            if (!payload) continue;
+            let event;
+            try {
+                event = JSON.parse(payload);
+            } catch {
+                continue;
+            }
+            if (event.event === 'progress') {
+                onProgress?.(event);
+            } else if (event.event === 'result') {
+                reader.cancel().catch(() => {});
+                return event;
+            } else if (event.event === 'error') {
+                reader.cancel().catch(() => {});
+                throw Object.assign(new Error(event.error || 'The agent failed.'), { data: event, status: event.status || 500 });
+            }
+        }
+    }
+    throw new Error('The agent stream ended without an answer.');
 }
 
 async function json(url, options) {
@@ -467,156 +1779,6 @@ async function json(url, options) {
         );
     }
     return data;
-}
-
-function init() {
-    state.models = catalog();
-    restore();
-    translateStaticUi();
-    applyVisualSettings();
-    if (!state.models.some(item => item.id === state.modelId)) {
-        state.modelId = state.models[0]?.id || '';
-    }
-    hydrateAmbient();
-    renderCatalog();
-    wire();
-    wireCanvasResize();
-    syncModel();
-    syncRatio();
-    syncQuality();
-    syncBatch();
-    resizePrompt();
-    restoreLastResult();
-    loadHealth();
-    loadDownloads();
-    loadAmbient();
-    watchAmbientSources();
-    loadAi();
-    loadRuntimeSummary();
-    refreshCatalog();
-}
-
-function renderCatalog() {
-    const menu = $('model-select-menu');
-    if (!menu) return;
-    menu.innerHTML = state.models.map(item => `
-        <button type="button" class="model-select-option${item.id === state.modelId ? ' is-active' : ''}"
-                data-model-id="${esc(item.id)}" role="option" aria-selected="${item.id === state.modelId}">
-            <span class="model-option-copy">
-                <strong>${esc(item.name)}</strong>
-                <small>${esc(item.technical_name || '')}</small>
-            </span>
-            <span class="model-option-check">✓</span>
-        </button>`).join('');
-    const current = model();
-    if ($('model-selected-name')) $('model-selected-name').textContent = current?.name || 'Model';
-}
-
-function chooseModel(modelId) {
-    if (!state.models.some(item => item.id === modelId)) return;
-    state.modelId = modelId;
-    save('cmv_simple_model', modelId);
-    renderCatalog();
-    closeModelMenu();
-    syncModel();
-    loadHealth();
-    loadDownloads();
-}
-
-function toggleModelMenu(force) {
-    const trigger = $('model-select-trigger');
-    const menu = $('model-select-menu');
-    if (!trigger || !menu) return;
-    const next = typeof force === 'boolean' ? force : !state.modelMenuOpen;
-    state.modelMenuOpen = next;
-    trigger.setAttribute('aria-expanded', String(next));
-    menu.hidden = !next;
-}
-
-function closeModelMenu() {
-    toggleModelMenu(false);
-}
-
-function syncModel() {
-    const current = model();
-    if (!current) return;
-    $('model-selected-name').textContent = current.name;
-    $('model-technical').textContent = current.technical_name || current.name;
-    $('model-description').textContent = current.description || '';
-    $('model-vram').textContent = current.vram_rec_gb ? `Recommended ${current.vram_rec_gb} GB VRAM` : '';
-    const cachedHealth = getCachedJson('cmv_health_' + current.id, 60 * 1000);
-    if (cachedHealth) {
-        paintHealth(cachedHealth);
-    } else {
-        state.health = null;
-        paintHealth({ status: 'checking', message: 'Checking local components' });
-    }
-    syncRatio();
-    syncQuality();
-}
-
-function paintHealth(health) {
-    state.health = health || {};
-    const badge = $('model-health');
-    const panel = $('model-health-panel');
-    const message = $('model-health-message');
-    const missing = $('model-missing');
-    const install = $('model-install');
-    const map = {
-        ready: ['is-ready', 'Ready'],
-        not_installed: ['is-missing', 'Installation required'],
-        workflow_pending: ['is-pending', 'Workflow pending'],
-        unknown: ['is-checking', 'Not checked'],
-        checking: ['is-checking', 'Checking'],
-    };
-    const [className, label] = map[health?.status] || map.unknown;
-    badge.className = `model-health-badge ${className}`;
-    badge.textContent = label;
-    const rows = health?.missing_resources || [];
-    message.textContent = health?.message || '';
-    missing.innerHTML = rows.map(item => `
-        <div class="model-missing-row">
-            <span>${esc(item.display_name || item.filename)}</span>
-            <small>${esc(item.folder || '')}</small>
-        </div>`).join('');
-    const activeDownloads = state.downloads.some(item => ['queued', 'downloading'].includes(item.status));
-    const failedDownloads = state.downloads.some(item => ['failed', 'error'].includes(item.status));
-    install.hidden = !(health?.status === 'not_installed' && health?.installable !== false);
-    install.disabled = activeDownloads;
-    install.querySelector('span').textContent = activeDownloads ? 'Downloading…' : 'Download missing';
-    const isMissing = health?.status === 'not_installed' || rows.length > 0;
-    panel.hidden = !isMissing && !activeDownloads && !failedDownloads;
-}
-
-async function loadHealth(force = false) {
-    const id = state.modelId;
-    if (!id) return;
-    try {
-        const url = `/api/simple/models/${encodeURIComponent(id)}/status${force ? '?refresh=1' : ''}`;
-        const data = await json(url);
-        const health = data.health || {};
-        setCachedJson('cmv_health_' + id, health, false);
-        if (state.modelId === id) paintHealth(health);
-    } catch {
-        if (state.modelId === id && !state.health) {
-            paintHealth({ status: 'unknown', message: 'Could not check local components' });
-        }
-    }
-}
-
-async function refreshCatalog() {
-    try {
-        const data = await json('/api/simple/models');
-        if (Array.isArray(data.models) && data.models.length) {
-            state.models = data.models;
-            if (!state.models.some(item => item.id === state.modelId)) {
-                state.modelId = data.default_model_id || state.models[0].id;
-            }
-            renderCatalog();
-            syncModel();
-            loadHealth();
-        }
-    } catch {}
 }
 
 function latestDownloads(items) {
@@ -703,7 +1865,6 @@ async function loadDownloads() {
     } catch {}
 }
 
-// eslint-disable-next-line no-unused-vars
 async function installModel() {
     if (!state.modelId) return;
     const button = $('model-install');
@@ -937,59 +2098,6 @@ function applyAmbient(url) {
     state.layer = state.layer ? 0 : 1;
 }
 
-async function loadAi() {
-    const cached = getCachedJson('cmv_ai_status', 120 * 1000);
-    if (cached) {
-        const available = Boolean(cached.available && cached.has_text);
-        $('ai-toggle').disabled = !available;
-        $('ai-toggle-wrap').classList.toggle('is-unavailable', !available);
-        $('ai-toggle').checked = available && state.improve;
-    }
-    try {
-        const data = await json('/api/simple/ai-status');
-        setCachedJson('cmv_ai_status', data, false);
-        const available = Boolean(data.available && data.has_text);
-        $('ai-toggle').disabled = !available;
-        $('ai-toggle-wrap').classList.toggle('is-unavailable', !available);
-        $('ai-toggle').checked = available && state.improve;
-    } catch {
-        if (!cached) {
-            $('ai-toggle').disabled = true;
-            $('ai-toggle-wrap').classList.add('is-unavailable');
-        }
-    }
-}
-
-function syncCanvasAspect() {
-    const map = { '1:1': '1 / 1', '3:4': '3 / 4', '4:3': '4 / 3', '9:16': '9 / 16', '16:9': '16 / 9' };
-    const aspect = map[state.ratio] || '3 / 4';
-    const [width, height] = state.ratio.split(':').map(Number);
-    const defaultCanvasWidth = Math.round(Math.min(760, Math.max(360, 520 * (width / height) / (3 / 4))));
-    const limits = canvasWidthLimits();
-    const canvasColumnWidth = state.canvasWidth
-        ? Math.round(Math.max(limits.min, Math.min(limits.max, state.canvasWidth)))
-        : defaultCanvasWidth;
-    if (state.canvasWidth) state.canvasWidth = canvasColumnWidth;
-    const layout = $('studio-layout');
-    const card = document.querySelector('.studio-canvas-card');
-    const surface = $('canvas');
-    if (layout) layout.style.setProperty('--canvas-column-width', `${canvasColumnWidth}px`);
-    if (card) card.style.setProperty('--canvas-aspect', aspect);
-    if (surface) surface.style.setProperty('--canvas-aspect', aspect);
-    syncCanvasRowHeight();
-}
-
-function syncCanvasRowHeight() {
-    const layout = $('studio-layout');
-    const controls = document.querySelector('.studio-controls-card');
-    const canvas = document.querySelector('.studio-canvas-card');
-    if (!layout || !controls || !['generating', 'result'].includes(layout.dataset.view)) return;
-    const controlsH = Math.ceil(controls.getBoundingClientRect().height);
-    const canvasH = canvas ? Math.ceil(canvas.getBoundingClientRect().height) : 0;
-    const height = Math.max(controlsH, canvasH);
-    if (height > 0) layout.style.setProperty('--studio-split-height', `${height}px`);
-}
-
 function canvasWidthLimits() {
     const min = 360;
     return { min, max: 1100 };
@@ -1040,159 +2148,6 @@ function wireCanvasResize() {
     });
 }
 
-function syncRatio() {
-    const allowed = new Set((model()?.aspect_ratios || []).map(item => item.ratio));
-    if (allowed.size && !allowed.has(state.ratio)) state.ratio = model().aspect_ratios[0].ratio;
-    document.querySelectorAll('[data-ratio]').forEach(button => {
-        const enabled = !allowed.size || allowed.has(button.dataset.ratio);
-        button.disabled = !enabled;
-        button.classList.toggle('active', enabled && button.dataset.ratio === state.ratio);
-    });
-    syncCanvasAspect();
-}
-
-function syncQuality() {
-    const presets = model()?.quality_presets || {};
-    if (!presets[state.quality]) {
-        state.quality = presets.standard ? 'standard' : Object.keys(presets)[0] || 'standard';
-    }
-    document.querySelectorAll('[data-quality]').forEach(button => {
-        button.disabled = Boolean(Object.keys(presets).length && !presets[button.dataset.quality]);
-        button.classList.toggle('active', button.dataset.quality === state.quality);
-    });
-}
-
-function syncBatch() {
-    document.querySelectorAll('[data-batch]').forEach(button => {
-        button.classList.toggle('active', Number(button.dataset.batch) === state.batch);
-    });
-}
-
-function wire() {
-    $('model-select-trigger')?.addEventListener('click', () => toggleModelMenu());
-    $('model-select-menu')?.addEventListener('click', event => {
-        const option = event.target.closest('[data-model-id]');
-        if (option) chooseModel(option.dataset.modelId);
-    });
-    document.addEventListener('click', event => {
-        if (!event.target.closest('#model-combobox')) closeModelMenu();
-    });
-    document.querySelectorAll('[data-ratio]').forEach(button => {
-        button.onclick = () => {
-            if (button.disabled) return;
-            state.ratio = button.dataset.ratio;
-            save('cmv_simple_ratio', state.ratio);
-            syncRatio();
-        };
-    });
-    document.querySelectorAll('[data-quality]').forEach(button => {
-        button.onclick = () => {
-            if (button.disabled) return;
-            state.quality = button.dataset.quality;
-            save('cmv_simple_quality', state.quality);
-            syncQuality();
-        };
-    });
-    document.querySelectorAll('[data-batch]').forEach(button => {
-        button.onclick = () => {
-            state.batch = Number(button.dataset.batch);
-            save('cmv_simple_batch', state.batch);
-            syncBatch();
-        };
-    });
-
-    $('prompt').oninput = () => {
-        resizePrompt();
-        $('prompt-clear').hidden = !$('prompt').value.trim();
-        save('cmv_simple_prompt', $('prompt').value);
-        if (!state.applyingAiPrompt && state.aiExpandedPrompt && $('prompt').value !== state.aiExpandedPrompt) {
-            state.aiOriginalPrompt = null;
-            state.aiExpandedPrompt = null;
-            try {
-                localStorage.removeItem('cmv_simple_ai_original_prompt');
-                localStorage.removeItem('cmv_simple_ai_expanded_prompt');
-            } catch {}
-        }
-    };
-    $('prompt-clear').onclick = () => {
-        $('prompt').value = '';
-        $('prompt').dispatchEvent(new Event('input'));
-        $('prompt').focus();
-    };
-    $('ai-toggle').onchange = event => {
-        state.improve = event.target.checked;
-        save('cmv_simple_ai_improve', state.improve);
-    };
-    $('ai-always-toggle')?.addEventListener('change', event => {
-        state.alwaysImprove = event.target.checked;
-        save('cmv_simple_ai_always', state.alwaysImprove);
-    });
-    $('reference-input').onchange = event => {
-        if (event.target.files?.[0]) reference(event.target.files[0]);
-    };
-    $('reference-remove').onclick = clearReference;
-    dropZone();
-    $('create').onclick = create;
-    $('error-close').onclick = hideError;
-    $('result-download').onclick = downloadResult;
-    $('result-edit').onclick = () => { clearLastResult(); canvas('idle'); $('prompt').focus(); };
-    $('model-recheck').onclick = async () => {
-        const btn = $('model-recheck');
-        btn.disabled = true;
-        btn.textContent = 'Checking…';
-        try {
-            sessionStorage.removeItem('cmv_health_' + state.modelId);
-            await loadHealth(true);
-            await loadDownloads();
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Check again';
-        }
-    };
-    $('model-downloads').addEventListener('click', event => {
-        const button = event.target.closest('[data-download-action]');
-        if (button) downloadAction(Number(button.dataset.downloadId), button.dataset.downloadAction);
-    });
-
-    $('runtime-settings-open').onclick = openRuntimeSettings;
-    $('runtime-settings-close').onclick = closeRuntimeSettings;
-    $('runtime-settings-cancel').onclick = closeRuntimeSettings;
-    $('runtime-settings-backdrop').onclick = closeRuntimeSettings;
-    $('runtime-browse').onclick = browseRuntimePath;
-    $('runtime-test').onclick = testRuntime;
-    $('runtime-settings-form').onsubmit = saveRuntimeSettings;
-
-    $('ai-open').onclick = openAssistant;
-    $('assistant-close').onclick = closeAssistant;
-    $('assistant-backdrop').onclick = closeAssistant;
-    $('assistant-new').onclick = () => { state.history = []; assistantWelcome(); };
-    $('assistant-form').onsubmit = assistantSend;
-    $('assistant-input').onkeydown = event => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            $('assistant-form').requestSubmit();
-        }
-    };
-    addEventListener('keydown', event => {
-        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-            event.preventDefault();
-            create();
-        }
-        if (event.key === 'Escape') {
-            closeModelMenu();
-            closeAssistant();
-            closeRuntimeSettings();
-            closeContextMenu();
-        }
-    });
-    document.addEventListener('contextmenu', openStudioContextMenu);
-    document.addEventListener('click', event => {
-        if (!event.target.closest('.image-context-menu')) closeContextMenu();
-    });
-    window.addEventListener('scroll', closeContextMenu, { passive: true });
-    assistantWelcome();
-}
-
 function resizePrompt() {
     const textarea = $('prompt');
     if (!textarea) return;
@@ -1202,164 +2157,6 @@ function resizePrompt() {
     const targetH = Math.max(minH, Math.min(textarea.scrollHeight, maxH));
     textarea.style.height = `${targetH}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxH ? 'auto' : 'hidden';
-}
-
-function dropZone() {
-    const zone = $('prompt-box');
-    ['dragenter', 'dragover'].forEach(name => zone.addEventListener(name, event => {
-        event.preventDefault();
-        zone.classList.add('is-dragging-reference');
-    }));
-    ['dragleave', 'drop'].forEach(name => zone.addEventListener(name, event => {
-        event.preventDefault();
-        zone.classList.remove('is-dragging-reference');
-    }));
-    zone.addEventListener('drop', event => {
-        const file = [...(event.dataTransfer?.files || [])].find(item => item.type.startsWith('image/'));
-        if (file) reference(file);
-    });
-}
-
-function reference(file) {
-    if (!file.type.startsWith('image/')) return error('Could not add image', 'Choose an image file.');
-    if (file.size > MAX_REF) return error('Image is too large', 'Choose a reference file smaller than 20 MB.');
-    const reader = new FileReader();
-    reader.onload = () => {
-        clearReference(false);
-        state.ref = String(reader.result);
-        state.refUrl = URL.createObjectURL(file);
-        $('reference-name').textContent = file.name;
-        $('reference-img').src = state.refUrl;
-        $('reference-preview').hidden = false;
-    };
-    reader.onerror = () => error('Could not read image', 'Try another file.');
-    reader.readAsDataURL(file);
-}
-
-function clearReference(clearInput = true) {
-    state.ref = null;
-    if (state.refUrl) URL.revokeObjectURL(state.refUrl);
-    state.refUrl = null;
-    $('reference-img').removeAttribute('src');
-    $('reference-preview').hidden = true;
-    if (clearInput) $('reference-input').value = '';
-}
-
-function blocking() {
-    if (state.health?.status === 'not_installed') return 'Install the missing components for the selected model first.';
-    if (state.health?.status === 'workflow_pending') return 'This model workflow is still being calibrated.';
-    return '';
-}
-
-async function create() {
-    if (state.run) return;
-    const why = blocking();
-    if (why) return error('Model is not ready yet', why);
-    const visiblePrompt = $('prompt').value.trim();
-    const promptIsAiExpanded = state.aiExpandedPrompt && visiblePrompt === state.aiExpandedPrompt;
-    const improveWithAi = state.improve && (state.alwaysImprove || !promptIsAiExpanded);
-    const prompt = state.alwaysImprove && state.aiOriginalPrompt
-        ? state.aiOriginalPrompt.trim()
-        : visiblePrompt;
-    if (!prompt && !state.ref) return error('Nothing to create', 'Describe an idea or add an image reference.');
-    hideError();
-    clearLastResult();
-    canvas('generating');
-    state.generationProgress = 5;
-    createButton(true, 5, 'Starting…');
-    try {
-        const data = await json('/api/simple/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                profile_id: state.modelId,
-                prompt,
-                improve_with_ai: improveWithAi,
-                aspect_ratio: state.ratio,
-                quality: state.quality,
-                batch_size: state.batch,
-                reference_image: state.ref,
-            }),
-        });
-        state.run = data.run_id;
-        if (data.ai_improved && data.positive_prompt) {
-            applyAiPrompt(data.positive_prompt, state.aiOriginalPrompt || visiblePrompt);
-        }
-        pollRun();
-    } catch (err) {
-        createButton(false);
-        canvas('idle');
-        if (err.data?.missing_resources) {
-            paintHealth({
-                status: 'not_installed',
-                message: 'Missing components',
-                missing_resources: err.data.missing_resources,
-                installable: true,
-            });
-        }
-        if (err.status === 502 || err.status === 503 || err.data?.code === 'comfyui_rejected' || err.data?.code === 'comfyui_connection_failed') {
-            error(
-                'ComfyUI is unavailable or rejected the task',
-                err.data?.suggestion || 'Make sure ComfyUI is running at http://127.0.0.1:8188. If you use another host or port, configure it with the gear icon in the header.'
-            );
-        } else {
-            error('Could not start generation', err.message);
-        }
-    }
-}
-
-function pollRun() {
-    clearInterval(state.poll);
-    let percent = 8;
-    state.poll = setInterval(async () => {
-        try {
-            const data = await json(`/api/simple/runs/${state.run}`);
-            if (['queued', 'running'].includes(data.status)) {
-                percent = Math.min(92, percent + 5);
-                state.generationProgress = percent;
-                const total = Math.max(1, Number(state.batch) || 1);
-                const completed = Math.min(total, Array.isArray(data.outputs) ? data.outputs.length : 0);
-                const current = completed > 0
-                    ? Math.min(total, completed + 1)
-                    : Math.min(total, Math.max(1, Math.ceil((percent / 92) * total)));
-                createButton(true, percent, `${percent}% · ${current}/${total}`);
-                $('generating-text').textContent = total > 1
-                    ? `Creating image ${current} of ${total}…`
-                    : 'Creating image…';
-                return;
-            }
-            if (data.status === 'completed') {
-                stopRunPolling();
-                createButton(false);
-                showResult(data.outputs || []);
-            } else if (data.is_complete) {
-                stopRunPolling();
-                createButton(false);
-                canvas('idle');
-                const rawError = data.run?.error || data.run?.last_error || '';
-                let runError = '';
-                if (typeof rawError === 'string') {
-                    runError = rawError;
-                } else if (rawError && typeof rawError === 'object') {
-                    const msg = rawError.message || rawError.error || '';
-                    const tech = rawError.technical_message || '';
-                    const node = rawError.class_type ? ` (node: ${rawError.class_type})` : '';
-                    runError = tech && tech !== msg ? `${msg}${node}\n${tech}` : `${msg}${node}`;
-                    if (!runError) runError = JSON.stringify(rawError);
-                }
-                const statusLabel = data.status === 'failed' ? 'Generation failed' : 'Generation stopped';
-                const detail = runError
-                    || (data.status === 'cancelled' ? 'Generation was cancelled.' : 'The process finished without a result. ComfyUI may not have processed the task; check its logs.');
-                error(statusLabel, detail);
-            }
-        } catch {}
-    }, 1000);
-}
-
-function stopRunPolling() {
-    clearInterval(state.poll);
-    state.poll = null;
-    state.run = null;
 }
 
 function playSuccessChime() {
@@ -1385,77 +2182,6 @@ function playSuccessChime() {
     } catch {}
 }
 
-function showResult(outputs) {
-    return renderResult(outputs, true);
-}
-
-async function renderResult(outputs, persist = false) {
-    const request = ++state.resultRequest;
-    const loaded = await Promise.all((Array.isArray(outputs) ? outputs : []).map(async output => {
-        if (!output || typeof output !== 'object') return null;
-        const url = await loadImageUrl(output);
-        return url ? { ...output, preview_url: url, thumbnail_url: url } : null;
-    }));
-    if (request !== state.resultRequest) return;
-    const validOutputs = loaded.filter(Boolean);
-    const first = validOutputs[0];
-    if (!first) {
-        clearLastResult();
-        canvas('idle');
-        if (persist) error('Result not found', 'Generation finished without an available image.');
-        return;
-    }
-
-    state.lastOutputs = validOutputs;
-    state.selectedResultIndex = 0;
-    state.last = validOutputs[0];
-
-    updateResultView();
-
-    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
-    setCachedJson('cmv_simple_last_result', { outputs: validOutputs, ratio: state.ratio }, true);
-    canvas('result');
-    if (persist && state.sound) playSuccessChime();
-}
-
-function updateResultView() {
-    const validOutputs = state.lastOutputs || [];
-    const index = Math.max(0, Math.min(validOutputs.length - 1, state.selectedResultIndex || 0));
-    state.selectedResultIndex = index;
-    const current = validOutputs[index] || state.last;
-    if (!current) return;
-    state.last = current;
-
-    const artwork = document.querySelector('.canvas-artwork-wrap');
-    const url = current.preview_url || current.thumbnail_url;
-    if (artwork) {
-        artwork.innerHTML = `<img id="result-img" class="canvas-result-img" src="${esc(url)}" alt="Result ${index + 1}" decoding="async">`;
-        artwork.onclick = () => openResultFullscreen(state.selectedResultIndex);
-    }
-
-    const thumbsContainer = $('result-thumbnails');
-    if (thumbsContainer) {
-        if (validOutputs.length > 1) {
-            thumbsContainer.hidden = false;
-            thumbsContainer.innerHTML = validOutputs.map((output, i) => {
-                const thumbUrl = output.thumbnail_url || output.preview_url;
-                const isActive = i === index;
-                return `<button type="button" class="canvas-thumb-btn${isActive ? ' active' : ''}" data-index="${i}" aria-label="Превью ${i + 1}" title="Изображение ${i + 1}"><img src="${esc(thumbUrl)}" alt="Превью ${i + 1}" class="canvas-thumb-img" decoding="async"></button>`;
-            }).join('');
-            thumbsContainer.querySelectorAll('.canvas-thumb-btn').forEach(btn => {
-                btn.onclick = event => {
-                    event.stopPropagation();
-                    const nextIdx = Number(btn.dataset.index);
-                    selectResultIndex(nextIdx);
-                };
-            });
-        } else {
-            thumbsContainer.hidden = true;
-            thumbsContainer.innerHTML = '';
-        }
-    }
-}
-
 function selectResultIndex(index) {
     if (!state.lastOutputs || !state.lastOutputs[index]) return;
     state.selectedResultIndex = index;
@@ -1476,48 +2202,6 @@ function selectResultIndex(index) {
         });
     }
 
-}
-
-function canvas(view) {
-    const layout = $('studio-layout');
-    layout.dataset.view = view;
-    $('generating').hidden = view !== 'generating';
-    $('result').hidden = view !== 'result';
-    resizePrompt();
-    if (view === 'generating' || view === 'result') {
-        syncCanvasAspect();
-        requestAnimationFrame(() => {
-            syncCanvasRowHeight();
-            requestAnimationFrame(syncCanvasRowHeight);
-        });
-    } else {
-        layout.style.removeProperty('--studio-split-height');
-    }
-}
-
-function createButton(running, percent = 0, text = 'Creating…') {
-    const button = $('create');
-    button.classList.toggle('running', running);
-    button.disabled = running;
-    $('progress-fill').style.width = `${running ? percent : 0}%`;
-    $('progress-text').textContent = running ? text : 'Starting…';
-}
-
-function error(title, text) {
-    $('error-title').textContent = title;
-    $('error-text').textContent = text;
-    $('error').hidden = false;
-}
-
-function hideError() { $('error').hidden = true; }
-
-function downloadResult() {
-    const url = state.last?.preview_url || state.last?.thumbnail_url;
-    if (!url) return;
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = state.last.filename || `creation-${Date.now()}.png`;
-    anchor.click();
 }
 
 function runtimeDetection(kind, title, text) {
@@ -1692,60 +2376,6 @@ async function saveRuntimeSettings(event) {
     } finally {
         saveButton.disabled = false;
         saveButton.textContent = 'Save';
-    }
-}
-
-function openAssistant() {
-    $('assistant-backdrop').hidden = false;
-    $('assistant').hidden = false;
-    $('assistant-input').focus();
-}
-
-function closeAssistant() {
-    $('assistant-backdrop').hidden = true;
-    $('assistant').hidden = true;
-}
-
-function assistantWelcome() {
-    $('assistant-messages').innerHTML = '<div class="assistant-message assistant-message-system"><strong>Let’s refine your prompt</strong><p>We can work on composition, lighting, mood or wording.</p></div>';
-}
-
-function addMsg(role, text) {
-    const div = document.createElement('div');
-    div.className = `assistant-message assistant-message-${role}`;
-    div.textContent = text;
-    $('assistant-messages').appendChild(div);
-    $('assistant-messages').scrollTop = $('assistant-messages').scrollHeight;
-    return div;
-}
-
-async function assistantSend(event) {
-    event.preventDefault();
-    const text = $('assistant-input').value.trim();
-    if (!text) return;
-    $('assistant-input').value = '';
-    addMsg('user', text);
-    const pending = addMsg('assistant', 'Thinking…');
-    $('assistant-send').disabled = true;
-    try {
-        const data = await json('/api/simple/assistant/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                message: text,
-                current_prompt: $('prompt').value,
-                profile_id: state.modelId,
-                history: state.history,
-            }),
-        });
-        pending.textContent = data.reply;
-        const suggestedPrompt = String(data.suggested_prompt || data.reply || '').trim();
-        if (suggestedPrompt) applyAiPrompt(suggestedPrompt);
-        state.history.push({ role: 'user', content: text }, { role: 'assistant', content: data.reply });
-    } catch (err) {
-        pending.textContent = err.message;
-    } finally {
-        $('assistant-send').disabled = false;
     }
 }
 

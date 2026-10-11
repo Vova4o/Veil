@@ -1,1 +1,0 @@
-{"id":"fast","label":"Быстро","overrides":{"steps":15,"cfg":3,"sampler_name":"dpmpp_sde","scheduler":"karras"}}

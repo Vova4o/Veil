@@ -13,80 +13,159 @@
   "default_negative_prompt": "",
   "prompt_prefix": "",
   "max_batch": 4,
-  "modes": ["text", "reference", "edit"],
-  "sda_modes": ["text"],
+  "modes": [
+    "text",
+    "reference",
+    "edit"
+  ],
+  "sda_modes": [
+    "text"
+  ],
   "edit_profiles": [
     {
       "id": "light",
-      "label": "Лёгкая правка",
-      "description": "Смена одежды, бельё, причёска, мимика, стиль: лицо и сцена сохраняются почти 1:1.",
+      "label": "Light edit",
+      "description": "Clothes, lingerie, garment states, hair, makeup, expression, style: face and scene stay almost 1:1.",
       "references": 1,
       "seconds": 115,
-      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 4.0, "ref_boost_a": 1.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 1.0,
+        "steps": 8,
+        "ref_boost": 4.0,
+        "ref_boost_a": 1.0,
+        "grounding_px": 768
+      }
     },
     {
       "id": "replace",
-      "label": "Замена человека",
-      "description": "Другой человек по описанию, грудь в одежде: исходник держит слабее, кисти и глаза надо описать.",
+      "label": "Replace the person",
+      "description": "Another person by description, or a body change that stays clothed: the photo holds less, so describe hands and eyes.",
       "references": 1,
       "seconds": 115,
-      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 1.0,
+        "steps": 8,
+        "ref_boost": 1.0,
+        "ref_boost_a": 1.0,
+        "grounding_px": 768
+      }
     },
     {
       "id": "body",
-      "label": "Возраст и фигура",
-      "description": "Возраст и телосложение: исходник держит слабо, сцена может сдвинуться.",
+      "label": "Age and body",
+      "description": "Age and body shape: the photo holds weakly, the scene may shift.",
       "references": 1,
       "seconds": 115,
-      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 0.5, "ref_boost_a": 1.0, "grounding_px": 384}
+      "settings": {
+        "cfg": 1.0,
+        "steps": 8,
+        "ref_boost": 0.5,
+        "ref_boost_a": 1.0,
+        "grounding_px": 384
+      }
     },
     {
       "id": "remove",
-      "label": "Снять или убрать",
-      "description": "Снять вещь или убрать предмет: в команде только итог, удаляемое — в негативе. CFG 2.5, примерно вдвое дольше.",
+      "label": "Remove",
+      "description": "Take a garment off or delete an object: the command states only the result, the removed thing goes to the negative. CFG 2.5, about twice as long.",
       "references": 1,
       "seconds": 210,
-      "settings": {"cfg": 2.5, "steps": 8, "ref_boost": 4.0, "ref_boost_a": 1.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 2.5,
+        "steps": 8,
+        "ref_boost": 4.0,
+        "ref_boost_a": 1.0,
+        "grounding_px": 768
+      }
     },
     {
       "id": "heavy",
-      "label": "Другое лицо",
-      "description": "Заменить лицо: CFG 2.5, примерно вдвое дольше.",
+      "label": "Different face",
+      "description": "Replace the face: CFG 2.5, about twice as long.",
       "references": 1,
       "seconds": 205,
-      "settings": {"cfg": 2.5, "steps": 8, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 2.5,
+        "steps": 8,
+        "ref_boost": 1.0,
+        "ref_boost_a": 1.0,
+        "grounding_px": 768
+      }
     },
     {
       "id": "pose",
-      "label": "Другая поза",
-      "description": "Сменить позу и поворот головы: CFG 2.5 и 16 шагов, около 7 минут на кадр.",
+      "label": "Different pose",
+      "description": "Change the pose or head turn: CFG 2.5 and 16 steps, about 7 minutes per image.",
       "references": 1,
       "seconds": 400,
-      "settings": {"cfg": 2.5, "steps": 16, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 2.5,
+        "steps": 16,
+        "ref_boost": 1.0,
+        "ref_boost_a": 1.0,
+        "grounding_px": 768
+      }
     },
     {
       "id": "donor",
-      "label": "Человек со второго фото",
-      "description": "Перенос человека с фото-донора в сцену; вещи донора назвать в команде.",
+      "label": "Person from the second photo",
+      "description": "Bring the person from the donor photo into the scene; name the donor's clothes in the command.",
       "references": 2,
       "seconds": 190,
-      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 1.0, "ref_boost_a": 1.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 1.0,
+        "steps": 8,
+        "ref_boost": 1.0,
+        "ref_boost_a": 1.0,
+        "grounding_px": 768
+      }
     },
     {
       "id": "donor_detail",
-      "label": "Деталь со второго фото",
-      "description": "Тату, украшение или вещь с фото-донора: сцена держится сильно, рисунок копируется точно.",
+      "label": "Detail from the second photo",
+      "description": "A tattoo, jewelry or garment from the donor photo: the scene holds strongly and the pattern is copied exactly.",
       "references": 2,
       "seconds": 190,
-      "settings": {"cfg": 1.0, "steps": 8, "ref_boost": 2.0, "ref_boost_a": 4.0, "grounding_px": 768}
+      "settings": {
+        "cfg": 1.0,
+        "steps": 8,
+        "ref_boost": 2.0,
+        "ref_boost_a": 4.0,
+        "grounding_px": 768
+      }
     }
   ],
   "aspect_ratios": [
-    {"ratio": "1:1", "width": 1024, "height": 1024, "label": "1:1"},
-    {"ratio": "3:4", "width": 896, "height": 1152, "label": "3:4"},
-    {"ratio": "4:3", "width": 1152, "height": 896, "label": "4:3"},
-    {"ratio": "9:16", "width": 768, "height": 1344, "label": "9:16"},
-    {"ratio": "16:9", "width": 1344, "height": 768, "label": "16:9"}
+    {
+      "ratio": "1:1",
+      "width": 1024,
+      "height": 1024,
+      "label": "1:1"
+    },
+    {
+      "ratio": "3:4",
+      "width": 896,
+      "height": 1152,
+      "label": "3:4"
+    },
+    {
+      "ratio": "4:3",
+      "width": 1152,
+      "height": 896,
+      "label": "4:3"
+    },
+    {
+      "ratio": "9:16",
+      "width": 768,
+      "height": 1344,
+      "label": "9:16"
+    },
+    {
+      "ratio": "16:9",
+      "width": 1344,
+      "height": 768,
+      "label": "16:9"
+    }
   ],
   "quality_presets": []
 }

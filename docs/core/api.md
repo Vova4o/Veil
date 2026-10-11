@@ -719,22 +719,30 @@ distinct codes including `authentication_error`, `content_rejected`, `incompatib
 
 ### `GET /api/ai/cli-integrations`
 
-Detects `opencode`, `claude`, and `agy`/`antigravity` through PATH and invokes documented version
+Detects `opencode`, `claude`, `agy`/`antigravity` and `codex` through PATH and invokes documented version
 and authorization-status commands. The response includes executable path, version, capability
 flags, and an authorization state. No credential file is opened. `?probe=0` skips the live probe and
 returns the static catalog instead.
 
 ### `GET /api/ai/cli-integrations/{cli_type}`
 
-Probes one integration (`opencode`, `claude`, or `agy`) and returns its singular `integration`
-object. Unsupported CLI types answer with `code: cli_unavailable`.
+Probes one integration (`opencode`, `claude`, `antigravity` or `codex`) and returns its singular `integration`
+object. Unsupported CLI types answer with `code: cli_unavailable`. For OpenCode the object also lists
+`installations`: every detected npm CLI and OpenCode desktop app (its bundled `opencode-cli`), newest
+first, each with `kind` (`cli` / `desktop`), `executable`, `version`, `generation` (1 = classic CLI,
+2 = CLI with a background service) and `label`. OpenCode without provider credentials reports
+`available`, because the free OpenCode Zen models need no sign-in.
 
 ### `GET /api/ai/cli-integrations/{cli_type}/models`
 
 Asks the installed CLI for model IDs when it exposes a model-list command. OpenCode IDs use the
-`provider/model` form. Claude Code currently returns `source: "manual"`; enter an exact model ID
-or supported alias. Antigravity support is experimental because its documented print mode does
-not expose a stable JSON response protocol.
+`provider/model` form; `?provider=` narrows the list and `?executable=` picks one of the detected
+installations (any other path is rejected). OpenCode responses add `model_info` (per model: `id`,
+`provider`, `name`, `vision`, `free`; `null` when unknown) and the installation's `generation`.
+Claude Code and Codex return `source: "manual"`; enter an exact model ID
+or supported alias (`default` for Codex uses the model from `~/.codex/config.toml`). Antigravity
+support is experimental because its documented print mode does not expose a stable JSON response
+protocol.
 
 ---
 
@@ -1031,26 +1039,29 @@ workflow. If a draft originated from Remix, the new asset also references its so
 
 ## Create (Simple) API
 
-The Create workspace (`GET /create` or `GET /editor`) is driven by a curated catalog of bundled
-generation models (Simple Mode profiles). Only profiles with a ready `workflow.json` and
-`bindings.json` can generate; calibration placeholders report status but reject generation.
+The Create workspace (`GET /create` or `GET /editor`) runs one fixed model profile, Moody Krea 2
+(`krea2_moody_v40`). There is no model choice: the user picks a mode (`text`, `reference`, `edit`),
+an aspect ratio and 1-4 images. The prompt is written by the agent configured on the Integrations
+page (`POST /api/simple/agent`) and then queued with `POST /api/simple/generate`; the two steps are
+separate so the prompt can be shown, edited and re-run without the agent.
 
 ### `GET /api/simple/models`
 
-Returns the creation-model catalog and the default profile ID.
+Returns the Create profile and its ID.
 
 ```json
 {
-  "models": [ { "id": "model_01", "name": "…", "family": "flux", "…": "…" } ],
-  "default_model_id": "model_01"
+  "models": [ { "id": "krea2_moody_v40", "modes": ["text", "reference", "edit"],
+                "edit_profiles": [ { "id": "light", "label": "Light edit", "references": 1, "seconds": 115 } ],
+                "…": "…" } ],
+  "default_model_id": "krea2_moody_v40"
 }
 ```
 
 ### `GET /api/simple/ambient`
 
-Returns up to `limit` (1-72, default 36) curated candidate images: favorites and highly rated
-assets, recent generations, and random older works. Candidate lists are cached for 45 seconds and
-fall back to recent library images when empty.
+Returns up to `limit` (1-72, default 36) candidate background images sampled across the registered
+library sources.
 
 ```json
 {
@@ -1060,43 +1071,129 @@ fall back to recent library images when empty.
 }
 ```
 
-### `GET /api/simple/ai-status`
+### `GET /api/simple/agent-status`
 
-Reports whether any AI provider is available and whether it can serve text and vision roles.
+Which agents Create uses: the default text agent for the text mode and the default vision agent for
+the photo modes (each falls back to any profile with the other role; translator-only profiles are
+never used), plus the instruction files the agent follows.
 
 ```json
-{ "available": true, "has_text": true, "has_vision": true, "profile_count": 2 }
+{
+  "available": true,
+  "text": { "name": "Codex", "kind": "cli", "cli_type": "codex", "model": "default", "sees_images": false },
+  "photo": { "name": "Claude Code", "kind": "cli", "cli_type": "claude", "model": "sonnet", "sees_images": true },
+  "instruction_files": ["…/app/ai/prompting/content/create/krea2/base.md", "…"]
+}
 ```
 
 ### `GET /api/simple/bootstrap`
 
-One-shot bootstrap for the Create page: the model catalog, the default profile ID, `ambient_candidates`,
-and `ai_status`.
+One-shot bootstrap for the Create page: `profiles`, `default_profile_id`, `ambient_candidates` and
+`agent_status`.
+
+### `POST /api/simple/agent`
+
+Lets the agent write the prompt (text and reference modes) or the edit command (edit mode).
+
+```json
+{
+  "mode": "edit",
+  "request": "change her sweater to a black satin camisole",
+  "previous_prompt": null,
+  "aspect_ratio": "source",
+  "reference_image": "data:image/png;base64,…",
+  "subject_image": null,
+  "agent_profile_id": null
+}
+```
+
+`previous_prompt` marks a refinement (the agent keeps it except what the request changes).
+`subject_image` is the optional second photo of the edit mode; the agent sees both photos side by
+side. `agent_profile_id` replaces the default agent for this call.
+
+**Response (`200`):**
+
+```json
+{
+  "positive_prompt": "Replace her cream knitted sweater with …",
+  "negative_prompt": "",
+  "edit_profile": "light",
+  "edit_profile_label": "Light edit",
+  "seconds_per_image": 115,
+  "note": "",
+  "agent": { "name": "Codex", "adapter": "codex", "model": "default", "saw_image": true,
+             "job_id": 41, "latency_ms": 53000 },
+  "mode": "edit", "profile_id": "krea2_moody_v40", "width": 896, "height": 1152
+}
+```
+
+Errors: `400` `image_required`, `instruction_required`, `prompt_required`, `subject_invalid`;
+`409` `no_ai_profile` (no agent configured) and `vision_required` (the reference mode needs an agent
+that sees photos); `404` `profile_not_found`; `502` with the adapter code (`cli_authentication`,
+`provider_error`, `contract_violation`, `free_tier_refused`, …) and `technical_error`. With no
+agent configured at all, an installed OpenCode runs a free OpenCode Zen model instead of `409`.
+
+**Streaming (`?stream=1`).** The same request answers with server-sent events once validation has
+passed (validation errors stay plain JSON). Every event is one `data: {json}` line:
+
+- `{"event": "progress", "phase": "started", "agent": "OpenCode (Vision)", "model": "…", "sees_images": true}`;
+- `{"event": "progress", "phase": "thinking" | "working" | "writing", "log"?: "…", "text"?: "…"}` —
+  `log` is a journal line (Codex reasoning summaries and tool calls, Antigravity output) and `text`
+  the prompt as soon as the host reports it. OpenCode reports whole parts, not token deltas; Claude
+  Code and direct API profiles report only start and finish;
+- exactly one closing `{"event": "result", …}` (the plain `200` body) or
+  `{"event": "error", "error", "code", "status", "technical_error"}` (`status` is the HTTP status
+  the plain request would use).
+
+Comment lines (`: keep-alive`) arrive every 15 s while the agent is silent. Closing the connection
+does not stop the agent; its answer is dropped.
+
+### `POST /api/simple/fetch-image`
+
+Downloads an image from a link for a Create reference block (a pasted link, or an image dragged
+in from another browser tab, which often arrives as a link only). The browser cannot read most
+foreign images (CORS), so the server fetches it: `http`/`https` only, at most 20 MB, and the bytes
+must open as an image; formats browsers do not show are converted to PNG.
+
+```json
+{ "url": "https://example.com/dress.jpg" }
+```
+
+**Response (`200`):** `{ "data_url": "data:image/jpeg;base64,…", "name": "dress.jpg", "width": 1200,
+"height": 1600, "size": 248113, "url": "https://example.com/dress.jpg" }` (`url` after redirects).
+
+Errors: `400` `url_invalid`, `413` `image_too_large`, `415` `not_an_image`, `502` `fetch_failed`
+(the site could not be reached or answered with an error).
 
 ### `GET /api/simple/models/{profile_id}/status`
 
-Health of one creation model: installed resources and missing components against the current ComfyUI
-inventory. `profiles/{profile_id}/status` is an alias. Pass `?refresh=1` to invalidate the cached
-runtime inventory first. Unknown profiles return `404`.
+Health of the profile: installed resources, missing components and ComfyUI nodes against the current
+inventory, `modes_ready` per mode and `restart_required`. `profiles/{profile_id}/status` is an
+alias. Pass `?refresh=1` to invalidate the cached runtime inventory first. Unknown profiles return
+`404`.
 
 ```json
-{ "profile_id": "model_01", "health": { "status": "ready", "missing_resources": [] } }
+{ "profile_id": "krea2_moody_v40", "health": { "status": "ready", "missing_resources": [],
+  "missing_nodes": [], "modes_ready": { "text": true, "reference": true, "edit": true } } }
 ```
 
 ### `POST /api/simple/models/{profile_id}/install`
 
-Queues downloads for every missing required resource of the model. When the ComfyUI path is not
-configured it answers `409` with `code: comfyui_path_required` and `open_settings: true`, so the
-client shows integration settings first.
+Queues downloads for every missing required resource and installs missing ComfyUI node packs from
+their pinned archives. When the ComfyUI path is not configured it answers `409` with
+`code: comfyui_path_required` and `open_settings: true`.
 
 **Response (`202` when downloads were queued):**
 
 ```json
 {
   "ok": true,
-  "profile_id": "model_01",
+  "profile_id": "krea2_moody_v40",
   "model_root": "C:\\ComfyUI\\models",
   "downloads": [ { "id": 12, "filename": "model.safetensors", "display_name": "…" } ],
+  "node_packs": [ { "id": "comfyui-krea2edit", "status": "installed" } ],
+  "manual_install": [],
+  "restart_required": true,
   "unavailable": []
 }
 ```
@@ -1138,26 +1235,28 @@ available the endpoint answers `503` with `code: directory_picker_unavailable`.
 
 ### `POST /api/simple/generate`
 
-Queues a generation for one creation model.
+Queues one ComfyUI prompt per image (consecutive seeds) of the fixed recipe for the mode.
 
 ```json
 {
-  "profile_id": "model_01",
-  "prompt": "portrait, studio light",
-  "negative_prompt": "blurry",
-  "improve_with_ai": true,
-  "aspect_ratio": "1:1",
-  "quality": "standard",
-  "batch_size": 1,
+  "mode": "edit",
+  "prompt": "Replace her cream knitted sweater with …",
+  "user_request": "change her sweater to a black satin camisole",
+  "negative_prompt": "",
+  "edit_profile": "light",
+  "aspect_ratio": "source",
+  "batch_size": 2,
   "seed": -1,
-  "reference_image": "data:image/png;base64,…"
+  "reference_image": "data:image/png;base64,…",
+  "subject_image": null,
+  "agent_name": "Codex"
 }
 ```
 
-Prompt preparation happens server-side: a `reference_image` data URL triggers multimodal
-reconstruction from the default vision profile, else `improve_with_ai` runs the prompt compiler
-enhancement pass. The command is then compiled into the model API workflow, ComfyUI is auto-started
-if needed, and a durable run is created.
+`prompt` is required (written by the agent or by hand). `reference_image` is required in the
+`reference` and `edit` modes; `edit_profile`, `subject_image` and `negative_prompt` are edit-only.
+The request, the prompt, the agent and the edit profile are stored in the draft and in the PNG
+metadata (`cmv_user_request`, `cmv_prompt`, `cmv_agent`, `cmv_edit_profile`).
 
 **Response (`200`):**
 
@@ -1165,16 +1264,23 @@ if needed, and a durable run is created.
 {
   "ok": true,
   "run_id": 7,
-  "prompt_id": "a1b2…",
+  "run_ids": [7, 8],
+  "runs": [ { "run_id": 7, "prompt_id": "a1b2…", "seed": 11 } ],
+  "requested": 2,
+  "mode": "edit",
+  "edit_profile": "light",
+  "seconds_per_image": 115,
+  "width": 896,
+  "height": 1152,
   "positive_prompt": "…",
-  "negative_prompt": "…",
-  "ai_improved": true,
-  "ai_explanation": "Enhanced with AI prompt compiler"
+  "negative_prompt": ""
 }
 ```
 
-Errors: `409` `code: workflow_pending` for calibration placeholders, `409` `code: model_not_installed`
-with `missing_resources`, `502` `code: comfyui_rejected`, and `503` `code: comfyui_connection_failed`.
+Errors: `400` `mode_unsupported`, `image_required`, `instruction_required`, `prompt_required`,
+`edit_profile_invalid`, `subject_invalid`, `edit_only`; `409` `model_not_installed` with
+`missing_resources`, `restart_required` / `nodes_missing` with `missing_nodes`; `502`
+`comfyui_rejected`; `503` `comfyui_connection_failed`.
 
 ### `GET /api/simple/runs/{run_id}`
 
@@ -1186,32 +1292,26 @@ Refreshes remote ComfyUI state and returns the run plus imported output assets.
   "status": "completed",
   "outputs": [ { "id": 42, "filename": "…", "preview_url": "/api/preview/42",
                  "thumbnail_url": "/api/thumbnail/42", "width": 1024, "height": 1024 } ],
-  "is_complete": true
+  "is_complete": true,
+  "live": { "state": "finished", "stage": "done", "node_class": "SaveImage", "step": 8, "steps": 8,
+            "elapsed_seconds": 54.1, "eta_seconds": 0, "duration_seconds": 54.1, "outcome": "success" }
 }
 ```
+
+`live` comes from the ComfyUI WebSocket: Create queues its runs with one client id per ComfyUI
+address and keeps a connection open while runs are active (ComfyUI reports steps only to the
+queuing client). `state` is `queued` / `running` / `finished`; `stage` is `queued`, `loading`,
+`encoding`, `sampling`, `decoding`, `saving`, `working` or `done`; `step` / `steps` count sampler
+steps across all sampler nodes of the graph (`steps` from the compiled workflow); `eta_seconds`
+uses the measured time per step plus the decode-and-save tail and is `null` before sampling
+starts; `duration_seconds` is the execution time from start to finish. `live` is `null` when the
+run was not seen on the socket (another client, ComfyUI restarted, the monitor could not connect).
 
 ### `POST /api/simple/runs/{run_id}/cancel`
 
 Cancels a pending or running generation for this run.
 
 **Response:** `{ "ok": true, "run": { "…": "…" } }`
-
-### `POST /api/simple/assistant/chat`
-
-Single-turn AI assistant for prompt refinement inside Create. Requires a text AI provider; without
-one it answers `400` with `code: no_ai_profile`. The assistant receives the selected creation model
-and the last eight history turns.
-
-```json
-{
-  "message": "Add cinematic rim light",
-  "profile_id": "model_01",
-  "history": [ { "role": "user", "content": "…" } ],
-  "current_prompt": "portrait, studio light"
-}
-```
-
-**Response:** `{ "reply": "refined prompt text…", "profile_id": "model_01" }`
 
 ---
 

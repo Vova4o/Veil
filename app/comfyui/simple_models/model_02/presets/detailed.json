@@ -1,1 +1,0 @@
-{"id":"detailed","label":"Детально","overrides":{"steps":25,"cfg":3.5,"sampler_name":"dpmpp_2m_sde","scheduler":"karras"}}

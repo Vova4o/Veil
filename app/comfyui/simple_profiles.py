@@ -5,19 +5,12 @@ import json
 import math
 import random
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from app.ai.prompting import PromptFamily
 
 SIMPLE_MODELS_DIR = Path(__file__).parent / "simple_models"
-
-
-class QualityPresetLevel(str, Enum):
-    FAST = "fast"
-    STANDARD = "standard"
-    DETAILED = "detailed"
 
 
 @dataclass(frozen=True)
@@ -91,7 +84,6 @@ class ApprovedProfile:
     prompt_prefix: str
     prompt_style: str
     aspect_ratios: tuple[dict[str, Any], ...]
-    quality_preset_ids: tuple[str, ...]
     required_resources: tuple[ProfileResourceDependency, ...]
     directory: Path
     max_batch: int = 4
@@ -99,11 +91,6 @@ class ApprovedProfile:
     sda_modes: tuple[str, ...] = ()
     custom_nodes: tuple[CustomNodeRequirement, ...] = ()
     edit_profiles: tuple[EditProfile, ...] = ()
-
-    @property
-    def fixed_sampling(self) -> bool:
-        """Profiles without quality presets carry their sampling inside the workflow."""
-        return not self.quality_preset_ids
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -195,9 +182,6 @@ def _load_profile(directory: Path) -> ApprovedProfile:
         prompt_prefix=str(manifest.get("prompt_prefix") or ""),
         prompt_style=_load_prompt_style(directory),
         aspect_ratios=tuple(manifest.get("aspect_ratios") or ()),
-        quality_preset_ids=tuple(
-            str(item) for item in manifest.get("quality_presets", ("fast", "standard", "detailed"))
-        ),
         required_resources=tuple(resources),
         directory=directory,
         max_batch=max(1, int(manifest.get("max_batch") or 4)),
@@ -301,16 +285,16 @@ def check_profile_health(
 
     if not inventory_known:
         status = "unknown"
-        message = "Проверяем локальные компоненты"
+        message = "Checking local components"
     elif missing:
         status = "not_installed"
-        message = f"Не хватает компонентов: {len(missing)}"
+        message = f"Missing components: {len(missing)}"
     elif not profile.workflow_ready or not get_simple_workflow_path(profile).is_file():
         status = "workflow_pending"
-        message = "Компоненты готовы, workflow ещё калибруется"
+        message = "Components are ready; the workflow is still being calibrated"
     else:
         status = "ready"
-        message = "Готова к генерации"
+        message = "Ready to generate"
 
     missing_nodes, nodes_known = _missing_node_packs(profile, inventory, installed_node_packs)
     restart_required = bool(missing_nodes) and all(item["installed_on_disk"] for item in missing_nodes)
@@ -323,9 +307,9 @@ def check_profile_health(
     }
     if status == "ready" and missing_nodes:
         message = (
-            "Перезапустите ComfyUI, чтобы подключить новые ноды"
+            "Restart ComfyUI to load the new nodes"
             if restart_required
-            else "Для правки фото не хватает нод ComfyUI"
+            else "Photo editing needs ComfyUI nodes that are missing"
         )
     downloadable = all(item.get("download_url") for item in missing)
     installable_nodes = any(not item["installed_on_disk"] for item in missing_nodes)
@@ -341,17 +325,6 @@ def check_profile_health(
         "installable": (not missing or downloadable) and (bool(missing) or installable_nodes),
         "message": message,
     }
-
-
-def _preset_summary(profile: ApprovedProfile) -> dict[str, dict[str, str]]:
-    result: dict[str, dict[str, str]] = {}
-    for preset_id in profile.quality_preset_ids:
-        path = profile.directory / "presets" / f"{preset_id}.json"
-        if not path.is_file():
-            continue
-        data = _read_json(path)
-        result[preset_id] = {"label": str(data.get("label") or preset_id)}
-    return result
 
 
 def serialize_approved_profile(
@@ -374,8 +347,6 @@ def serialize_approved_profile(
         "vram_rec_gb": profile.vram_rec_gb,
         "workflow_ready": profile.workflow_ready,
         "aspect_ratios": list(profile.aspect_ratios),
-        "quality_presets": _preset_summary(profile),
-        "fixed_sampling": profile.fixed_sampling,
         "max_batch": profile.max_batch,
         "modes": list(profile.modes),
         "edit_profiles": [
@@ -444,27 +415,18 @@ def resolve_dimensions(
     return int(item.get("width") or 1024), int(item.get("height") or 1024)
 
 
-def _load_preset(profile: ApprovedProfile, quality: QualityPresetLevel) -> dict[str, Any]:
-    path = profile.directory / "presets" / f"{quality.value}.json"
-    if not path.is_file():
-        raise FileNotFoundError(f"Preset {quality.value} is missing for {profile.id}")
-    return _read_json(path)
-
-
 def compile_simple_workflow(
     profile: ApprovedProfile,
     *,
     positive_prompt: str,
     negative_prompt: str | None = None,
     aspect_ratio: str = "1:1",
-    quality: QualityPresetLevel = QualityPresetLevel.STANDARD,
     batch_size: int = 1,
     seed: int = -1,
     mode: str = "text",
     dimensions: tuple[int, int] | None = None,
-    custom_dir: Path | None = None,
 ) -> dict[str, Any]:
-    del custom_dir
+    """Compile the text-to-image graph; sampling is fixed inside the profile workflow."""
     if not profile.workflow_ready:
         raise FileNotFoundError(f"Workflow is still being calibrated for {profile.name}")
 
@@ -486,14 +448,6 @@ def compile_simple_workflow(
     _set_binding(workflow, bindings.get("batch_size"), max(1, min(int(batch_size), profile.max_batch)))
     # The SDA diversity LoRA only acts on the first sampling steps; strength 0 makes it a no-op.
     _set_binding(workflow, bindings.get("sda_strength"), 1.0 if mode in profile.sda_modes else 0.0)
-
-    if not profile.fixed_sampling:
-        preset = _load_preset(profile, quality)
-        preset_bindings = bindings.get("preset") if isinstance(bindings.get("preset"), dict) else {}
-        overrides = preset.get("overrides") if isinstance(preset.get("overrides"), dict) else {}
-        for key, value in overrides.items():
-            _set_binding(workflow, preset_bindings.get(key), value)
-
     return workflow
 
 

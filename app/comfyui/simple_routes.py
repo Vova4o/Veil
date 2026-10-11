@@ -3,28 +3,38 @@ from __future__ import annotations
 import base64
 import binascii
 import io
+import json
 import logging
 import os
+import queue
 import random
 import shutil
 import subprocess
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, Response, current_app, jsonify, render_template, request
 from pydantic import BaseModel
 
 from app import database as db
 from app import library as media_library
-from app.ai.enhancement import PromptEnhancementService
+from app.ai.execution import ExecutionRouter
 from app.ai.profiles import AIProfileStore
-from app.ai.prompting import PromptOperation, PromptScenario, PromptTask
-from app.ai.reconstruction import SceneAnalysisService
-from app.ai.translation import PromptText
 from app.config_store import ConfigStore
 
 from .client import ComfyUIClient, ComfyUIClientError
+from .create_agent import (
+    CreateAgentError,
+    CreateAgentResult,
+    instruction_paths,
+    pick_agent_profile,
+    run_create_agent,
+)
 from .detector import detect_comfyui
 from .node_packs import (
     NodePackInstallError,
@@ -32,11 +42,11 @@ from .node_packs import (
     install_node_pack,
     installed_node_packs,
 )
+from .progress_monitor import ProgressMonitor, monitor_for
 from .simple_downloader import SimpleModelDownloaderError, SimpleModelDownloaderService
 from .simple_profiles import (
     APPROVED_PROFILES,
     ApprovedProfile,
-    QualityPresetLevel,
     check_profile_health,
     compile_edit_workflow,
     compile_simple_workflow,
@@ -63,17 +73,16 @@ def _ai_profile_store() -> AIProfileStore:
     )
 
 
-def _list_ai_profiles() -> list[dict[str, Any]]:
-    ai_data = _ai_profile_store().list()
-    if isinstance(ai_data, dict):
-        return ai_data.get("profiles", [])
-    if isinstance(ai_data, list):
-        return ai_data
-    return []
-
-
 def _client() -> ComfyUIClient:
     return client_from_store(_config_store())
+
+
+def _progress_monitor(client: Any) -> ProgressMonitor | None:
+    """The live-progress monitor of a real ComfyUI address (none for stand-in clients)."""
+    host, port = getattr(client, "host", None), getattr(client, "port", None)
+    if not isinstance(host, str) or not isinstance(port, int):
+        return None
+    return monitor_for(host, port)
 
 
 def _workflow_store() -> WorkflowStore:
@@ -91,21 +100,38 @@ def _catalog_payload() -> list[dict[str, Any]]:
     ]
 
 
-def _ai_status_payload() -> dict[str, Any]:
-    ai_profiles = _list_ai_profiles()
-    has_text = any(
-        "text" in profile.get("roles", []) or "translator" in profile.get("roles", [])
-        for profile in ai_profiles
-    )
-    has_vision = any(
-        "vision" in profile.get("roles", []) or profile.get("multimodal") is True
-        for profile in ai_profiles
-    )
+def _agent_summary(profile: dict[str, Any] | None) -> dict[str, Any] | None:
+    if profile is None:
+        return None
+    try:
+        capabilities = ExecutionRouter().capabilities_for(profile)
+        accepts_images = bool(capabilities.image_inputs)
+    except Exception:
+        accepts_images = False
+    roles = set(profile.get("roles") or ())
     return {
-        "available": bool(ai_profiles),
-        "has_text": has_text,
-        "has_vision": has_vision,
-        "profile_count": len(ai_profiles),
+        "name": profile.get("name"),
+        "kind": profile.get("kind"),
+        "cli_type": profile.get("cli_type"),
+        "model": profile.get("model"),
+        "sees_images": accepts_images and (profile.get("multimodal") is True or "vision" in roles),
+    }
+
+
+def _agent_status_payload() -> dict[str, Any]:
+    """Which agent Create will use for text and for photo modes (Integrations defaults)."""
+    store = _ai_profile_store()
+    try:
+        text_agent = _agent_summary(pick_agent_profile(store, wants_image=False))
+        photo_agent = _agent_summary(pick_agent_profile(store, wants_image=True))
+    except Exception as exc:
+        logger.debug("Create agent status failed: %s", exc)
+        text_agent = photo_agent = None
+    return {
+        "available": text_agent is not None or photo_agent is not None,
+        "text": text_agent,
+        "photo": photo_agent,
+        "instruction_files": instruction_paths(),
     }
 
 
@@ -269,9 +295,9 @@ def simple_ambient():
     return jsonify({"items": _ambient_payload(max(1, min(limit, 72)), current_id=current_id)})
 
 
-@simple_blueprint.route("/api/simple/ai-status", methods=["GET"])
-def simple_ai_status():
-    return jsonify(_ai_status_payload())
+@simple_blueprint.route("/api/simple/agent-status", methods=["GET"])
+def simple_agent_status():
+    return jsonify(_agent_status_payload())
 
 
 @simple_blueprint.route("/api/simple/bootstrap", methods=["GET"])
@@ -280,7 +306,7 @@ def simple_bootstrap():
         "profiles": _catalog_payload(),
         "default_profile_id": next(iter(APPROVED_PROFILES), None),
         "ambient_candidates": _ambient_payload(),
-        "ai_status": _ai_status_payload(),
+        "agent_status": _agent_status_payload(),
     })
 
 
@@ -492,12 +518,17 @@ def simple_pick_comfyui_directory():
     })
 
 
+def _default_profile_id() -> str:
+    return next(iter(APPROVED_PROFILES), "")
+
+
 class SimpleGenerateRequest(BaseModel):
-    profile_id: str = "model_01"
+    profile_id: str = ""
+    # The final model prompt (written by the agent, or edited by hand) or the edit command.
     prompt: str = ""
-    improve_with_ai: bool = True
+    # What the user typed; stored with the result next to the prompt.
+    user_request: str | None = None
     aspect_ratio: str = "1:1"
-    quality: str = "standard"
     batch_size: int = 1
     seed: int = -1
     reference_image: str | None = None
@@ -507,106 +538,20 @@ class SimpleGenerateRequest(BaseModel):
     # edit only: a calibrated edit profile id and an optional donor photo (second reference).
     edit_profile: str | None = None
     subject_image: str | None = None
+    # The agent that wrote the prompt, for metadata only.
+    agent_name: str | None = None
 
 
-def _quality_level(value: str) -> QualityPresetLevel:
-    normalized = (value or "standard").casefold()
-    if normalized in {"high", "maximum"}:
-        normalized = "detailed"
-    try:
-        return QualityPresetLevel(normalized)
-    except ValueError:
-        return QualityPresetLevel.STANDARD
-
-
-def _first_profile_for_role(role: str) -> dict[str, Any] | None:
-    for profile in _list_ai_profiles():
-        roles = profile.get("roles", [])
-        if role in roles:
-            return profile
-        if role == "vision" and profile.get("multimodal") is True:
-            return profile
-        if role == "text" and "translator" in roles:
-            return profile
-    return None
-
-
-def _prepare_prompt(
-    profile: ApprovedProfile,
-    req: SimpleGenerateRequest,
-) -> tuple[str, str, bool, str | None]:
-    positive_prompt = req.prompt.strip()
-    negative_prompt = (
-        req.negative_prompt
-        if req.negative_prompt is not None
-        else profile.default_negative_prompt
-    )
-    ai_improved = False
-    explanation = None
-
-    if req.reference_image and req.reference_image.startswith("data:image/"):
-        vision_profile = _first_profile_for_role("vision")
-        if vision_profile:
-            try:
-                ai_store = _ai_profile_store()
-                scene_service = SceneAnalysisService()
-                task = PromptTask(
-                    operation=PromptOperation.RECONSTRUCT,
-                    family=profile.prompt_family,
-                    scenario=PromptScenario.ILLUSTRATION_ART,
-                    model_style=profile.prompt_style,
-                )
-                outcome = scene_service.analyze(
-                    profile=vision_profile,
-                    task=task,
-                    image_data_url=req.reference_image,
-                    api_key=ai_store.resolve_api_key(vision_profile),
-                )
-                subjects = ", ".join(
-                    subject.kind for subject in outcome.scene_spec.subjects if subject.kind
-                )
-                background = outcome.scene_spec.composition.background or ""
-                reconstructed = f"{subjects}, {background}".strip(", ")
-                if reconstructed:
-                    positive_prompt = (
-                        f"{positive_prompt}, {reconstructed}"
-                        if positive_prompt
-                        else reconstructed
-                    )
-                    ai_improved = True
-                    explanation = "Reconstructed from reference image"
-            except Exception as exc:
-                logger.warning("Vision reconstruction fallback: %s", exc)
-
-    elif req.improve_with_ai and positive_prompt:
-        text_profile = _first_profile_for_role("text")
-        if text_profile:
-            try:
-                ai_store = _ai_profile_store()
-                outcome = PromptEnhancementService().enhance(
-                    profile=text_profile,
-                    task=PromptTask(
-                        operation=PromptOperation.ENHANCE,
-                        family=profile.prompt_family,
-                        scenario=PromptScenario.ILLUSTRATION_ART,
-                        model_style=profile.prompt_style,
-                    ),
-                    source=PromptText(positive_prompt=positive_prompt),
-                    api_key=ai_store.resolve_api_key(text_profile),
-                )
-                enhanced = outcome.enhancement.enhanced
-                if enhanced.positive_prompt:
-                    positive_prompt = enhanced.positive_prompt
-                    if enhanced.negative_prompt:
-                        negative_prompt = enhanced.negative_prompt
-                    ai_improved = True
-                    explanation = "Enhanced with AI prompt compiler"
-            except Exception as exc:
-                logger.warning("AI prompt improvement fallback: %s", exc)
-
-    if not positive_prompt:
-        positive_prompt = "Highly detailed image matching the provided visual direction"
-    return positive_prompt, negative_prompt or "", ai_improved, explanation
+class SimpleAgentRequest(BaseModel):
+    profile_id: str = ""
+    mode: Literal["text", "reference", "edit"] = "text"
+    request: str = ""
+    previous_prompt: str | None = None
+    aspect_ratio: str = "1:1"
+    reference_image: str | None = None
+    subject_image: str | None = None
+    # An Integrations profile id that replaces the default agent for this run.
+    agent_profile_id: str | None = None
 
 
 MAX_SOURCE_IMAGE_BYTES = 40 * 1024 * 1024
@@ -634,6 +579,74 @@ def _decode_image_data_url(value: str | None) -> tuple[bytes, tuple[int, int]] |
         return None
 
 
+# Formats every browser shows; anything else Pillow reads is converted to PNG.
+_BROWSER_IMAGE_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "GIF": "image/gif"}
+REMOTE_IMAGE_TIMEOUT_SECONDS = 20
+
+
+def fetch_remote_image(url: str) -> dict[str, Any]:
+    """Download one image from a link for a Create reference.
+
+    The browser cannot read most foreign images (CORS), so the server fetches them:
+    only http(s), at most ``MAX_SOURCE_IMAGE_BYTES``, and the bytes must be an image.
+    Raises ``ValueError`` with ``args = (message, code, status)``.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Paste a link that starts with http:// or https://.", "url_invalid", 400)
+    request_obj = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (ComfyUI Meta Viewer)",
+        "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.5",
+    })
+    try:
+        with urllib.request.urlopen(request_obj, timeout=REMOTE_IMAGE_TIMEOUT_SECONDS) as response:
+            declared = response.headers.get("Content-Length")
+            if declared and declared.isdigit() and int(declared) > MAX_SOURCE_IMAGE_BYTES:
+                raise ValueError("The image is larger than 20 MB.", "image_too_large", 413)
+            data = response.read(MAX_SOURCE_IMAGE_BYTES + 1)
+            final_url = response.geturl() or url
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"The site answered {exc.code} for this link.", "fetch_failed", 502) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise ValueError(f"Could not download the image: {reason}", "fetch_failed", 502) from exc
+    if len(data) > MAX_SOURCE_IMAGE_BYTES:
+        raise ValueError("The image is larger than 20 MB.", "image_too_large", 413)
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image_format = str(image.format or "")
+            width, height = int(image.width), int(image.height)
+            mime = _BROWSER_IMAGE_FORMATS.get(image_format)
+            if mime is None:
+                converted = io.BytesIO()
+                image.convert("RGBA" if "A" in image.getbands() else "RGB").save(converted, format="PNG")
+                data, mime = converted.getvalue(), "image/png"
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError("The link does not point to an image.", "not_an_image", 415) from exc
+    name = Path(urllib.parse.unquote(urllib.parse.urlparse(final_url).path)).name or "image"
+    return {
+        "data_url": f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}",
+        "name": name[:120],
+        "width": width,
+        "height": height,
+        "size": len(data),
+        "url": final_url,
+    }
+
+
+@simple_blueprint.route("/api/simple/fetch-image", methods=["POST"])
+def simple_fetch_image():
+    """Fetch an image from a pasted or dropped link for a reference slot."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify(fetch_remote_image(str(payload.get("url") or "").strip()))
+    except ValueError as exc:
+        message, code, status = exc.args
+        return jsonify({"error": message, "code": code}), status
+
+
 def _comfyui_offline_response():
     return jsonify({
         "error": "Could not connect to or automatically start ComfyUI.",
@@ -659,6 +672,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
     if req.mode == "edit" and not req.prompt.strip():
         return jsonify({"error": "Describe what to change in the photo.", "code": "instruction_required"}), 400
+    if not req.prompt.strip():
+        return jsonify({"error": "The prompt is empty.", "code": "prompt_required"}), 400
     subject = None
     edit_profile = None
     if req.mode == "edit":
@@ -701,10 +716,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
 
     # Edit negatives name what must disappear; they only act on cfg > 1 edit profiles.
     edit_negative = (req.negative_prompt or "").strip() if req.mode == "edit" else ""
-    if req.mode == "edit":
-        positive_prompt, ai_improved, ai_explanation = req.prompt.strip(), False, None
-    else:
-        positive_prompt, _negative, ai_improved, ai_explanation = _prepare_prompt(profile, req)
+    positive_prompt = req.prompt.strip()
+    user_request = (req.user_request if req.user_request is not None else req.prompt).strip()
 
     client = _client()
     source_name = subject_name = None
@@ -726,7 +739,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         template_version="3.0.0",
         values={
             "mode": req.mode,
-            "user_request": req.prompt,
+            "user_request": user_request,
+            "agent": req.agent_name,
             "positive_prompt": positive_prompt,
             "aspect_ratio": req.aspect_ratio,
             "width": width,
@@ -741,7 +755,11 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         resource_selections={},
     )
 
-    client_id = str(uuid.uuid4())
+    # One client id per ComfyUI address: ComfyUI reports steps only to the queuing client.
+    monitor = _progress_monitor(client)
+    if monitor is not None and not monitor.ensure_connected(timeout=2.0):
+        logger.info("ComfyUI progress socket is not connected; Create shows estimated times only")
+    client_id = monitor.client_id if monitor is not None else str(uuid.uuid4())
     runs: list[dict[str, Any]] = []
     for index, seed in enumerate(seeds):
         try:
@@ -781,8 +799,9 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
                     "extra_pnginfo": {
                         "cmv_simple_profile": profile.id,
                         "cmv_create_mode": req.mode,
-                        "cmv_user_request": req.prompt,
+                        "cmv_user_request": user_request,
                         "cmv_prompt": positive_prompt,
+                        **({"cmv_agent": req.agent_name} if req.agent_name else {}),
                         **({"cmv_edit_profile": edit_profile.id} if edit_profile else {}),
                         **({"cmv_negative_prompt": edit_negative} if edit_negative else {}),
                     },
@@ -803,6 +822,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
             logger.warning("Create batch stopped after %s of %s images: %s", len(runs), batch, exc)
             break
         prompt_id = str(result["prompt_id"])
+        if monitor is not None:
+            monitor.track(prompt_id, workflow)
         run = wf_store.create_run(draft_id=draft.id, prompt_id=prompt_id, client_id=client_id)
         runs.append({"run_id": run.id, "prompt_id": prompt_id, "seed": seed})
 
@@ -821,9 +842,116 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         "height": height,
         "positive_prompt": positive_prompt,
         "negative_prompt": edit_negative,
-        "ai_improved": ai_improved,
-        "ai_explanation": ai_explanation,
     })
+
+
+@simple_blueprint.route("/api/simple/agent", methods=["POST"])
+def simple_agent():
+    """Let the configured agent write the prompt (or edit command) for one Create run."""
+    try:
+        req = SimpleAgentRequest.model_validate(request.get_json(silent=True) or {})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    profile = APPROVED_PROFILES.get(req.profile_id or _default_profile_id())
+    if not profile:
+        return jsonify({"error": "Create has no model profile.", "code": "profile_missing"}), 500
+    if req.mode not in profile.modes:
+        return jsonify({"error": f"Mode '{req.mode}' is not supported.", "code": "mode_unsupported"}), 400
+
+    image = subject = None
+    if req.mode in {"reference", "edit"}:
+        image = _decode_image_data_url(req.reference_image)
+        if image is None:
+            return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
+    if req.mode == "edit" and req.subject_image:
+        subject = _decode_image_data_url(req.subject_image)
+        if subject is None:
+            return jsonify({"error": "The second photo is not a valid image.", "code": "subject_invalid"}), 400
+    dimensions = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
+    run_kwargs: dict[str, Any] = {
+        "profile": profile,
+        "store": _ai_profile_store(),
+        "mode": req.mode,
+        "request": req.request,
+        "image": image[0] if image else None,
+        "subject": subject[0] if subject else None,
+        "previous_prompt": req.previous_prompt,
+        "dimensions": dimensions,
+        "agent_profile_id": req.agent_profile_id,
+    }
+
+    def finish(result: CreateAgentResult) -> dict[str, Any]:
+        payload = result.to_dict()
+        payload.update({"mode": req.mode, "profile_id": profile.id, "width": dimensions[0], "height": dimensions[1]})
+        if result.edit_profile:
+            chosen = next((item for item in profile.edit_profiles if item.id == result.edit_profile), None)
+            if chosen:
+                payload["edit_profile_label"] = chosen.label
+                payload["seconds_per_image"] = chosen.seconds
+        return payload
+
+    if request.args.get("stream") == "1":
+        return _stream_agent_run(run_kwargs, finish)
+    try:
+        result = run_create_agent(**run_kwargs)
+    except CreateAgentError as exc:
+        return jsonify(_agent_error_payload(exc)), exc.status
+    return jsonify(finish(result))
+
+
+def _agent_error_payload(exc: CreateAgentError) -> dict[str, Any]:
+    return {
+        "error": str(exc),
+        "code": exc.code,
+        "technical_error": (exc.technical_error or "")[:4000] or None,
+    }
+
+
+AGENT_STREAM_KEEPALIVE_SECONDS = 15
+
+
+def _stream_agent_run(run_kwargs: dict[str, Any], finish) -> Response:
+    """Run the agent in a worker and stream its progress as server-sent events.
+
+    Every event is ``data: {json}``: ``progress`` (``phase`` plus an optional ``log``
+    line or ``text``), then exactly one ``result`` (the JSON answer of the plain
+    request) or ``error`` (with the HTTP ``status`` the plain request would use).
+    A client that goes away does not stop the agent; its answer is dropped.
+    """
+    events: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue()
+
+    def worker() -> None:
+        try:
+            result = run_create_agent(**run_kwargs, on_progress=lambda event: events.put(("progress", event)))
+            events.put(("result", finish(result)))
+        except CreateAgentError as exc:
+            events.put(("error", {**_agent_error_payload(exc), "status": exc.status}))
+        except Exception as exc:
+            logger.exception("Create agent stream failed")
+            events.put(("error", {
+                "error": "The agent run failed.",
+                "code": "agent_failed",
+                "status": 500,
+                "technical_error": str(exc)[:4000] or None,
+            }))
+
+    threading.Thread(target=worker, name="cmv-create-agent", daemon=True).start()
+
+    def generate():
+        while True:
+            try:
+                kind, data = events.get(timeout=AGENT_STREAM_KEEPALIVE_SECONDS)
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+                continue
+            yield f"data: {json.dumps({'event': kind, **data}, ensure_ascii=False)}\n\n"
+            if kind in {"result", "error"}:
+                return
+
+    response = Response(generate(), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 @simple_blueprint.route("/api/simple/generate", methods=["POST"])
@@ -833,7 +961,7 @@ def simple_generate():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
-    profile = APPROVED_PROFILES.get(req.profile_id)
+    profile = APPROVED_PROFILES.get(req.profile_id or _default_profile_id())
     if not profile:
         return jsonify({"error": f"Unknown model '{req.profile_id}'"}), 400
 
@@ -843,104 +971,7 @@ def simple_generate():
             "code": "workflow_pending",
         }), 409
 
-    if profile.fixed_sampling:
-        return _generate_fixed(profile, req)
-
-    health = check_profile_health(profile, _inventory_or_none())
-    if health["status"] == "not_installed":
-        return jsonify({
-            "error": "Required model components are missing.",
-            "code": "model_not_installed",
-            "missing_resources": health["missing_resources"],
-        }), 409
-
-    positive_prompt, negative_prompt, ai_improved, ai_explanation = _prepare_prompt(profile, req)
-    quality_level = _quality_level(req.quality)
-
-    try:
-        compiled_workflow = compile_simple_workflow(
-            profile,
-            positive_prompt=positive_prompt,
-            negative_prompt=negative_prompt,
-            aspect_ratio=req.aspect_ratio,
-            quality=quality_level,
-            batch_size=req.batch_size,
-            seed=req.seed,
-        )
-    except Exception as exc:
-        return jsonify({"error": f"Failed to compile workflow: {exc}"}), 500
-
-    wf_store = _workflow_store()
-    draft = wf_store.create_draft(
-        template_id=f"simple-{profile.id}",
-        template_version="2.0.0",
-        values={
-            "positive_prompt": positive_prompt,
-            "negative_prompt": negative_prompt,
-            "aspect_ratio": req.aspect_ratio,
-            "quality": quality_level.value,
-            "batch_size": req.batch_size,
-            "seed": req.seed,
-        },
-        resource_selections={},
-    )
-
-    from .manager import ensure_comfyui_online
-    online = ensure_comfyui_online(_config_store(), timeout=60.0)
-    if not online:
-        return jsonify({
-            "error": "Could not connect to or automatically start ComfyUI.",
-            "code": "comfyui_connection_failed",
-            "suggestion": "ComfyUI is not running and automatic startup failed. Check the ComfyUI path in settings using the gear icon in the header.",
-        }), 503
-
-    client_id = str(uuid.uuid4())
-    try:
-        result = _client().queue_prompt(
-            compiled_workflow,
-            client_id=client_id,
-            extra_data={
-                "comfy_meta_viewer": {
-                    "simple_mode": True,
-                    "profile_id": profile.id,
-                    "quality": quality_level.value,
-                    "draft_id": draft.id,
-                },
-                "extra_pnginfo": {
-                    "cmv_simple_profile": profile.id,
-                    "cmv_prompt": positive_prompt,
-                },
-            },
-        )
-        prompt_id = str(result["prompt_id"])
-    except ComfyUIClientError as exc:
-        return jsonify({
-            "error": f"ComfyUI rejected prompt: {exc}",
-            "code": "comfyui_rejected",
-            "suggestion": "Make sure ComfyUI is running and the selected model components are installed.",
-        }), 502
-    except Exception as exc:
-        return jsonify({
-            "error": f"Connection error: {exc}",
-            "code": "comfyui_connection_failed",
-            "suggestion": "Could not reach ComfyUI. Check the connection and try again.",
-        }), 503
-
-    run = wf_store.create_run(
-        draft_id=draft.id,
-        prompt_id=prompt_id,
-        client_id=client_id,
-    )
-    return jsonify({
-        "ok": True,
-        "run_id": run.id,
-        "prompt_id": prompt_id,
-        "profile_id": profile.id,
-        "positive_prompt": positive_prompt,
-        "negative_prompt": negative_prompt,
-        "ai_improved": ai_improved,
-        "ai_explanation": ai_explanation,
-    })
+    return _generate_fixed(profile, req)
 
 
 def _output_asset_payload(asset_id: int) -> dict[str, Any] | None:
@@ -970,8 +1001,9 @@ def _output_asset_payload(asset_id: int) -> dict[str, Any] | None:
 @simple_blueprint.route("/api/simple/runs/<int:run_id>", methods=["GET"])
 def simple_get_run(run_id: int):
     wf_store = _workflow_store()
+    client = _client()
     try:
-        run = WorkflowExecutionService(store=wf_store, client=_client()).refresh(run_id)
+        run = WorkflowExecutionService(store=wf_store, client=client).refresh(run_id)
     except Exception as exc:
         import logging
         logging.getLogger("comfy-meta-viewer.comfyui").warning(
@@ -994,6 +1026,8 @@ def simple_get_run(run_id: int):
         "status": run.status,
         "outputs": outputs,
         "is_complete": run.status in {"completed", "failed", "cancelled"},
+        # Live sampler progress from the ComfyUI WebSocket; null when it was not seen.
+        "live": monitor.snapshot(run.prompt_id) if (monitor := _progress_monitor(client)) else None,
     })
 
 
@@ -1005,56 +1039,3 @@ def simple_cancel_run(run_id: int):
         return jsonify({"ok": True, "run": run.model_dump(mode="json")})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
-
-
-@simple_blueprint.route("/api/simple/assistant/chat", methods=["POST"])
-def simple_assistant_chat():
-    data = request.get_json(silent=True) or {}
-    message = str(data.get("message", "")).strip()
-    profile_id = str(data.get("profile_id", "model_01"))
-    history = data.get("history", [])
-    current_prompt = str(data.get("current_prompt", "")).strip()
-    if not message:
-        return jsonify({"error": "Message is required"}), 400
-
-    profile = APPROVED_PROFILES.get(profile_id) or next(iter(APPROVED_PROFILES.values()), None)
-    if profile is None:
-        return jsonify({"error": "No Simple Mode models configured"}), 500
-
-    text_profile = _first_profile_for_role("text")
-    if not text_profile:
-        return jsonify({
-            "error": "No AI text profile configured. Add an AI provider in Integrations.",
-            "code": "no_ai_profile",
-        }), 400
-
-    try:
-        from app.ai.transport import run_openai_compatible_chat
-
-        system_prompt = (
-            "You are a concise prompt assistant for ComfyUI image generation.\n"
-            f"Selected user model: {profile.name} ({profile.technical_name}).\n"
-            f"Prompt family: {profile.prompt_family.value}.\n"
-            "Help refine composition, lighting, subject details and clarity. "
-            "Do not add generic quality buzzwords unless they are technically required by the model. "
-            "Return only the final positive image prompt, without explanations, labels, markdown, or a negative prompt."
-        )
-        messages = [{"role": "system", "content": system_prompt}]
-        if current_prompt:
-            messages.append({"role": "system", "content": f"Current prompt: {current_prompt}"})
-        for item in history[-8:]:
-            messages.append({
-                "role": item.get("role", "user"),
-                "content": item.get("content", ""),
-            })
-        messages.append({"role": "user", "content": message})
-
-        ai_store = _ai_profile_store()
-        response = run_openai_compatible_chat(
-            profile=text_profile,
-            messages=messages,
-            api_key=ai_store.resolve_api_key(text_profile),
-        )
-        return jsonify({"reply": response.text, "profile_id": profile.id})
-    except Exception as exc:
-        return jsonify({"error": f"AI Assistant error: {exc}"}), 500

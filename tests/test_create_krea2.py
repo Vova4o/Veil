@@ -47,9 +47,8 @@ def _png_data_url(width=640, height=960) -> str:
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def test_krea2_profile_is_default_and_fixed_recipe():
-    assert next(iter(APPROVED_PROFILES)) == "krea2_moody_v40"
-    assert PROFILE.fixed_sampling
+def test_krea2_profile_is_the_only_create_model():
+    assert list(APPROVED_PROFILES) == ["krea2_moody_v40"]
     assert PROFILE.max_batch == 4
     assert PROFILE.modes == ("text", "reference", "edit")
     assert PROFILE.sda_modes == ("text",)

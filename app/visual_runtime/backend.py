@@ -59,7 +59,7 @@ def check_studio_backend_health(inventory: Any | None = None) -> dict[str, Any]:
         return {
             "ready": False,
             "status": "unknown",
-            "message": "Проверяем локальные компоненты",
+            "message": "Checking local components",
             "filename": STUDIO_BACKEND_MODEL_FILENAME,
         }
     folder_files = models.get(STUDIO_BACKEND_RESOURCE_FOLDER, [])
@@ -74,13 +74,13 @@ def check_studio_backend_health(inventory: Any | None = None) -> dict[str, Any]:
         return {
             "ready": True,
             "status": "ready",
-            "message": "Studio backend готов",
+            "message": "Studio backend is ready",
             "filename": STUDIO_BACKEND_MODEL_FILENAME,
         }
     return {
         "ready": False,
         "status": "not_installed",
-        "message": f"Нет Studio backend: {STUDIO_BACKEND_MODEL_FILENAME}",
+        "message": f"Studio backend is missing: {STUDIO_BACKEND_MODEL_FILENAME}",
         "filename": STUDIO_BACKEND_MODEL_FILENAME,
     }
 
