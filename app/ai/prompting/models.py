@@ -18,6 +18,8 @@ class PromptOperation(str, Enum):
     ADAPT = "adapt"
     TRANSLATE = "translate"
     ENHANCE = "enhance"
+    # Photo edit command for an instruction-edit graph; only Create compiles it.
+    EDIT = "edit"
 
 
 class PromptScenario(str, Enum):
@@ -143,6 +145,22 @@ class PromptResult(StrictModel):
     schema_version: Literal["1"] = "1"
     positive_prompt: str = Field(min_length=1, max_length=40_000)
     negative_prompt: str = Field(default="", max_length=20_000)
+    # Create only: the calibrated edit profile the agent chose, and a short message for the user.
+    edit_profile: str | None = Field(default=None, max_length=40)
+    note: str = Field(default="", max_length=2_000)
+
+    @field_validator("edit_profile")
+    @classmethod
+    def clean_edit_profile(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("note")
+    @classmethod
+    def clean_note(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("positive_prompt")
     @classmethod

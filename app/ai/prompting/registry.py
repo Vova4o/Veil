@@ -105,6 +105,8 @@ OPERATION_MANIFESTS: dict[PromptOperation, ManifestDefinition] = {
         families=_ALL_FAMILIES,
     )
     for operation in PromptOperation
+    # Edit commands exist only in the Create content (content/create), not per family.
+    if operation is not PromptOperation.EDIT
 }
 
 
