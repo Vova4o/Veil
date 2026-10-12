@@ -241,11 +241,8 @@ def _custom_nodes_root() -> Path | None:
 
 
 def _profile_health(profile: ApprovedProfile, inventory: Any | None = None) -> dict[str, Any]:
-    installed = (
-        installed_node_packs(profile.custom_nodes, _custom_nodes_root())
-        if profile.custom_nodes
-        else None
-    )
+    nodes_root = _custom_nodes_root() if profile.custom_nodes else None
+    installed = installed_node_packs(profile.custom_nodes, nodes_root) if nodes_root is not None else None
     return check_profile_health(
         profile,
         inventory if inventory is not None else _inventory_or_none(),
@@ -317,8 +314,8 @@ def simple_profile_status(profile_id: str):
     if not profile:
         return jsonify({"error": "Model not found"}), 404
     if request.args.get("refresh") == "1":
-        from .workflow_inventory import invalidate_inventory_cache
-        invalidate_inventory_cache()
+        from .workflow_inventory import invalidate_runtime_inventory
+        invalidate_runtime_inventory()
     return jsonify({
         "profile_id": profile_id,
         "health": _profile_health(profile),
@@ -433,7 +430,7 @@ def simple_cancel_download(download_id: int):
         return jsonify({"error": str(exc)}), 404
 
 
-def _pick_windows_directory(initial_path: str) -> str | None:
+def _pick_windows_directory(initial_path: str, title: str) -> str | None:
     powershell = shutil.which("powershell.exe") or shutil.which("powershell") or shutil.which("pwsh")
     if not powershell:
         raise RuntimeError("PowerShell не найден, поэтому системный выбор папки недоступен.")
@@ -441,8 +438,8 @@ def _pick_windows_directory(initial_path: str) -> str | None:
 Add-Type -AssemblyName System.Windows.Forms
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Выберите папку ComfyUI'
-$dialog.ShowNewFolderButton = $false
+$dialog.Description = $env:CMV_PICKER_TITLE
+$dialog.ShowNewFolderButton = $true
 $initial = $env:CMV_INITIAL_DIRECTORY
 if ($initial -and (Test-Path -LiteralPath $initial)) { $dialog.SelectedPath = $initial }
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -451,6 +448,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 """
     env = os.environ.copy()
     env["CMV_INITIAL_DIRECTORY"] = initial_path
+    env["CMV_PICKER_TITLE"] = title
     result = subprocess.run(
         [powershell, "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", script],
         capture_output=True,
@@ -468,7 +466,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     return selected[-1].strip() if selected else None
 
 
-def _pick_tk_directory(initial_path: str) -> str | None:
+def _pick_tk_directory(initial_path: str, title: str) -> str | None:
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -482,9 +480,9 @@ def _pick_tk_directory(initial_path: str) -> str | None:
         except Exception:
             pass
         selected = filedialog.askdirectory(
-            title="Выберите папку ComfyUI",
+            title=title,
             initialdir=initial_path or None,
-            mustexist=True,
+            mustexist=False,
         )
         return str(selected).strip() or None
     finally:
@@ -500,11 +498,12 @@ def simple_pick_comfyui_directory():
         }), 403
     payload = request.get_json(silent=True) or {}
     initial_path = str(payload.get("initial_path") or "").strip()
+    title = str(payload.get("title") or "").strip()[:120] or "Choose a folder"
     try:
         selected = (
-            _pick_windows_directory(initial_path)
+            _pick_windows_directory(initial_path, title)
             if os.name == "nt"
-            else _pick_tk_directory(initial_path)
+            else _pick_tk_directory(initial_path, title)
         )
     except (RuntimeError, subprocess.TimeoutExpired) as exc:
         return jsonify({"error": str(exc), "code": "directory_picker_unavailable"}), 503
@@ -692,7 +691,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     from .manager import ensure_comfyui_online
     from .workflow_inventory import invalidate_runtime_inventory
 
-    if not ensure_comfyui_online(_config_store(), timeout=60.0):
+    # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
+    if not ensure_comfyui_online(_config_store(), timeout=120.0):
         return _comfyui_offline_response()
     inventory = _inventory_or_none()
     if inventory is not None and not getattr(inventory, "online", False):

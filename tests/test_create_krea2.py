@@ -220,6 +220,36 @@ def test_health_treats_offline_nodes_as_unknown():
     assert health["modes_ready"]["text"] is True
 
 
+def test_status_refresh_drops_the_cached_inventory(create_env, monkeypatch):
+    from app.comfyui import workflow_inventory
+
+    dropped = []
+    monkeypatch.setattr(workflow_inventory, "invalidate_runtime_inventory", lambda: dropped.append(True))
+    resp = app.test_client().get("/api/simple/models/krea2_moody_v40/status?refresh=1")
+    assert resp.status_code == 200
+    assert resp.get_json()["health"]["status"] == "ready"
+    assert dropped == [True]
+
+
+def test_offline_health_trusts_node_packs_on_disk():
+    # ComfyUI loads a pack folder when it starts, so offline is not "restart" or "missing".
+    on_disk = check_profile_health(
+        PROFILE, _inventory(online=False, node_types=[]), installed_node_packs={"comfyui-krea2edit"}
+    )
+    assert on_disk["status"] == "ready"
+    assert on_disk["comfyui_online"] is False
+    assert on_disk["missing_nodes"] == []
+    assert on_disk["modes_ready"]["edit"] is True
+    assert on_disk["restart_required"] is False
+
+    absent = check_profile_health(PROFILE, _inventory(online=False, node_types=[]), installed_node_packs=set())
+    assert absent["nodes_known"] is True
+    assert absent["missing_nodes"][0]["installed_on_disk"] is False
+    assert absent["modes_ready"]["edit"] is False
+    assert absent["restart_required"] is False
+    assert absent["installable"] is True
+
+
 def test_health_reports_missing_models_with_download_links():
     health = check_profile_health(PROFILE, _inventory(missing_files=("krea2_turbo_sda_v1.0_comfy.safetensors",)))
     assert health["status"] == "not_installed"

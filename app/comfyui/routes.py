@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.config_store import ConfigStore
 
+from .desktop import (
+    DESKTOP_DOWNLOAD_URL,
+    FOLDER_SETTINGS,
+    desktop_folders,
+    desktop_installation_for,
+    find_desktop_installations,
+    launch_settings,
+    state_dir_of,
+)
 from .detector import detect_comfyui
 from .launcher import generate_launcher_script
 from .manager import ComfyUIMode, comfy_manager
@@ -16,6 +27,31 @@ def _config_store() -> ConfigStore:
     return current_app.config["CONFIG_STORE"]
 
 
+def _launch_request(payload: dict) -> dict:
+    """Saved settings with the request's overrides, as ComfyUI is launched with them."""
+    cfg = _config_store().comfyui_settings()
+    merged = {
+        **cfg,
+        "install_path": payload.get("install_path") or cfg.get("install_path"),
+        "host": payload.get("host") or cfg.get("host") or "127.0.0.1",
+        "port": int(payload.get("port") or cfg.get("port") or 8188),
+    }
+    for key in ("extra_args", "custom_python"):
+        if key in payload:
+            merged[key] = payload[key]
+    return launch_settings(merged, state_dir=state_dir_of(_config_store()))
+
+
+def _public_settings(store: ConfigStore) -> dict:
+    """Saved settings without the token, naming the ComfyUI they resolve to."""
+    settings = store.comfyui_settings()
+    launch = launch_settings(settings, state_dir=state_dir_of(store))
+    settings["has_civitai_token"] = bool(settings.pop("civitai_api_token", None))
+    settings["install_path"] = launch.get("install_path")
+    settings["desktop_installation_id"] = launch.get("desktop_installation_id")
+    return settings
+
+
 @comfyui_blueprint.route("/settings/comfyui")
 def comfyui_settings_page():
     return render_template("workflow_editor.html")
@@ -25,22 +61,46 @@ def comfyui_settings_page():
 def comfyui_config():
     store = _config_store()
     if request.method == "GET":
-        settings = store.comfyui_settings()
-        return jsonify(settings)
+        return jsonify(_public_settings(store))
 
     payload = request.get_json(silent=True) or {}
-    updated = store.update_comfyui_settings(
-        install_path=payload.get("install_path"),
-        custom_python=payload.get("custom_python"),
+    # CMV's own folders; an empty value follows Desktop again.
+    folders: dict[str, str] = {}
+    for key in FOLDER_SETTINGS:
+        if key not in payload:
+            continue
+        value = str(payload.get(key) or "").strip()
+        if value:
+            if not Path(value).is_absolute():
+                return jsonify({"error": f"Choose a full folder path: {value}", "code": "folder_invalid", "field": key}), 400
+            try:
+                Path(value).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                return jsonify({"error": f"Cannot use folder {value}: {exc}", "code": "folder_invalid", "field": key}), 400
+        folders[key] = value
+
+    install_path, custom_python = payload.get("install_path"), payload.get("custom_python")
+    installation_id = payload.get("desktop_installation_id")
+    if installation_id:
+        installation = next((item for item in find_desktop_installations() if item.id == installation_id), None)
+        if installation is None:
+            return jsonify({"error": "This ComfyUI Desktop installation was not found.", "code": "installation_not_found"}), 400
+        # Kept in step for code that reads the folder directly.
+        install_path, custom_python = str(installation.comfy_dir), ""
+
+    store.update_comfyui_settings(
+        install_path=install_path,
+        custom_python=custom_python,
         host=payload.get("host"),
         port=payload.get("port"),
         extra_args=payload.get("extra_args"),
         auto_start=payload.get("auto_start"),
         civitai_api_token=payload.get("civitai_api_token"),
+        desktop_installation_id=installation_id,
+        **folders,
     )
-    updated.pop("civitai_api_token", None)
     invalidate_runtime_inventory()
-    return jsonify(updated)
+    return jsonify(_public_settings(store))
 
 
 @comfyui_blueprint.route("/api/comfyui/detect", methods=["POST"])
@@ -48,8 +108,19 @@ def comfyui_detect():
     payload = request.get_json(silent=True) or {}
     path = payload.get("path", "")
     custom_python = payload.get("custom_python")
-    result = detect_comfyui(path, custom_python=custom_python)
-    return jsonify(result.to_dict())
+    result = detect_comfyui(path, custom_python=custom_python).to_dict()
+    desktop = desktop_installation_for(path)
+    result["desktop"] = desktop.to_dict() if desktop else None
+    return jsonify(result)
+
+
+@comfyui_blueprint.route("/api/comfyui/installations", methods=["GET"])
+def comfyui_installations():
+    return jsonify({
+        "installations": [item.to_dict() for item in find_desktop_installations()],
+        "folders": desktop_folders(),
+        "download_url": DESKTOP_DOWNLOAD_URL,
+    })
 
 
 @comfyui_blueprint.route("/api/comfyui/status", methods=["GET"])
@@ -68,26 +139,18 @@ def comfyui_status():
 
 @comfyui_blueprint.route("/api/comfyui/start", methods=["POST"])
 def comfyui_start():
-    payload = request.get_json(silent=True) or {}
-    store = _config_store()
-    cfg = store.comfyui_settings()
-
-    install_path = payload.get("install_path") or cfg.get("install_path")
+    launch = _launch_request(request.get_json(silent=True) or {})
+    install_path, host, port = launch["install_path"], launch["host"], launch["port"]
     if not install_path:
         return jsonify({"error": "No installation path specified", "code": "missing_path"}), 400
-
-    host = payload.get("host") or cfg.get("host") or "127.0.0.1"
-    port = int(payload.get("port") or cfg.get("port") or 8188)
-    extra_args = payload.get("extra_args") if "extra_args" in payload else cfg.get("extra_args")
-    custom_python = payload.get("custom_python") if "custom_python" in payload else cfg.get("custom_python")
 
     try:
         info = comfy_manager.start_managed(
             install_path=install_path,
             host=host,
             port=port,
-            extra_args=extra_args,
-            custom_python=custom_python,
+            extra_args=launch.get("extra_args"),
+            custom_python=launch.get("custom_python"),
         )
         invalidate_runtime_inventory()
         return jsonify(info)
@@ -107,23 +170,15 @@ def comfyui_stop():
 
 @comfyui_blueprint.route("/api/comfyui/restart", methods=["POST"])
 def comfyui_restart():
-    payload = request.get_json(silent=True) or {}
-    store = _config_store()
-    cfg = store.comfyui_settings()
-
-    install_path = payload.get("install_path") or cfg.get("install_path")
-    host = payload.get("host") or cfg.get("host") or "127.0.0.1"
-    port = int(payload.get("port") or cfg.get("port") or 8188)
-    extra_args = payload.get("extra_args") if "extra_args" in payload else cfg.get("extra_args")
-    custom_python = payload.get("custom_python") if "custom_python" in payload else cfg.get("custom_python")
+    launch = _launch_request(request.get_json(silent=True) or {})
 
     try:
         info = comfy_manager.restart_managed(
-            install_path=install_path,
-            host=host,
-            port=port,
-            extra_args=extra_args,
-            custom_python=custom_python,
+            install_path=launch["install_path"],
+            host=launch["host"],
+            port=launch["port"],
+            extra_args=launch.get("extra_args"),
+            custom_python=launch.get("custom_python"),
         )
         invalidate_runtime_inventory()
         return jsonify(info)
@@ -152,24 +207,21 @@ def comfyui_logs():
 
 @comfyui_blueprint.route("/api/comfyui/launcher", methods=["POST"])
 def comfyui_launcher():
-    payload = request.get_json(silent=True) or {}
-    store = _config_store()
-    cfg = store.comfyui_settings()
-
-    install_path = payload.get("install_path") or cfg.get("install_path")
+    launch = _launch_request(request.get_json(silent=True) or {})
+    install_path = launch["install_path"]
     if not install_path:
         return jsonify({"error": "No installation path specified", "code": "missing_path"}), 400
 
-    detection = detect_comfyui(install_path, custom_python=payload.get("custom_python") or cfg.get("custom_python"))
+    detection = detect_comfyui(install_path, custom_python=launch.get("custom_python"))
     if not detection.is_valid:
         return jsonify({"error": detection.error, "code": "invalid_installation"}), 422
 
     try:
         script_path = generate_launcher_script(
             detection=detection,
-            extra_args=payload.get("extra_args") if "extra_args" in payload else cfg.get("extra_args"),
-            host=payload.get("host") or cfg.get("host") or "127.0.0.1",
-            port=int(payload.get("port") or cfg.get("port") or 8188),
+            extra_args=launch.get("extra_args"),
+            host=launch["host"],
+            port=launch["port"],
         )
         return jsonify({
             "script_path": str(script_path),

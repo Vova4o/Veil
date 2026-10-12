@@ -29,6 +29,15 @@ def _live_workers() -> dict[int, str]:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_comfy_desktop(tmp_path_factory, monkeypatch):
+    """Tests never read the developer's own ComfyUI Desktop installation."""
+    from app.comfyui import desktop
+
+    missing = tmp_path_factory.getbasetemp() / "no-comfy-desktop"
+    monkeypatch.setattr(desktop, "desktop_data_dir", lambda: missing)
+
+
+@pytest.fixture(autouse=True)
 def _warn_on_leaked_threads():
     before = _live_workers()
     yield

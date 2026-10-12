@@ -967,10 +967,11 @@ The `/api/comfyui/*` runtime routes below are part of the supported public OpenA
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET/POST` | `/api/comfyui/config` | Read or update installation path, host, port, interpreter, and launch arguments |
-| `POST` | `/api/comfyui/detect` | Validate a standard or Windows Portable installation |
+| `GET/POST` | `/api/comfyui/config` | Read or update the ComfyUI Desktop installation, CMV's own models, input and output folders, host, port, and launch arguments |
+| `GET` | `/api/comfyui/installations` | List ComfyUI Desktop installations (last used first) and Desktop's models, input and output folders |
+| `POST` | `/api/comfyui/detect` | Validate an installation folder; names its ComfyUI Desktop installation when there is one |
 | `GET` | `/api/comfyui/status` | Return managed/external mode, health, queue, installation, and hardware data |
-| `POST` | `/api/comfyui/start` | Start the detected local installation |
+| `POST` | `/api/comfyui/start` | Start the chosen ComfyUI Desktop installation with Desktop's launch arguments and CMV's folders; the process ends with CMV |
 | `POST` | `/api/comfyui/stop` | Stop only the CMV-managed process |
 | `POST` | `/api/comfyui/restart` | Restart the managed process |
 | `POST` | `/api/comfyui/interrupt` | Interrupt active ComfyUI execution |

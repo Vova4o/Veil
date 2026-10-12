@@ -133,9 +133,11 @@ else {
                 return new Response('Backend unavailable', { status: 503 });
             }
         });
-        ipcMain.handle('cmv:choose-folder', async event => {
+        ipcMain.handle('cmv:choose-folder', async (event, options?: { title?: unknown; defaultPath?: unknown }) => {
             trustSender(event);
-            const result = await dialog.showOpenDialog(window!, { properties: ['openDirectory'], title: 'Open source folder' });
+            const title = typeof options?.title === 'string' && options.title ? options.title.slice(0, 120) : 'Open source folder';
+            const defaultPath = typeof options?.defaultPath === 'string' && options.defaultPath ? options.defaultPath : undefined;
+            const result = await dialog.showOpenDialog(window!, { properties: ['openDirectory', 'createDirectory'], title, defaultPath });
             return result.canceled ? null : result.filePaths[0];
         });
         ipcMain.handle('cmv:retry', async event => { trustSender(event); await startBackend(); });

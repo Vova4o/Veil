@@ -28,14 +28,15 @@ def validate_extra_args(extra_args: str | Sequence[str] | None) -> list[str]:
             raise ValueError(f"Invalid extra arguments sequence: {exc}")
 
     # Regex for strictly safe characters
-    # Allowed: alphanumeric, hyphen, underscore, dot, forward slash, backslash, colon, equal, plus, comma, space, at, tilde
-    safe_pattern = re.compile(r"^[a-zA-Z0-9\-_./\\:=+, @~]*$")
+    # Allowed: letters and digits of any script (paths under a non-Latin user name),
+    # underscore, hyphen, dot, forward slash, backslash, colon, equal, plus, comma, space, at, tilde
+    safe_pattern = re.compile(r"^[\w\-./\\:=+, @~]*$")
 
     for token in tokens:
         if not safe_pattern.match(token):
             raise ValueError(
                 f"Unsafe character detected in extra argument token: {token!r}. "
-                "Only alphanumeric characters and basic symbols (-_./\\:=+, @~) are allowed."
+                "Only letters, digits and basic symbols (-_./\\:=+, @~) are allowed."
             )
 
     return tokens

@@ -11,7 +11,8 @@ from typing import Any
 from app import database
 from app.config_store import ConfigStore
 
-from .detector import detect_comfyui
+from .desktop import state_dir_of
+from .model_paths import ModelFolders, resolve_model_folders
 from .resource_taxonomy import FOLDER_RESOURCE_TYPES
 from .workflow_inventory import invalidate_runtime_inventory
 
@@ -122,22 +123,21 @@ class SimpleModelDownloaderService:
         self.store = store
         _ensure_schema()
 
-    def resolve_model_root(self) -> Path:
+    def _model_folders(self) -> ModelFolders:
         config = self.store.comfyui_settings()
-        install_path = str(config.get("install_path") or "").strip()
-        if not install_path:
+        if not str(config.get("install_path") or "").strip():
             raise SimpleModelDownloaderError(
                 "Сначала укажите папку установленного ComfyUI в настройках Create."
             )
-        detection = detect_comfyui(
-            install_path,
-            custom_python=config.get("custom_python"),
-        )
-        if detection.comfy_dir is None:
+        folders = resolve_model_folders(config, state_dir=state_dir_of(self.store))
+        if folders is None:
             raise SimpleModelDownloaderError(
                 "В выбранной папке не найден main.py или ComfyUI/main.py. Проверьте путь в настройках."
             )
-        model_root = (Path(detection.comfy_dir) / "models").resolve()
+        return folders
+
+    def resolve_model_root(self) -> Path:
+        model_root = self._model_folders().models_dir.resolve()
         model_root.mkdir(parents=True, exist_ok=True)
         return model_root
 
@@ -149,12 +149,8 @@ class SimpleModelDownloaderService:
         if not clean_name or Path(clean_name).suffix.casefold() not in MODEL_FILE_SUFFIXES:
             raise SimpleModelDownloaderError("Некорректное имя файла модели.")
 
-        root = self.resolve_model_root()
-        directory = (root / clean_folder).resolve()
-        try:
-            directory.relative_to(root)
-        except ValueError as exc:
-            raise SimpleModelDownloaderError("Некорректная папка назначения.") from exc
+        # ComfyUI Desktop marks its shared models folder as the default one; new files go there.
+        directory = self._model_folders().download_dir(clean_folder).resolve()
         directory.mkdir(parents=True, exist_ok=True)
         target = (directory / clean_name).resolve()
         try:

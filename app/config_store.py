@@ -50,6 +50,10 @@ def _default_config() -> dict[str, Any]:
         "comfyui": {
             "install_path": None,
             "custom_python": None,
+            "desktop_installation_id": None,
+            "models_dir": None,
+            "input_dir": None,
+            "output_dir": None,
             "host": "127.0.0.1",
             "port": 8188,
             "extra_args": "",
@@ -163,6 +167,11 @@ class ConfigStore:
                 "comfyui": {
                     "install_path": comfyui.get("install_path"),
                     "custom_python": comfyui.get("custom_python"),
+                    "desktop_installation_id": comfyui.get("desktop_installation_id"),
+                    # CMV's own folders over Desktop's; None follows Desktop.
+                    "models_dir": comfyui.get("models_dir"),
+                    "input_dir": comfyui.get("input_dir"),
+                    "output_dir": comfyui.get("output_dir"),
                     "host": comfyui.get("host") or "127.0.0.1",
                     "port": int(comfyui.get("port") or 8188),
                     "extra_args": comfyui.get("extra_args") or "",
@@ -356,6 +365,10 @@ class ConfigStore:
         settings = self.load().get("comfyui", {
             "install_path": None,
             "custom_python": None,
+            "desktop_installation_id": None,
+            "models_dir": None,
+            "input_dir": None,
+            "output_dir": None,
             "host": "127.0.0.1",
             "port": 8188,
             "extra_args": "",
@@ -363,6 +376,8 @@ class ConfigStore:
             "civitai_api_token": None,
         })
         settings.setdefault("civitai_api_token", None)
+        for key in ("desktop_installation_id", "models_dir", "input_dir", "output_dir"):
+            settings.setdefault(key, None)
         return settings
 
     def update_comfyui_settings(
@@ -375,6 +390,10 @@ class ConfigStore:
         extra_args: str | None = None,
         auto_start: bool | None = None,
         civitai_api_token: str | None = None,
+        desktop_installation_id: str | None = None,
+        models_dir: str | None = None,
+        input_dir: str | None = None,
+        output_dir: str | None = None,
     ) -> dict[str, Any]:
         with _config_lock:
             config = self.load()
@@ -394,6 +413,15 @@ class ConfigStore:
             if civitai_api_token is not None:
                 token = civitai_api_token.strip()
                 comfyui["civitai_api_token"] = token or None
+            # An empty string clears a value; None leaves it unchanged.
+            for key, value in (
+                ("desktop_installation_id", desktop_installation_id),
+                ("models_dir", models_dir),
+                ("input_dir", input_dir),
+                ("output_dir", output_dir),
+            ):
+                if value is not None:
+                    comfyui[key] = value.strip() or None
 
             self.save(config)
             return comfyui

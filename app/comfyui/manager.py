@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import ComfyUIClient, ComfyUIClientError
+from .desktop import launch_settings, state_dir_of
 from .detector import ComfyUIDetectionResult, detect_comfyui
 from .launcher import generate_launcher_script
 from .validation import validate_extra_args
@@ -144,7 +145,8 @@ class ComfyUIManager:
             except Exception as exc:
                 self._log(f"[CMV] Warning: failed to generate launcher script: {exc}")
 
-            cmd = [str(detection.interpreter), str(detection.main_py), "--listen", host, "--port", str(port)]
+            # -s skips the user's site-packages, as Desktop and the portable build launch ComfyUI.
+            cmd = [str(detection.interpreter), "-s", str(detection.main_py), "--listen", host, "--port", str(port)]
             if extra_args:
                 tokens = validate_extra_args(extra_args)
                 cmd.extend(tokens)
@@ -457,33 +459,14 @@ comfy_manager = ComfyUIManager()
 
 
 def resolve_comfyui_installation(store: Any | None = None) -> ComfyUIDetectionResult | None:
-    """Resolve valid ComfyUI installation from config store or standard candidate paths."""
+    """The ComfyUI to launch: the chosen ComfyUI Desktop installation, else the one Desktop used last."""
     settings = store.comfyui_settings() if store and hasattr(store, "comfyui_settings") else {}
-    configured_path = settings.get("install_path")
-    custom_python = settings.get("custom_python")
-
-    if configured_path:
-        detection = detect_comfyui(configured_path, custom_python=custom_python)
-        if detection.is_valid:
-            return detection
-
-    candidates = [
-        Path.cwd().parent,
-        Path.cwd(),
-        Path(__file__).resolve().parents[2],
-        Path("f:/ComfyUI_windows_portable"),
-    ]
-    for cand in candidates:
-        if cand.exists() and cand.is_dir():
-            detection = detect_comfyui(cand, custom_python=custom_python)
-            if detection.is_valid:
-                if store and not configured_path and hasattr(store, "update_comfyui_settings"):
-                    try:
-                        store.update_comfyui_settings(install_path=str(cand))
-                    except Exception:
-                        pass
-                return detection
-    return None
+    launch = launch_settings(settings, state_dir=state_dir_of(store))
+    install_path = launch.get("install_path")
+    if not install_path:
+        return None
+    detection = detect_comfyui(install_path, custom_python=launch.get("custom_python"))
+    return detection if detection.is_valid else None
 
 
 def ensure_comfyui_online(store: Any | None = None, timeout: float = 60.0) -> bool:
@@ -531,8 +514,9 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = 60.0) -> bo
 
     log.info("[CMV] Found ComfyUI at %s (interpreter: %s)", installation.comfy_dir, installation.interpreter)
 
-    extra_args = settings.get("extra_args") or ""
-    custom_python = settings.get("custom_python")
+    launch = launch_settings(settings, state_dir=state_dir_of(store))
+    extra_args = launch.get("extra_args") or ""
+    custom_python = launch.get("custom_python")
 
     try:
         comfy_manager.start_managed(

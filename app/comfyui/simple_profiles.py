@@ -238,15 +238,22 @@ def _missing_node_packs(
     inventory: Any | None,
     installed_node_packs: set[str] | None,
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Return node packs whose classes ComfyUI does not expose, plus whether that is known."""
+    """Return node packs whose classes ComfyUI does not expose, plus whether that is known.
+
+    While ComfyUI is offline a pack folder on disk counts as present: ComfyUI
+    loads it when it starts, and generation checks the live node list again.
+    """
     if not profile.custom_nodes:
         return [], True
-    if inventory is None or not getattr(inventory, "online", False):
+    online = inventory is not None and bool(getattr(inventory, "online", False))
+    if not online and installed_node_packs is None:
         return [], False
-    exposed = set(getattr(inventory, "node_types", None) or ())
+    exposed = set(getattr(inventory, "node_types", None) or ()) if online else set()
     installed = installed_node_packs or set()
     missing: list[dict[str, Any]] = []
     for pack in profile.custom_nodes:
+        if not online and pack.id in installed:
+            continue
         absent = [name for name in pack.node_classes if name not in exposed]
         if absent:
             missing.append({
@@ -268,11 +275,16 @@ def check_profile_health(
     installed_node_packs: set[str] | None = None,
 ) -> dict[str, Any]:
     missing: list[dict[str, Any]] = []
-    inventory_known = inventory is not None and isinstance(getattr(inventory, "models", None), dict)
-    for dep in profile.required_resources:
+    online = inventory is not None and bool(getattr(inventory, "online", False))
+    # Offline with nothing scanned on disk (no ComfyUI folder set) means unknown, not missing.
+    inventory_known = (
+        inventory is not None
+        and isinstance(getattr(inventory, "models", None), dict)
+        and (online or getattr(inventory, "source", None) != "none")
+    )
+    for dep in profile.required_resources if inventory_known else ():
         candidates = {dep.filename.casefold(), *(alias.casefold() for alias in dep.aliases)}
-        found = bool(candidates & _inventory_names(inventory, dep.folder)) if inventory_known else False
-        if not found:
+        if not candidates & _inventory_names(inventory, dep.folder):
             missing.append(
                 {
                     "resource_type": dep.resource_type,
@@ -317,6 +329,7 @@ def check_profile_health(
     return {
         "status": status,
         "ready": status == "ready",
+        "comfyui_online": online,
         "missing_resources": missing,
         "missing_nodes": missing_nodes,
         "nodes_known": nodes_known,

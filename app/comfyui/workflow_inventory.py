@@ -15,7 +15,8 @@ from app.ai.resources import (
 from app.config_store import ConfigStore
 
 from .client import ComfyUIClient, ComfyUIClientError
-from .detector import detect_comfyui
+from .desktop import state_dir_of
+from .model_paths import LEGACY_FOLDERS, resolve_model_folders
 from .resource_taxonomy import (
     FOLDER_RESOURCE_TYPES,
     RESOURCE_MODEL_FOLDERS,
@@ -104,33 +105,30 @@ def collect_runtime_inventory(
 
 
 def _filesystem_inventory(store: ConfigStore, folders: list[str]) -> dict[str, list[str]]:
-    config = store.comfyui_settings()
-    install_path = config.get("install_path")
-    if not install_path:
-        return {}
-    detection = detect_comfyui(str(install_path), custom_python=config.get("custom_python"))
     # Filesystem inventory only needs a recognizable ComfyUI directory. A
     # managed Python interpreter may be absent when the user connects to an
     # already-running/external ComfyUI, and that must not hide installed models.
-    if detection.comfy_dir is None:
-        return {}
-    model_root = Path(detection.comfy_dir) / "models"
-    if not model_root.is_dir():
+    model_folders = resolve_model_folders(store.comfyui_settings(), state_dir=state_dir_of(store))
+    if model_folders is None:
         return {}
 
     inventory: dict[str, list[str]] = {}
     for folder in folders:
-        directory = model_root / folder
-        if not directory.is_dir():
+        # Like the API, list old folder names only under their current names.
+        if folder in LEGACY_FOLDERS:
+            continue
+        directories = [path for path in model_folders.search_paths(folder) if path.is_dir()]
+        if not directories:
             continue
         names: list[str] = []
-        try:
-            for path in directory.rglob("*"):
-                if not path.is_file() or path.suffix.lower() not in MODEL_SUFFIXES:
-                    continue
-                names.append(path.relative_to(directory).as_posix())
-        except OSError:
-            continue
+        for directory in directories:
+            try:
+                for path in directory.rglob("*"):
+                    if not path.is_file() or path.suffix.lower() not in MODEL_SUFFIXES:
+                        continue
+                    names.append(path.relative_to(directory).as_posix())
+            except OSError:
+                continue
         inventory[folder] = sorted(dict.fromkeys(names))
     return inventory
 

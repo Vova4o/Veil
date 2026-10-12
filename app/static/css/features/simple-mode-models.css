@@ -117,6 +117,32 @@
 .model-health-badge.is-ready{color:#63c28f;background:rgba(99,194,143,.14)}
 .model-health-badge.is-missing{color:#e4ad65;background:rgba(228,173,101,.14)}
 .model-health-badge.is-pending{color:#b9a4e8;background:rgba(185,164,232,.14)}
+.model-health-badge.is-idle{color:#8fb3e8;background:rgba(143,179,232,.14)}
+.model-health-badge.is-starting{color:#8fb3e8;background:rgba(143,179,232,.14);animation:model-health-pulse 1.4s ease-in-out infinite}
+@keyframes model-health-pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.model-health-badge.is-starting{animation:none}}
+
+/* Start or restart ComfyUI right from the status line */
+.model-status-action{
+    margin-left:auto;
+    flex:none;
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    min-height:24px;
+    padding:3px 9px;
+    border-radius:999px;
+    border:1px solid color-mix(in srgb,var(--accent,#2dd4bf) 36%,transparent);
+    background:color-mix(in srgb,var(--accent,#2dd4bf) 14%,transparent);
+    color:var(--accent,#2dd4bf);
+    font:inherit;
+    font-size:10px;
+    font-weight:700;
+    white-space:nowrap;
+    cursor:pointer;
+}
+.model-status-action:hover{background:color-mix(in srgb,var(--accent,#2dd4bf) 24%,transparent)}
+.model-status-action svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 
 /* Semi-transparent Model Health Panel */
 .model-health-panel{
@@ -266,6 +292,32 @@
 .runtime-primary-btn:disabled,.runtime-path-row button:disabled,.runtime-secondary-btn:disabled{opacity:.55;cursor:wait}
 
 .runtime-network-grid{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:10px}
+/* ComfyUI Desktop installations: one is chosen, like a radio group */
+.runtime-installs{display:flex;flex-direction:column;gap:6px}
+.runtime-install{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 11px;border:1px solid var(--border-subtle,rgba(255,255,255,.1));border-radius:11px;background:color-mix(in srgb,var(--surface2,#19202f) 35%,transparent);color:var(--text-dim,#9aa4b8);font:inherit;text-align:left;cursor:pointer}
+.runtime-install:hover{background:var(--surface3,rgba(255,255,255,.06));color:var(--text,#f0f2f7)}
+.runtime-install.is-active{border-color:color-mix(in srgb,var(--accent,#2dd4bf) 50%,transparent);background:color-mix(in srgb,var(--accent,#2dd4bf) 10%,transparent);color:var(--text,#f0f2f7)}
+.runtime-install-dot{flex:none;width:12px;height:12px;border-radius:50%;border:1.5px solid var(--text-muted,#657088)}
+.runtime-install.is-active .runtime-install-dot{border-color:var(--accent,#2dd4bf);background:radial-gradient(circle,var(--accent,#2dd4bf) 0 3px,transparent 3.5px)}
+.runtime-install-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.runtime-install-main strong{font-size:11px;font-weight:700}
+.runtime-install-main small,.runtime-folder-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9.5px;color:var(--text-muted,#657088)}
+.runtime-install-tag{flex:none;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--surface3,#222b3e) 60%,transparent);font-size:9px;font-weight:700;color:var(--text-dim,#9aa4b8)}
+.runtime-empty{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px dashed var(--border-subtle,rgba(255,255,255,.14));border-radius:11px}
+.runtime-empty strong{font-size:11px;color:var(--text,#f0f2f7)}
+.runtime-empty p{margin:0;font-size:9.5px;line-height:1.45;color:var(--text-muted,#657088)}
+.runtime-empty-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+a.runtime-primary-btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+/* CMV's folders over Desktop's */
+.runtime-folders{display:flex;flex-direction:column;border:1px solid var(--border-subtle,rgba(255,255,255,.09));border-radius:11px;overflow:hidden}
+.runtime-folder{display:flex;align-items:center;gap:10px;padding:9px 11px;background:color-mix(in srgb,var(--surface2,#19202f) 30%,transparent)}
+.runtime-folder+.runtime-folder{border-top:1px solid var(--border-subtle,rgba(255,255,255,.07))}
+.runtime-folder-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.runtime-folder-main strong{font-size:11px;color:var(--text,#f0f2f7)}
+.runtime-folder-main small{font-size:9px;color:var(--text-muted,#657088)}
+.runtime-folder.is-custom .runtime-folder-path{color:var(--accent,#2dd4bf)}
+.runtime-folder-actions{flex:none;display:flex;gap:6px}
+.runtime-folder-actions .runtime-secondary-btn{min-height:30px;padding:0 10px;font-size:10px}
 .runtime-detection-card{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--border-subtle,rgba(255,255,255,.09));border-radius:11px;background:color-mix(in srgb,var(--surface2,#19202f) 35%,transparent)}
 .runtime-detection-dot{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:var(--text-muted,#657088)}
 .runtime-detection-card.is-good .runtime-detection-dot{background:#63c28f}
@@ -274,7 +326,7 @@
 .runtime-detection-card strong{display:block;font-size:10.5px;color:var(--text,#f0f2f7)}
 .runtime-detection-card p{margin:3px 0 0;font-size:9.5px;line-height:1.4;color:var(--text-muted,#657088)}
 .simple-settings-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:3px}
-.simple-settings-actions-right{display:flex;align-items:center;gap:8px}
+.simple-settings-actions-left,.simple-settings-actions-right{display:flex;align-items:center;gap:8px}
 
 @media(max-width:720px){
     .model-summary{flex-direction:column;gap:7px}
@@ -284,7 +336,10 @@
     .studio-layout[data-view="generating"],.studio-layout[data-view="result"]{grid-template-columns:1fr}
     .global-header-actions .ai-assistant-trigger span{display:none}
     .runtime-network-grid{grid-template-columns:1fr}
+    .runtime-folder{flex-direction:column;align-items:stretch}
+    .runtime-folder-actions .runtime-secondary-btn{flex:1}
     .simple-settings-actions{align-items:stretch;flex-direction:column}
-    .simple-settings-actions-right{display:grid;grid-template-columns:1fr 1fr}
+    .simple-settings-actions-left,.simple-settings-actions-right{display:grid;grid-template-columns:1fr 1fr}
+    .simple-settings-actions-left:has(> [hidden]){grid-template-columns:1fr}
     .runtime-secondary-btn,.runtime-primary-btn{width:100%}
 }

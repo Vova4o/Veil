@@ -88,6 +88,13 @@ const state = {
     downloadPoll: null,
     runtimeConfig: null,
     runtimeStatus: null,
+    runtimeBusy: null,
+    runtimeStartedAt: 0,
+    runtimePoll: null,
+    // Settings changed while a ComfyUI started by Create runs: offer a restart.
+    runtimeStale: false,
+    desktop: null,
+    runtimeDraft: null,
 };
 
 function catalog() {
@@ -581,11 +588,20 @@ function paintHealth(health) {
     const resources = health?.missing_resources || [];
     const nodes = health?.missing_nodes || [];
     const modeBlocked = health?.status === 'ready' && health?.modes_ready?.[state.mode] === false;
+    // Offline is a runtime state, not a setup problem: installed files are checked on disk.
+    const offline = health?.comfyui_online === false;
     let className = 'is-checking';
     let label = 'Checking';
     let text = 'Checking local components';
-    if (health?.status === 'ready' && !modeBlocked) {
-        [className, label, text] = ['is-ready', 'Ready', 'Everything is installed'];
+    if (state.runtimeBusy) {
+        const seconds = Math.round((Date.now() - state.runtimeStartedAt) / 1000);
+        className = 'is-starting';
+        label = state.runtimeBusy === 'restarting' ? 'Restarting' : 'Starting';
+        text = `Starting ComfyUI… ${seconds} s`;
+    } else if (health?.status === 'ready' && !modeBlocked) {
+        [className, label, text] = offline
+            ? ['is-idle', 'Not running', 'Components installed · ComfyUI starts with the first run']
+            : ['is-ready', 'Ready', 'Everything is installed'];
     } else if (modeBlocked) {
         className = 'is-missing';
         label = health.restart_required ? 'Restart ComfyUI' : 'Setup needed';
@@ -598,12 +614,18 @@ function paintHealth(health) {
     } else if (health?.status === 'workflow_pending') {
         [className, label, text] = ['is-pending', 'Not ready', 'The recipe is not prepared yet'];
     } else if (health?.status === 'unknown') {
-        [className, label, text] = ['is-checking', 'Not checked', 'ComfyUI is offline; components will be checked when it starts'];
+        [className, label, text] = state.runtimeConfig && !state.runtimeConfig.install_path
+            ? ['is-checking', 'Not connected', 'ComfyUI Desktop was not found on this computer']
+            : ['is-checking', 'Not checked', 'ComfyUI is offline; components will be checked when it starts'];
     }
     badge.className = `model-health-badge ${className}`;
     badge.textContent = label;
     statusText.textContent = text;
-    $('model-health-message').textContent = resources.length || nodes.length ? 'Missing:' : '';
+    statusText.title = text;
+    paintRuntimeAction();
+    $('model-health-message').textContent = resources.length || nodes.length
+        ? (offline ? 'Missing on disk:' : 'Missing:')
+        : '';
     $('model-missing').innerHTML = [
         ...resources.map(item => `<div class="model-missing-row"><span>${esc(item.display_name || item.filename)}</span><small>${esc(item.folder || '')}</small></div>`),
         ...nodes.map(item => `<div class="model-missing-row"><span>${esc(item.display_name || item.id)}</span><small>${item.installed_on_disk ? 'installed, restart ComfyUI' : 'ComfyUI nodes'}</small></div>`),
@@ -662,6 +684,7 @@ async function create() {
     hideNote();
     const job = { phase: 'agent', cancelled: false };
     state.job = job;
+    paintRuntimeAction();
     state.resultRequest += 1; // a late restored result must not cover this run
     canvas('generating');
     $('generation-stop').hidden = false;
@@ -730,10 +753,14 @@ async function create() {
 
 async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
     state.job = job;
+    paintRuntimeAction();
     job.phase = 'queue';
     canvas('generating');
     $('generation-stop').hidden = false;
-    setGenerating('Sending to ComfyUI…', plan.agentName ? `Prompt by ${plan.agentName}` : '');
+    // An offline ComfyUI is started by the generate request itself; say so instead of "sending".
+    const coldStart = state.health?.comfyui_online === false;
+    setGenerating(coldStart ? 'Starting ComfyUI…' : 'Sending to ComfyUI…',
+        coldStart ? 'The first run after a start takes longer' : plan.agentName ? `Prompt by ${plan.agentName}` : '');
     createButton(true, 8, 'Queueing…');
     if (plan.note) showNote(plan.note);
     let data;
@@ -762,6 +789,10 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
         return;
     }
     if (state.job !== job) return;
+    if (coldStart) {
+        loadHealth(true);
+        loadRuntimeSummary();
+    }
     plan.editProfile = data.edit_profile || plan.editProfile;
     plan.seconds = data.seconds_per_image || plan.seconds || TXT2IMG_SECONDS;
     plan.width = data.width;
@@ -871,6 +902,7 @@ function finishRuns(job, outputs) {
     clearInterval(state.poll);
     state.poll = null;
     state.job = null;
+    paintRuntimeAction();
     createButton(false);
     $('generation-stop').hidden = true;
     paintResultProgress('');
@@ -924,6 +956,7 @@ function abortJob() {
     clearInterval(state.poll);
     state.poll = null;
     state.job = null;
+    paintRuntimeAction();
     stopAgentTimer();
     createButton(false);
     $('generation-stop').hidden = true;
@@ -1398,8 +1431,11 @@ function wire() {
     $('runtime-settings-close').onclick = closeRuntimeSettings;
     $('runtime-settings-cancel').onclick = closeRuntimeSettings;
     $('runtime-settings-backdrop').onclick = closeRuntimeSettings;
-    $('runtime-browse').onclick = browseRuntimePath;
-    $('runtime-test').onclick = testRuntime;
+    $('runtime-power').onclick = runtimePowerClick;
+    $('runtime-installs').addEventListener('click', runtimeInstallClick);
+    $('runtime-folders').addEventListener('click', runtimeFolderClick);
+    $('runtime-rescan').onclick = rescanDesktop;
+    $('runtime-action').onclick = runtimeActionClick;
     $('runtime-settings-form').onsubmit = saveRuntimeSettings;
 
     addEventListener('keydown', event => {
@@ -2213,17 +2249,152 @@ function runtimeDetection(kind, title, text) {
 
 function runtimeStatusText(status) {
     if (!status) return 'ComfyUI status is unknown.';
-    if (['ready', 'external'].includes(status.status)) return `ComfyUI is available at ${status.host || '127.0.0.1'}:${status.port || 8188}.`;
-    if (status.status === 'busy') return 'ComfyUI is connected and currently generating.';
+    const owned = status.mode === 'managed' ? ' Started by Create; it closes together with the app.' : '';
+    if (['ready', 'external'].includes(status.status)) return `ComfyUI is available at ${status.host || '127.0.0.1'}:${status.port || 8188}.${owned}`;
+    if (status.status === 'busy') return `ComfyUI is connected and currently generating.${owned}`;
+    if (status.status === 'starting') return 'ComfyUI is starting…';
     if (status.last_error) return status.last_error;
+    if (status.status === 'stopped') return 'ComfyUI is not running.';
     return `Current status: ${status.status || 'unknown'}.`;
+}
+
+function runtimeUp(status) {
+    return Boolean(status) && ['ready', 'external', 'busy'].includes(status.status);
 }
 
 function paintRuntimeDot() {
     const dot = $('runtime-settings-dot');
     dot.className = 'runtime-settings-dot';
-    if (state.runtimeStatus && ['ready', 'external', 'busy'].includes(state.runtimeStatus.status)) dot.classList.add('is-ready');
+    if (runtimeUp(state.runtimeStatus)) dot.classList.add('is-ready');
     else if (state.runtimeConfig?.install_path) dot.classList.add('is-configured');
+}
+
+const RUNTIME_ACTIONS = {
+    start: { label: 'Start ComfyUI', icon: '<path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>' },
+    restart: { label: 'Restart ComfyUI', icon: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path>' },
+    settings: { label: 'Set up ComfyUI', icon: '<path d="M12 15V3"></path><path d="m7 10 5 5 5-5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' },
+};
+
+/** What the status line offers: start an offline ComfyUI, or restart the one Create started. */
+function runtimeAction() {
+    const health = state.health || {};
+    if (state.runtimeBusy || state.job) return null;
+    if (health.comfyui_online === false) {
+        if (!state.runtimeConfig) return null;
+        return state.runtimeConfig.install_path ? 'start' : 'settings';
+    }
+    const managed = state.runtimeStatus?.mode === 'managed';
+    if ((health.restart_required || state.runtimeStale) && managed && runtimeUp(state.runtimeStatus)) return 'restart';
+    return null;
+}
+
+function paintRuntimeAction() {
+    const button = $('runtime-action');
+    const action = runtimeAction();
+    button.hidden = !action;
+    if (!action) return;
+    button.dataset.action = action;
+    button.querySelector('svg').innerHTML = RUNTIME_ACTIONS[action].icon;
+    button.querySelector('span').textContent = RUNTIME_ACTIONS[action].label;
+}
+
+function paintRuntimePower() {
+    const button = $('runtime-power');
+    const status = state.runtimeStatus;
+    // Only a ComfyUI that Create started can be stopped from here.
+    const canStop = status?.mode === 'managed' && ['ready', 'busy', 'starting'].includes(status.status);
+    const canStart = !runtimeUp(status) && status?.status !== 'starting' && Boolean(state.runtimeConfig?.install_path);
+    button.hidden = !(canStop || canStart || state.runtimeBusy);
+    button.disabled = Boolean(state.runtimeBusy);
+    button.dataset.action = canStop ? 'stop' : 'start';
+    button.textContent = state.runtimeBusy ? 'Starting…' : canStop ? 'Stop ComfyUI' : 'Start ComfyUI';
+}
+
+function rememberRuntimeStatus(status) {
+    state.runtimeStatus = status;
+    setCachedJson('cmv_runtime_status', status, false);
+    paintRuntimeDot();
+    paintRuntimePower();
+}
+
+async function startRuntime(kind = 'start') {
+    if (state.runtimeBusy) return;
+    state.runtimeBusy = kind === 'restart' ? 'restarting' : 'starting';
+    state.runtimeStartedAt = Date.now();
+    paintHealth(state.health);
+    paintRuntimePower();
+    try {
+        rememberRuntimeStatus(await json(`/api/comfyui/${kind}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        }));
+    } catch (err) {
+        state.runtimeBusy = null;
+        paintHealth(state.health);
+        paintRuntimePower();
+        return error('Could not start ComfyUI', err.message);
+    }
+    clearInterval(state.runtimePoll);
+    // The manager reports "starting" until the API answers, or "error" after an exit or its timeout.
+    return new Promise(resolve => {
+        const tick = async () => {
+            let status = null;
+            try { status = await json('/api/comfyui/status'); } catch {}
+            if (!state.runtimeBusy) return;
+            if (status) rememberRuntimeStatus(status);
+            const up = runtimeUp(status);
+            const failed = status && !up && status.status !== 'starting';
+            if (!up && !failed) {
+                paintHealth(state.health);
+                return;
+            }
+            clearInterval(state.runtimePoll);
+            state.runtimePoll = null;
+            state.runtimeBusy = null;
+            // A fresh start runs with the saved settings.
+            if (up) state.runtimeStale = false;
+            paintRuntimePower();
+            await loadHealth(true);
+            if (failed) {
+                let log = '';
+                try { log = (await json('/api/comfyui/logs?lines=25')).logs.join('\n'); } catch {}
+                error('ComfyUI did not start', runtimeStatusText(status), log);
+            }
+            resolve(up);
+        };
+        state.runtimePoll = setInterval(tick, 1000);
+    });
+}
+
+async function stopRuntime() {
+    const button = $('runtime-power');
+    button.disabled = true;
+    button.textContent = 'Stopping…';
+    try {
+        rememberRuntimeStatus({ ...(await json('/api/comfyui/stop', { method: 'POST' })), online: false });
+        state.runtimeStale = false;
+        runtimeDetection('', 'ComfyUI stopped', runtimeStatusText(state.runtimeStatus));
+    } catch (err) {
+        runtimeDetection('error', 'Could not stop ComfyUI', err.message);
+    } finally {
+        button.disabled = false;
+        paintRuntimePower();
+        loadHealth(true);
+    }
+}
+
+function runtimeActionClick() {
+    const action = $('runtime-action').dataset.action;
+    if (action === 'settings') return openRuntimeSettings();
+    if (action === 'start' || action === 'restart') return startRuntime(action);
+}
+
+async function runtimePowerClick() {
+    if ($('runtime-power').dataset.action === 'stop') return stopRuntime();
+    runtimeDetection('', 'Starting ComfyUI…', 'The first start with custom nodes can take a minute.');
+    const up = await startRuntime('start');
+    runtimeDetection(up ? 'good' : 'error', up ? 'ComfyUI is running' : 'ComfyUI did not start', runtimeStatusText(state.runtimeStatus));
 }
 
 async function loadRuntimeSummary() {
@@ -2247,23 +2418,136 @@ async function loadRuntimeSummary() {
         setCachedJson('cmv_runtime_status', statusResult.value, false);
     }
     paintRuntimeDot();
+    paintRuntimePower();
+    if (state.health) paintHealth(state.health);
 }
+
+const FOLDER_KEYS = ['models_dir', 'input_dir', 'output_dir'];
+const FOLDER_TITLES = {
+    models_dir: 'Choose the models folder',
+    input_dir: 'Choose the input folder',
+    output_dir: 'Choose the output folder',
+};
 
 async function openRuntimeSettings() {
     $('runtime-settings-backdrop').hidden = false;
     $('runtime-settings-dialog').hidden = false;
     document.body.classList.add('simple-modal-open');
-    await loadRuntimeSummary();
+    await Promise.all([loadRuntimeSummary(), loadDesktop()]);
     const config = state.runtimeConfig || {};
-    $('runtime-install-path').value = config.install_path || '';
-    $('runtime-python').value = config.custom_python || '';
+    state.runtimeDraft = {
+        installationId: config.desktop_installation_id || state.desktop.installations[0]?.id || null,
+        folders: Object.fromEntries(FOLDER_KEYS.map(key => [key, config[key] || null])),
+    };
     $('runtime-host').value = config.host || '127.0.0.1';
     $('runtime-port').value = config.port || 8188;
     $('runtime-civitai-token').value = '';
-    if (config.install_path) {
-        await detectRuntimePath();
-    } else {
-        runtimeDetection('', 'No path selected yet', runtimeStatusText(state.runtimeStatus));
+    $('runtime-civitai-token').placeholder = config.has_civitai_token ? 'Saved; leave empty to keep it' : 'Not set';
+    paintDesktopChoice();
+    paintRuntimeCard();
+}
+
+async function loadDesktop() {
+    try {
+        state.desktop = await json('/api/comfyui/installations');
+    } catch {
+        state.desktop = { installations: [], folders: {} };
+    }
+}
+
+function paintRuntimeCard() {
+    if (!state.desktop?.installations.length) {
+        return runtimeDetection('error', 'ComfyUI Desktop is needed', 'Install ComfyUI Desktop, open it once, then press "Check again".');
+    }
+    const status = state.runtimeStatus;
+    runtimeDetection(runtimeUp(status) ? 'good' : '', runtimeUp(status) ? 'ComfyUI is running' : 'ComfyUI', runtimeStatusText(status));
+}
+
+function samePath(a, b) {
+    const norm = value => String(value || '').trim().replace(/[\\/]+/g, '\\').replace(/\\$/, '').toLowerCase();
+    return Boolean(a) && norm(a) === norm(b);
+}
+
+function paintDesktopChoice() {
+    const desktop = state.desktop || { installations: [], folders: {} };
+    const draft = state.runtimeDraft;
+    const found = desktop.installations.length > 0;
+    $('runtime-no-desktop').hidden = found;
+    $('runtime-installs').hidden = !found;
+    $('runtime-installs').innerHTML = desktop.installations.map(item => {
+        const active = item.id === draft.installationId;
+        return `<button type="button" class="runtime-install${active ? ' is-active' : ''}" role="radio" aria-checked="${active}" data-install="${esc(item.id)}">
+            <span class="runtime-install-dot"></span>
+            <span class="runtime-install-main"><strong>${esc(item.name)}</strong><small title="${esc(item.install_path)}">${esc(item.install_path)}</small></span>
+            ${item.version ? `<span class="runtime-install-tag">${esc(item.version)}</span>` : ''}
+            ${item.last_used ? '<span class="runtime-install-tag">last used</span>' : ''}
+        </button>`;
+    }).join('');
+    $('runtime-folders').querySelectorAll('.runtime-folder').forEach(row => {
+        const key = row.dataset.folder;
+        const own = draft.folders[key];
+        const path = own || desktop.folders?.[key] || '';
+        const pathLine = row.querySelector('[data-role="path"]');
+        pathLine.textContent = path || 'Desktop default';
+        pathLine.title = path;
+        row.querySelector('[data-role="source"]').textContent = own ? 'Create only' : 'Same as Desktop';
+        row.classList.toggle('is-custom', Boolean(own));
+        row.querySelector('[data-action="pick"]').disabled = !found;
+        row.querySelector('[data-action="reset"]').hidden = !own;
+    });
+    $('runtime-save').disabled = !found;
+}
+
+async function pickRuntimeFolder(key) {
+    const desktopPath = state.desktop?.folders?.[key] || '';
+    const current = state.runtimeDraft.folders[key] || desktopPath;
+    let path;
+    try {
+        if (window.cmvDesktop?.chooseFolder) {
+            path = await window.cmvDesktop.chooseFolder({ title: FOLDER_TITLES[key], defaultPath: current });
+        } else {
+            const data = await json('/api/simple/pick-comfyui-directory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ initial_path: current, title: FOLDER_TITLES[key] }),
+            });
+            path = data.cancelled ? null : data.path;
+        }
+    } catch (err) {
+        return runtimeDetection('error', 'Could not open the folder picker', err.message);
+    }
+    if (!path) return;
+    // Choosing Desktop's own folder simply follows Desktop again.
+    state.runtimeDraft.folders[key] = samePath(path, desktopPath) ? null : path;
+    paintDesktopChoice();
+}
+
+function runtimeFolderClick(event) {
+    const button = event.target.closest('[data-action]');
+    const key = button?.closest('.runtime-folder')?.dataset.folder;
+    if (!key) return;
+    if (button.dataset.action === 'pick') return pickRuntimeFolder(key);
+    state.runtimeDraft.folders[key] = null;
+    paintDesktopChoice();
+}
+
+function runtimeInstallClick(event) {
+    const button = event.target.closest('[data-install]');
+    if (!button) return;
+    state.runtimeDraft.installationId = button.dataset.install;
+    paintDesktopChoice();
+}
+
+async function rescanDesktop() {
+    const button = $('runtime-rescan');
+    button.disabled = true;
+    try {
+        await loadDesktop();
+        state.runtimeDraft.installationId ||= state.desktop.installations[0]?.id || null;
+        paintDesktopChoice();
+        paintRuntimeCard();
+    } finally {
+        button.disabled = false;
     }
 }
 
@@ -2275,92 +2559,25 @@ function closeRuntimeSettings() {
     document.body.classList.remove('simple-modal-open');
 }
 
-async function browseRuntimePath() {
-    const button = $('runtime-browse');
-    button.disabled = true;
-    button.textContent = 'Opening…';
-    try {
-        const data = await json('/api/simple/pick-comfyui-directory', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initial_path: $('runtime-install-path').value.trim() }),
-        });
-        if (!data.cancelled && data.path) {
-            $('runtime-install-path').value = data.path;
-            paintDetectionResult(data.detection);
-        }
-    } catch (err) {
-        runtimeDetection('error', 'Could not open folder picker', err.message);
-    } finally {
-        button.disabled = false;
-        button.textContent = 'Browse…';
-    }
-}
-
-function paintDetectionResult(detection) {
-    if (!detection) return runtimeDetection('error', 'Path not checked', 'Could not get the check result.');
-    if (detection.is_valid) {
-        runtimeDetection('good', 'ComfyUI found', detection.comfy_dir || detection.root_path || 'Path recognized.');
-    } else if (detection.comfy_dir) {
-        runtimeDetection('warning', 'ComfyUI folder found', `${detection.comfy_dir}. ${detection.error || 'Python was not detected; model downloads are still available.'}`);
-    } else {
-        runtimeDetection('error', 'ComfyUI not found', detection.error || 'main.py was not found in this folder.');
-    }
-}
-
-async function detectRuntimePath() {
-    const path = $('runtime-install-path').value.trim();
-    if (!path) return runtimeDetection('', 'No path selected', runtimeStatusText(state.runtimeStatus));
-    runtimeDetection('', 'Checking path…', path);
-    try {
-        const data = await json('/api/comfyui/detect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path, custom_python: $('runtime-python').value.trim() || null }),
-        });
-        paintDetectionResult(data);
-        return data;
-    } catch (err) {
-        runtimeDetection('error', 'Check failed', err.message);
-        return null;
-    }
-}
-
-async function testRuntime() {
-    const button = $('runtime-test');
-    button.disabled = true;
-    button.textContent = 'Checking…';
-    try {
-        await detectRuntimePath();
-        const status = await json('/api/comfyui/status');
-        state.runtimeStatus = status;
-        if (['ready', 'external', 'busy'].includes(status.status)) {
-            runtimeDetection('good', 'ComfyUI available', runtimeStatusText(status));
-        } else {
-            runtimeDetection('warning', 'Path will be saved, but the server is not responding', runtimeStatusText(status));
-        }
-        paintRuntimeDot();
-    } catch (err) {
-        runtimeDetection('warning', 'ComfyUI is currently unavailable', err.message);
-    } finally {
-        button.disabled = false;
-    button.textContent = 'Test';
-    }
-}
-
 async function saveRuntimeSettings(event) {
     event.preventDefault();
     const saveButton = $('runtime-save');
-    saveButton.disabled = true;
-    saveButton.textContent = 'Saving…';
+    const before = state.runtimeConfig || {};
+    const draft = state.runtimeDraft;
     const payload = {
-        install_path: $('runtime-install-path').value.trim(),
-        custom_python: $('runtime-python').value.trim(),
+        desktop_installation_id: draft.installationId,
         host: $('runtime-host').value.trim() || '127.0.0.1',
         port: Number($('runtime-port').value) || 8188,
+        // An empty folder follows Desktop again.
+        ...Object.fromEntries(FOLDER_KEYS.map(key => [key, draft.folders[key] || ''])),
     };
     const token = $('runtime-civitai-token').value.trim();
     if (token) payload.civitai_api_token = token;
+    const relaunch = draft.installationId !== before.desktop_installation_id
+        || payload.host !== before.host || payload.port !== Number(before.port)
+        || FOLDER_KEYS.some(key => (draft.folders[key] || null) !== (before[key] || null));
+    saveButton.disabled = true;
+    saveButton.textContent = 'Saving…';
     try {
         await json('/api/comfyui/config', {
             method: 'POST',
@@ -2369,7 +2586,16 @@ async function saveRuntimeSettings(event) {
         });
         await loadRuntimeSummary();
         closeRuntimeSettings();
-        await loadHealth();
+        if (relaunch && runtimeUp(state.runtimeStatus)) {
+            // A running ComfyUI keeps its folders until it starts again.
+            if (state.runtimeStatus.mode === 'managed') {
+                state.runtimeStale = true;
+                showNote('Saved. Restart ComfyUI to use the new settings.');
+            } else {
+                showNote('Saved. ComfyUI is running outside Create; the new settings apply the next time Create starts it.');
+            }
+        }
+        await loadHealth(true);
         await loadDownloads();
     } catch (err) {
         runtimeDetection('error', 'Could not save settings', err.message);
