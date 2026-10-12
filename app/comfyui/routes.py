@@ -144,6 +144,13 @@ def comfyui_start():
     if not install_path:
         return jsonify({"error": "No installation path specified", "code": "missing_path"}), 400
 
+    # A second ComfyUI on a port that already answers, or one still starting, would only fail to bind.
+    status_data = comfy_manager.check_external_or_status(host=host, port=port)
+    info = comfy_manager.get_info()
+    if status_data.get("online") or (info["mode"] == ComfyUIMode.MANAGED.value and info["status"] == "starting"):
+        info.update(status_data)
+        return jsonify(info)
+
     try:
         info = comfy_manager.start_managed(
             install_path=install_path,

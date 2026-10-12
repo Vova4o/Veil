@@ -16,6 +16,7 @@ from .desktop import launch_settings, state_dir_of
 from .detector import ComfyUIDetectionResult, detect_comfyui
 from .launcher import generate_launcher_script
 from .validation import validate_extra_args
+from .win_job import CREATE_SUSPENDED, KillOnCloseJob, resume_process
 
 
 class ComfyUIMode(str, Enum):
@@ -50,7 +51,7 @@ class ComfyUIManager:
         self._mode: ComfyUIMode = ComfyUIMode.NONE
         self._status: ComfyUIStatus = ComfyUIStatus.STOPPED
         self._process: subprocess.Popen | None = None
-        self._job_object = None
+        self._job_object: KillOnCloseJob | None = None
         self._host: str = "127.0.0.1"
         self._port: int = 8188
         self._last_error: str | None = None
@@ -169,23 +170,25 @@ class ComfyUIManager:
                 "bufsize": 1,
             }
 
-            if sys.platform == "win32" or os.name == "nt":
-                self._setup_win32_job_object(popen_kwargs)
+            self._close_job()
+            job = self._create_job()
+            if sys.platform == "win32":
+                # No console window of its own; the job needs the process suspended until it is assigned.
+                popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | (CREATE_SUSPENDED if job else 0)
 
             try:
-                self._process = subprocess.Popen(cmd, **popen_kwargs)
+                process = subprocess.Popen(cmd, **popen_kwargs)
+                if job is not None:
+                    job = self._enter_job(process, job)
             except Exception as exc:
+                if job is not None:
+                    job.close()
                 self._status = ComfyUIStatus.ERROR
                 self._last_error = str(exc)
                 self._log(f"[CMV] Failed to spawn process: {exc}")
                 raise RuntimeError(f"Failed to spawn ComfyUI process: {exc}") from exc
-
-            if self._job_object is not None:
-                try:
-                    import win32job
-                    win32job.AssignProcessToJobObject(self._job_object, int(self._process._handle))
-                except Exception as exc:
-                    self._log(f"[CMV] Warning: failed to assign process to job object: {exc}")
+            self._process = process
+            self._job_object = job
 
             self._mode = ComfyUIMode.MANAGED
             self._status = ComfyUIStatus.STARTING
@@ -221,11 +224,7 @@ class ComfyUIManager:
         if proc.poll() is None:
             try:
                 if self._job_object is not None:
-                    try:
-                        import win32job
-                        win32job.TerminateJobObject(self._job_object, 1)
-                    except Exception:
-                        pass
+                    self._job_object.terminate()
 
                 if proc.poll() is None:
                     self._terminate_process_tree(proc)
@@ -241,13 +240,7 @@ class ComfyUIManager:
             except Exception as exc:
                 self._log(f"[CMV] Error terminating process: {exc}")
 
-        if self._job_object is not None:
-            try:
-                import win32job
-                win32job.CloseHandle(self._job_object)
-            except Exception:
-                pass
-            self._job_object = None
+        self._close_job()
 
         self._stop_monitor_event.set()
         if proc.stdout:
@@ -412,18 +405,35 @@ class ComfyUIManager:
 
             time.sleep(1.5)
 
-    def _setup_win32_job_object(self, popen_kwargs: dict[str, Any]) -> None:
+    def _create_job(self) -> KillOnCloseJob | None:
+        if sys.platform != "win32":
+            return None
         try:
-            import win32job
+            return KillOnCloseJob()
+        except OSError as exc:
+            self._log(f"[CMV] Warning: ComfyUI will not be tied to CMV's lifetime: {exc}")
+            return None
 
-            job = win32job.CreateJobObject(None, "")
-            info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
-            info['BasicLimitInformation']['LimitFlags'] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
+    def _enter_job(self, process: subprocess.Popen, job: KillOnCloseJob) -> KillOnCloseJob | None:
+        """Put a suspended process into the job, then let it run. A job failure only loses the tie."""
+        handle = int(process._handle)  # type: ignore[attr-defined]
+        try:
+            job.assign(handle)
+        except OSError as exc:
+            self._log(f"[CMV] Warning: ComfyUI will not be tied to CMV's lifetime: {exc}")
+            job.close()
+            job = None
+        try:
+            resume_process(handle)
+        except OSError:
+            process.kill()
+            raise
+        return job
 
-            self._job_object = job
-        except (ImportError, Exception):
-            pass
+    def _close_job(self) -> None:
+        job, self._job_object = self._job_object, None
+        if job is not None:
+            job.close()
 
     def _terminate_process_tree(self, proc: subprocess.Popen) -> None:
         """Terminate the process and all its child processes."""
