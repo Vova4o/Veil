@@ -662,6 +662,9 @@ function blocking() {
     if (state.backend === 'colab' && health.backend?.signed_in === false) {
         return 'Sign in to Google in Integrations › Remote GPU, or switch Create to This PC.';
     }
+    if (state.backend === 'colab' && health.backend?.civitai_ready === false) {
+        return 'Colab downloads Moody Krea2 from Civitai: add your Civitai API token in the ComfyUI settings (gear icon). It stays on this computer.';
+    }
     if (health.status === 'not_installed') return 'Download the missing components first.';
     if (health.status === 'workflow_pending') return 'The recipe is not prepared yet.';
     if (health.status === 'ready' && health.modes_ready?.[state.mode] === false) {
@@ -2309,6 +2312,7 @@ function colabStatusLine() {
     const runtime = state.colab || state.health?.backend || {};
     const gpu = runtime.gpu || 'GPU';
     if (state.health?.backend?.signed_in === false) return ['is-missing', 'Colab', 'Sign in to Google to use the Colab GPU'];
+    if (state.health?.backend?.civitai_ready === false) return ['is-missing', 'Colab', 'Needs your Civitai API token to fetch Moody Krea2'];
     switch (runtime.state) {
     case 'allocating':
         return ['is-starting', 'Starting', `Colab ${gpu} · getting a GPU…`];
@@ -2434,6 +2438,7 @@ const RUNTIME_ACTIONS = {
     settings: { label: 'Set up ComfyUI', icon: '<path d="M12 15V3"></path><path d="m7 10 5 5 5-5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' },
     'colab-start': { label: 'Start Colab', icon: '<path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>' },
     'colab-stop': { label: 'Stop Colab', icon: '<rect x="6" y="6" width="12" height="12" rx="2"></rect>' },
+    'colab-token': { label: 'Add token', icon: '<circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path>' },
     'colab-sign-in': { label: 'Sign in', icon: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path>' },
 };
 
@@ -2443,6 +2448,7 @@ function runtimeAction() {
     if (state.backend === 'colab') {
         if (state.job) return null;
         if (health.backend?.signed_in === false) return 'colab-sign-in';
+        if (health.backend?.civitai_ready === false) return 'colab-token';
         const runtime = state.colab?.state;
         if (!runtime || runtime === 'off' || runtime === 'error') return 'colab-start';
         return ['allocating', 'booting', 'ready'].includes(runtime) ? 'colab-stop' : null;
@@ -2560,6 +2566,7 @@ function runtimeActionClick() {
         window.location.href = '/settings/ai#remote';
         return;
     }
+    if (action === 'colab-token') return openRuntimeSettings();
     if (action === 'colab-start' || action === 'colab-stop') return colabPower(action === 'colab-start');
     if (action === 'settings') return openRuntimeSettings();
     if (action === 'start' || action === 'restart') return startRuntime(action);

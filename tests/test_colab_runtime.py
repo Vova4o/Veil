@@ -297,6 +297,15 @@ def test_backend_health_and_readiness(store, tmp_path, runtimes):
     health = backend.profile_health(PROFILE)
     assert health["status"] == "ready" and health["modes_ready"]["edit"] is True
     assert health["backend"]["kind"] == "colab" and health["backend"]["signed_in"] is True
+    assert health["backend"]["civitai_ready"] is True
+    store.update_comfyui_settings(civitai_api_token="")
+    assert backend.profile_health(PROFILE)["backend"]["civitai_ready"] is False
+    assert backend.ensure_ready(1) is False
+    assert backend.not_ready_payload()["code"] == "civitai_token_required"
+    # Once the model is on the runtime the token is no longer needed.
+    runtime.vm_files.update({"moodyKrea2Mix_v40.safetensors", "krea2_identity_edit_v1_2_r64.safetensors"})
+    assert backend.civitai_ready(PROFILE) is True
+    store.update_comfyui_settings(civitai_api_token="secret-token")
     cli.token_present = lambda: False
     backend._signed_in = None
     runtime.state = "off"

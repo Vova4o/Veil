@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import threading
 import time
+import urllib.parse
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,6 +28,11 @@ NOT_READY = {
     "error": "Colab is not ready: sign in to Google in Integrations › Remote GPU.",
     "code": "colab_signed_out",
     "suggestion": "Open Integrations › Remote GPU, install the Colab CLI and sign in, or switch Create back to this computer.",
+}
+NO_CIVITAI_TOKEN = {
+    "error": "Colab downloads this model from Civitai, which needs your Civitai API token.",
+    "code": "civitai_token_required",
+    "suggestion": "Add the token in Create's ComfyUI settings (gear icon); it stays on this computer.",
 }
 
 
@@ -51,6 +57,11 @@ def job_resources(workflow: dict[str, Any]) -> list[dict[str, Any]]:
                     "folder": dep.folder, "filename": dep.filename, "url": dep.download_url, "sha256": dep.sha256,
                 }
     return list(found.values())
+
+
+def _civitai(url: str | None) -> bool:
+    host = (urllib.parse.urlparse(url or "").hostname or "").casefold()
+    return host == "civitai.com" or host.endswith(".civitai.com")
 
 
 def job_inputs(workflow: dict[str, Any], stashed: set[str]) -> list[str]:
@@ -104,6 +115,7 @@ class ColabBackend:
     def __init__(self, runtime: ColabRuntime):
         self.runtime = runtime
         self._signed_in: tuple[float, bool] | None = None
+        self._not_ready = NOT_READY
 
     def client(self) -> ColabComfyUIClient:
         return ColabComfyUIClient(self.runtime)
@@ -122,17 +134,30 @@ class ColabBackend:
         self._signed_in = (time.monotonic(), signed_in)
         return signed_in
 
+    def civitai_ready(self, profile: ApprovedProfile | None = None) -> bool:
+        """Whether every Civitai model the runtime still lacks can be fetched (a token is set)."""
+        profiles = [profile] if profile is not None else list(APPROVED_PROFILES.values())
+        needed = [
+            dep for item in profiles for dep in item.required_resources
+            if _civitai(dep.download_url) and dep.filename not in self.runtime.vm_files
+        ]
+        return not needed or bool(str(self.runtime.store.comfyui_settings().get("civitai_api_token") or "").strip())
+
     def ensure_ready(self, timeout: float) -> bool:
         """Runs are queued at once; they wait here while the runtime starts (about 1-2 minutes)."""
+        if not self.civitai_ready():
+            self._not_ready = NO_CIVITAI_TOKEN
+            return False
         if self.runtime.state in {"booting", "ready", "allocating"}:
             return True
         if not self._signed_in_now():
+            self._not_ready = NOT_READY
             return False
         self.runtime.ensure_started()
         return True
 
     def not_ready_payload(self) -> dict[str, str]:
-        return dict(NOT_READY)
+        return dict(self._not_ready)
 
     def profile_health(self, profile: ApprovedProfile) -> dict[str, Any]:
         # The worker downloads the profile's models and installs its node packs itself.
@@ -146,7 +171,12 @@ class ColabBackend:
             source="colab",
         )
         health = check_profile_health(profile, inventory, installed_node_packs={pack.id for pack in profile.custom_nodes})
-        health["backend"] = {"kind": "colab", "signed_in": self._signed_in_now(), **self.runtime.status()}
+        health["backend"] = {
+            "kind": "colab",
+            "signed_in": self._signed_in_now(),
+            "civitai_ready": self.civitai_ready(profile),
+            **self.runtime.status(),
+        }
         return health
 
     def run_details(self, prompt_id: str) -> dict[str, Any] | None:
