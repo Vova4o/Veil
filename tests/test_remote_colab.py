@@ -49,12 +49,15 @@ class _Runner:
         self.answers = answers
         self.scripts: list[str] = []
         self.inputs: list[str | None] = []
+        self.envs: list[dict | None] = []
 
     def __call__(self, script, *, timeout=30.0, input_text=None, env=None):
         self.scripts.append(script)
         self.inputs.append(input_text)
-        for fragment, (code, out, err) in self.answers.items():
+        self.envs.append(env)
+        for fragment, answer in self.answers.items():
             if fragment in script:
+                code, out, err = answer.pop(0) if isinstance(answer, list) else answer
                 return subprocess.CompletedProcess(["wsl"], code, out, err)
         return subprocess.CompletedProcess(["wsl"], 1, "", "unexpected")
 
@@ -210,3 +213,16 @@ def test_process_starting_routes_answer_only_this_computer(remote_client):
         resp = remote_client.post(path, environ_base={"REMOTE_ADDR": "192.168.1.20"})
         assert resp.status_code == 403, path
         assert resp.get_json()["code"] == "local_only"
+
+
+def test_exec_retries_a_stalled_connection_but_not_a_failing_snippet(monkeypatch):
+    monkeypatch.setattr(colab_cli.time, "sleep", lambda seconds: None)
+    stalled = (1, "", "requests.exceptions.ReadTimeout: Read timed out. (read timeout=30)")
+    cli, runner = _cli({" exec ": [stalled, (0, "ok\n", "")]})
+    assert cli.exec_code("cmv", "print('ok')").stdout == "ok\n"
+    assert len(runner.scripts) == 2
+    assert runner.envs[-1] == {"REQUEST_TIMEOUT": "30"}
+
+    cli, runner = _cli({" exec ": [(1, "", "NameError: name 'x' is not defined"), (0, "", "")]})
+    assert cli.exec_code("cmv", "x").returncode == 1
+    assert len(runner.scripts) == 1

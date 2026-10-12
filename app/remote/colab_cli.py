@@ -22,6 +22,10 @@ from typing import Any
 from . import wsl
 
 SESSION_CONFIG = '"$HOME/.config/cmv-colab/sessions.json"'
+# The runtime's Jupyter server sometimes takes longer than the kernel client's default 10 s
+# to answer; a longer wait avoids the client's retry storm that outlasts our own timeout.
+CLI_ENV = {"REQUEST_TIMEOUT": "30"}
+EXEC_ATTEMPTS = 3
 TOKEN_FILE = '"$HOME/.config/colab-cli/token.json"'
 PACKAGE = "google-colab-cli"
 
@@ -140,6 +144,12 @@ def parse_newer_version(text: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _stalled(result: subprocess.CompletedProcess[str]) -> bool:
+    """The CLI gave up reaching the runtime (not the code failing): worth another try."""
+    text = result.stdout + result.stderr
+    return any(marker in text for marker in ("ReadTimeout", "Read timed out", "ConnectTimeout", "Timeout waiting for reply"))
+
+
 def _tail(result: subprocess.CompletedProcess[str], limit: int = 400) -> str:
     lines = [line for line in (result.stderr + "\n" + result.stdout).splitlines() if line.strip()]
     return " ".join(lines[-3:])[-limit:] or f"exit {result.returncode}"
@@ -170,7 +180,7 @@ class ColabCLI:
 
     def _call(self, *args: str, timeout: float = 60.0, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
         try:
-            return self._run(self.command(*args), timeout=timeout, input_text=input_text)
+            return self._run(self.command(*args), timeout=timeout, input_text=input_text, env=CLI_ENV)
         except wsl.WslError as exc:
             raise ColabCLIError(str(exc), code="wsl_unavailable") from exc
 
@@ -247,14 +257,35 @@ class ColabCLI:
         if result.returncode != 0:
             raise ColabCLIError(f"Download from Colab failed: {_tail(result)}", code="download_failed")
 
-    def exec_code(self, name: str, code: str, *, timeout: float = 120.0) -> subprocess.CompletedProcess[str]:
-        """Run a short Python snippet in the session kernel and wait for it."""
-        return self._call("exec", "-s", name, "--timeout", str(int(timeout)), timeout=timeout + 60.0, input_text=code)
+    def exec_code(
+        self, name: str, code: str, *, timeout: float = 120.0, attempts: int = EXEC_ATTEMPTS,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a short, repeatable Python snippet in the session kernel and wait for it.
+
+        A connection that stalls (the CLI waiting on the runtime's Jupyter server) is tried
+        again, so callers must only send code that is safe to run twice.
+        """
+        last: subprocess.CompletedProcess[str] | ColabCLIError | None = None
+        for attempt in range(max(1, attempts)):
+            if attempt:
+                time.sleep(3 * attempt)
+            try:
+                result = self._call("exec", "-s", name, "--timeout", str(int(timeout)), timeout=timeout + 90.0, input_text=code)
+            except ColabCLIError as exc:
+                last = exc
+                continue
+            if result.returncode == 0 or not _stalled(result):
+                return result
+            last = result
+        if isinstance(last, ColabCLIError):
+            raise last
+        assert last is not None
+        return last
 
     def exec_stream(self, name: str, code: str, *, timeout: float) -> subprocess.Popen[bytes]:
         """Run Python in the session kernel and stream its output (the caller reads stdout)."""
         try:
-            process = self._start(self.command("exec", "-s", name, "--timeout", str(int(timeout))))
+            process = self._start(self.command("exec", "-s", name, "--timeout", str(int(timeout))), env=CLI_ENV)
         except wsl.WslError as exc:
             raise ColabCLIError(str(exc), code="wsl_unavailable") from exc
         assert process.stdin is not None
