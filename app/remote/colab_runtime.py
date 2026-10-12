@@ -13,8 +13,10 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -74,6 +76,37 @@ class RemoteJob:
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     cancel_requested: bool = False
+
+
+def pid_alive(pid: Any) -> bool:
+    """Whether a process with this id runs now (Windows: its exit code is still pending)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            ok = kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def output_key(subfolder: Any, filename: Any) -> str:
@@ -288,21 +321,60 @@ class ColabRuntime:
             except Exception:
                 logger.exception("Colab runtime control loop failed")
 
+    # --- which runtimes are ours ------------------------------------------------------
+
+    @property
+    def _records(self) -> Path:
+        return self.cache_dir / "runtimes"
+
+    def _record_owner(self, name: str) -> None:
+        """Note that this process runs ``name``; another CMV process leaves it alone."""
+        self._records.mkdir(parents=True, exist_ok=True)
+        (self._records / f"{name}.json").write_text(
+            json.dumps({"name": name, "pid": os.getpid(), "gpu": self.gpu, "recorded_at": time.time()}),
+            encoding="utf-8",
+        )
+
+    def _forget_owner(self, name: str | None) -> None:
+        if name:
+            (self._records / f"{name}.json").unlink(missing_ok=True)
+
     def _adopt(self) -> None:
-        """Take over a runtime that CMV started before it restarted."""
+        """Take over a runtime that this CMV started before it restarted.
+
+        Only runtimes recorded here are candidates, and only when the process that
+        recorded them has ended: a second CMV running now (the desktop app next to a
+        dev server, say) keeps its own runtime, and runtimes started by hand are left alone.
+        """
+        records = []
+        for path in sorted(self._records.glob("*.json")) if self._records.is_dir() else []:
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                path.unlink(missing_ok=True)
+                continue
+            if record.get("pid") != os.getpid() and pid_alive(record.get("pid")):
+                continue
+            records.append(record)
+        if not records:
+            return
         try:
-            sessions = [item for item in self.cli.sessions() if item.name.startswith(SESSION_PREFIX)]
+            alive = {item.name: item for item in self.cli.sessions()}
         except ColabCLIError:
             return
-        if not sessions:
+        for record in records:
+            session = alive.get(str(record.get("name")))
+            if session is None:
+                self._forget_owner(str(record.get("name")))
+                continue
+            with self._lock:
+                self.name, self.gpu, self.state = session.name, session.hardware, "booting"
+                self.started_at = time.time()
+                self._last_seq = 0
+            self._record_owner(session.name)
+            logger.info("Adopting Colab runtime %s (%s)", session.name, session.hardware)
+            self._start_stream()
             return
-        session = sessions[0]
-        with self._lock:
-            self.name, self.gpu, self.state = session.name, session.hardware, "booting"
-            self.started_at = time.time()
-            self._last_seq = 0
-        logger.info("Adopting Colab runtime %s (%s)", session.name, session.hardware)
-        self._start_stream()
 
     def _fail_runtime(self, message: str, code: str) -> None:
         with self._lock:
@@ -325,6 +397,7 @@ class ColabRuntime:
             return
         with self._lock:
             self.name, self._last_seq, self.vm_files = name, 0, set()
+        self._record_owner(name)
         try:
             defined = self.cli.exec_code(name, WORKER_SOURCE.read_text(encoding="utf-8"), timeout=180)
             if defined.returncode != 0:
@@ -337,6 +410,7 @@ class ColabRuntime:
         except ColabCLIError as exc:
             self._fail_runtime(str(exc), exc.code)
             self._stop_quietly(name)
+            self._forget_owner(name)
             return
         with self._lock:
             self.state, self.boot_stage = "booting", "comfyui"
@@ -370,6 +444,7 @@ class ColabRuntime:
         self._runtime_gone(f"The Colab runtime stopped ({reason}).")
 
     def _runtime_gone(self, message: str) -> None:
+        self._forget_owner(self.name)
         with self._lock:
             for job in self.jobs.values():
                 if job.state in ACTIVE_STATES:
@@ -617,5 +692,6 @@ __all__ = [
     "RelayedProgressMonitor",
     "RemoteJob",
     "output_key",
+    "pid_alive",
     "signed_civitai_url",
 ]

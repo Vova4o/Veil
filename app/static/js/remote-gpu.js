@@ -376,17 +376,22 @@ function settingsCard() {
     const list = el('div', 'remote-gpu-list');
     list.setAttribute('role', 'radiogroup');
     list.setAttribute('aria-label', 'Colab GPU');
+    // Colab names the GPUs this plan may use; until it answered, every choice is offered.
+    const eligible = usage?.eligible_gpus || null;
     settings.gpus.forEach(gpu => {
-        const option = el('label', `remote-gpu-option${gpu.id === settings.colab.gpu ? ' selected' : ''}`);
+        const allowed = !eligible || eligible.includes(gpu.id);
+        const option = el('label', `remote-gpu-option${gpu.id === settings.colab.gpu ? ' selected' : ''}${allowed ? '' : ' unavailable'}`);
         const radio = el('input');
         radio.type = 'radio';
         radio.name = 'remote-gpu';
         radio.value = gpu.id;
         radio.checked = gpu.id === settings.colab.gpu;
+        radio.disabled = !allowed && gpu.id !== settings.colab.gpu;
         radio.addEventListener('change', () => saveSettings({ gpu: gpu.id }));
         const text = el('span', 'remote-gpu-text');
         const rate = gpu.cu_per_hour ? ` · about ${gpu.cu_per_hour.toFixed(2)} CU/h` : '';
-        text.append(el('strong', '', gpu.label), el('small', '', `Colab ${gpu.id} · ${gpu.vram_gb} GB${rate} · ${gpu.note}`));
+        const note = allowed ? gpu.note : 'Not on your Colab plan';
+        text.append(el('strong', '', gpu.label), el('small', '', `Colab ${gpu.id} · ${gpu.vram_gb} GB${rate} · ${note}`));
         option.append(radio, text);
         list.append(option);
     });

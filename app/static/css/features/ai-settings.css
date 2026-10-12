@@ -1598,6 +1598,11 @@ html {
     background: color-mix(in srgb, var(--accent-dim) 60%, var(--bg-elevated));
 }
 
+.remote-gpu-option.unavailable {
+    cursor: default;
+    opacity: 0.55;
+}
+
 .remote-gpu-option input {
     margin-top: 2px;
     accent-color: var(--accent);

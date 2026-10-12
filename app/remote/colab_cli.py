@@ -8,6 +8,8 @@ the user starts with ``colab`` by hand stay out of its way; the account is share
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import queue
 import re
 import shlex
@@ -72,6 +74,9 @@ class ColabUsage:
     balance: float | None
     rate_per_hour: float | None
     active_assignments: int | None
+    # From Colab's ccu-info answer in the CLI's debug log; None when it was not there.
+    eligible_gpus: list[str] | None = None
+    ineligible_gpus: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -123,6 +128,22 @@ def parse_usage(text: str) -> ColabUsage:
         rate_per_hour=float(rate.group(1)) if rate else None,
         active_assignments=int(active.group(1)) if active else None,
     )
+
+
+def parse_gpu_eligibility(text: str) -> tuple[list[str] | None, list[str] | None]:
+    """The eligible and ineligible GPUs in a ccu-info JSON body inside the CLI's debug log."""
+    for line in text.splitlines():
+        start = line.find("{")
+        if "eligibleGpus" not in line or start < 0:
+            continue
+        try:
+            body = json.loads(line[start:])
+        except ValueError:
+            continue
+        eligible, ineligible = body.get("eligibleGpus"), body.get("ineligibleGpus")
+        if isinstance(eligible, list):
+            return [str(item).upper() for item in eligible], [str(item).upper() for item in ineligible or []]
+    return None, None
 
 
 def parse_sessions(text: str) -> list[ColabSession]:
@@ -210,11 +231,13 @@ class ColabCLI:
         self._run(f"rm -f {TOKEN_FILE}", timeout=30.0)
 
     def usage(self) -> ColabUsage:
-        result = self._call("usage", timeout=90.0)
+        # --logtostderr exposes Colab's answer, which also names the GPUs this plan may use.
+        result = self._call("--logtostderr", "usage", timeout=90.0)
         usage = parse_usage(result.stdout)
         if result.returncode != 0 or usage.balance is None:
             raise ColabCLIError(f"Colab usage is unavailable: {_tail(result)}", code="usage_failed")
-        return usage
+        eligible, ineligible = parse_gpu_eligibility(result.stderr)
+        return dataclasses.replace(usage, eligible_gpus=eligible, ineligible_gpus=ineligible)
 
     def sessions(self) -> list[ColabSession]:
         result = self._call("sessions", timeout=90.0)
@@ -382,6 +405,7 @@ __all__ = [
     "ColabUsage",
     "GpuChoice",
     "LoginFlow",
+    "parse_gpu_eligibility",
     "parse_newer_version",
     "parse_sessions",
     "parse_usage",

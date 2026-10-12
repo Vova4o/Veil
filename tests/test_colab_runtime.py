@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import queue
 import subprocess
+import sys
 import time
 import urllib.error
 
@@ -261,7 +263,30 @@ def test_idle_runtime_is_stopped(store, tmp_path, signed, runtimes):
     assert ("stop", runtime.cli.calls[0][1]) in cli.calls
 
 
+def _record(tmp_path, name, pid):
+    folder = tmp_path / "cache" / "runtimes"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.json").write_text(json.dumps({"name": name, "pid": pid}), encoding="utf-8")
+
+
+def _ended_pid():
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
+def test_only_recorded_runtimes_of_an_ended_cmv_are_adopted(store, tmp_path, runtimes):
+    sessions = [ColabSession(name, "endpoint", "G4", "Standard", "GPU") for name in ("cmv-byhand", "cmv-live")]
+    _record(tmp_path, "cmv-live", os.getppid())  # its CMV process still runs
+    cli = _FakeCLI(sessions=sessions)
+    runtime = runtimes(store, tmp_path / "cache", cli)
+    time.sleep(0.5)
+    assert runtime.status()["state"] == "off" and runtime.status()["name"] is None
+    assert cli.attached == []
+
+
 def test_a_runtime_from_before_a_restart_is_adopted(store, tmp_path, runtimes):
+    _record(tmp_path, "cmv-1234abcd", _ended_pid())
     cli = _FakeCLI(sessions=[ColabSession("cmv-1234abcd", "endpoint", "G4", "Standard", "GPU")])
     runtime = runtimes(store, tmp_path / "cache", cli)
     stream = cli.streams.get(timeout=15)
@@ -273,6 +298,14 @@ def test_a_runtime_from_before_a_restart_is_adopted(store, tmp_path, runtimes):
     old = "0f8b9e2c-4d3a-4c1e-9b7a-2e6d5c4b3a21"
     stream.emit(2, "job_done", job=old, outputs={}, files=[{"filename": "a.png", "subfolder": "", "path": "/content/cmv/outbox/a.png"}])
     _wait(lambda: (runtime.job_snapshot(old) or {}).get("status") == "completed", label="old job")
+    record = json.loads((tmp_path / "cache" / "runtimes" / "cmv-1234abcd.json").read_text(encoding="utf-8"))
+    assert record["pid"] == os.getpid(), "the adopting process owns the runtime now"
+
+
+def test_pid_alive():
+    assert colab_runtime.pid_alive(os.getpid())
+    assert not colab_runtime.pid_alive(_ended_pid())
+    assert not colab_runtime.pid_alive(None)
 
 
 def test_a_lost_runtime_fails_its_runs(store, tmp_path, signed, runtimes):

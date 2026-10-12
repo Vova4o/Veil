@@ -27,6 +27,22 @@ WHOAMI = (
 )
 
 
+CCU_LOG = (
+    "2026-10-13 02:55:12,820 - colab_cli.client - DEBUG - Response Body: )]}'\n"
+    '{"currentBalance":348.84, "consumptionRateHourly":0, "assignmentsCount":0, "eligibleGpus":["G4", "A100", "L4", "T4"], '
+    '"ineligibleGpus":["H100"], "eligibleTpus":["V6E1", "V5E1"]}\n'
+)
+
+
+def test_gpu_eligibility_comes_from_the_debug_log():
+    assert colab_cli.parse_gpu_eligibility(CCU_LOG) == (["G4", "A100", "L4", "T4"], ["H100"])
+    assert colab_cli.parse_gpu_eligibility("no json here") == (None, None)
+    cli, runner = _cli({" usage": (0, USAGE, CCU_LOG)})
+    usage = cli.usage()
+    assert usage.eligible_gpus == ["G4", "A100", "L4", "T4"] and usage.ineligible_gpus == ["H100"]
+    assert "--logtostderr usage" in runner.scripts[-1]
+
+
 def test_parsers_read_recorded_cli_output():
     assert colab_cli.parse_version("Version: 0.7.4\n") == "0.7.4"
     usage = colab_cli.parse_usage(USAGE)
