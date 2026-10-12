@@ -14,7 +14,8 @@ from app.media import (
     temporary_media_file,
 )
 
-from .client import ComfyUIClient, ComfyUIClientError
+from .backends import ComfyUIJobClient
+from .client import ComfyUIClientError
 from .workflow_errors import normalize_comfyui_error
 from .workflow_models import WorkflowDraft, WorkflowRun, WorkflowTemplate
 from .workflow_registry import WorkflowTemplateError, WorkflowTemplateRegistry
@@ -39,7 +40,7 @@ class WorkflowExecutionService:
         self,
         *,
         store: WorkflowStore,
-        client: ComfyUIClient,
+        client: ComfyUIJobClient,
         registry: WorkflowTemplateRegistry | None = None,
         profile_store: Any | None = None,
     ):

@@ -370,6 +370,58 @@ def test_generate_text_mode_queues_one_prompt_per_image(create_env):
     assert fake_store.drafts[0]["values"]["seeds"] == [500, 501, 502]
 
 
+class _RemoteBackend:
+    """A backend without a local ComfyUI: readiness, health, client and monitor come from it."""
+
+    kind = "colab"
+
+    def __init__(self, client, *, ready=True):
+        self._client, self._ready = client, ready
+
+    def client(self):
+        return self._client
+
+    def monitor(self, client):
+        return None
+
+    def ensure_ready(self, timeout):
+        return self._ready
+
+    def profile_health(self, profile):
+        return check_profile_health(profile, _inventory())
+
+
+@pytest.fixture
+def remote_env(monkeypatch):
+    fake_client, fake_store = _FakeClient(), _FakeStore()
+    monkeypatch.setattr(simple_routes, "_workflow_store", lambda: fake_store)
+    monkeypatch.setattr(manager, "ensure_comfyui_online", lambda *args, **kwargs: pytest.fail("local ComfyUI was started"))
+    return fake_client, fake_store
+
+
+def test_generate_runs_on_the_chosen_backend(remote_env, monkeypatch):
+    fake_client, fake_store = remote_env
+    monkeypatch.setattr(simple_routes, "_backend", lambda: _RemoteBackend(fake_client))
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40", "mode": "text", "prompt": "A lighthouse in fog",
+        "improve_with_ai": False, "batch_size": 2, "seed": 7,
+    })
+    assert resp.status_code == 200, resp.data
+    assert len(fake_client.queued) == 2
+    assert fake_store.runs == ["p1", "p2"]
+
+
+def test_generate_reports_a_backend_that_is_not_ready(remote_env, monkeypatch):
+    fake_client, _ = remote_env
+    monkeypatch.setattr(simple_routes, "_backend", lambda: _RemoteBackend(fake_client, ready=False))
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40", "mode": "text", "prompt": "x", "improve_with_ai": False,
+    })
+    assert resp.status_code == 503
+    assert resp.get_json()["code"] == "comfyui_connection_failed"
+    assert fake_client.queued == []
+
+
 def test_generate_batch_is_capped_at_profile_maximum(create_env):
     fake_client, _ = create_env
     resp = app.test_client().post("/api/simple/generate", json={

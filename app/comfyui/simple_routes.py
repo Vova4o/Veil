@@ -27,6 +27,7 @@ from app.ai.execution import ExecutionRouter
 from app.ai.profiles import AIProfileStore
 from app.config_store import ConfigStore
 
+from .backends import BackendKind, ComfyUIJobClient, InferenceBackend
 from .client import ComfyUIClient, ComfyUIClientError
 from .create_agent import (
     CreateAgentError,
@@ -250,6 +251,38 @@ def _profile_health(profile: ApprovedProfile, inventory: Any | None = None) -> d
     )
 
 
+class _LocalBackend:
+    """Create on the local ComfyUI, through this module's helpers (tests replace them)."""
+
+    kind: BackendKind = "local"
+
+    def client(self) -> ComfyUIClient:
+        return _client()
+
+    def monitor(self, client: Any) -> ProgressMonitor | None:
+        return _progress_monitor(client)
+
+    def ensure_ready(self, timeout: float) -> bool:
+        from .manager import ensure_comfyui_online
+        from .workflow_inventory import invalidate_runtime_inventory
+
+        if not ensure_comfyui_online(_config_store(), timeout=timeout):
+            return False
+        inventory = _inventory_or_none()
+        if inventory is not None and not getattr(inventory, "online", False):
+            # The cache may still hold the offline snapshot taken before ComfyUI came up.
+            invalidate_runtime_inventory()
+        return True
+
+    def profile_health(self, profile: ApprovedProfile) -> dict[str, Any]:
+        return _profile_health(profile)
+
+
+def _backend() -> InferenceBackend:
+    """Where Create runs its graphs: the local ComfyUI until a remote GPU is chosen."""
+    return _LocalBackend()
+
+
 def _manual_node_install(pack) -> dict[str, str]:
     return {
         "id": pack.id,
@@ -318,7 +351,7 @@ def simple_profile_status(profile_id: str):
         invalidate_runtime_inventory()
     return jsonify({
         "profile_id": profile_id,
-        "health": _profile_health(profile),
+        "health": _backend().profile_health(profile),
     })
 
 
@@ -654,7 +687,7 @@ def _comfyui_offline_response():
     }), 503
 
 
-def _upload_input_image(client: ComfyUIClient, prefix: str, data: bytes) -> str:
+def _upload_input_image(client: ComfyUIJobClient, prefix: str, data: bytes) -> str:
     """Upload a photo to ComfyUI input/cmv and return the name a LoadImage node expects."""
     uploaded = client.upload_image(f"{prefix}_{uuid.uuid4().hex}.png", data, subfolder="cmv")
     subfolder = str(uploaded.get("subfolder") or "")
@@ -688,19 +721,12 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         return jsonify({"error": "A second photo and edit profiles are only used in edit mode.", "code": "edit_only"}), 400
     width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
 
-    from .manager import ensure_comfyui_online
-    from .workflow_inventory import invalidate_runtime_inventory
-
+    backend = _backend()
     # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
-    if not ensure_comfyui_online(_config_store(), timeout=120.0):
+    if not backend.ensure_ready(timeout=120.0):
         return _comfyui_offline_response()
-    inventory = _inventory_or_none()
-    if inventory is not None and not getattr(inventory, "online", False):
-        # The cache may still hold the offline snapshot taken before ComfyUI came up.
-        invalidate_runtime_inventory()
-        inventory = _inventory_or_none()
 
-    health = _profile_health(profile, inventory)
+    health = backend.profile_health(profile)
     if health["status"] == "not_installed":
         return jsonify({
             "error": "Required model components are missing.",
@@ -719,7 +745,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     positive_prompt = req.prompt.strip()
     user_request = (req.user_request if req.user_request is not None else req.prompt).strip()
 
-    client = _client()
+    client = backend.client()
     source_name = subject_name = None
     if req.mode == "edit":
         try:
@@ -756,7 +782,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     )
 
     # One client id per ComfyUI address: ComfyUI reports steps only to the queuing client.
-    monitor = _progress_monitor(client)
+    monitor = backend.monitor(client)
     if monitor is not None and not monitor.ensure_connected(timeout=2.0):
         logger.info("ComfyUI progress socket is not connected; Create shows estimated times only")
     client_id = monitor.client_id if monitor is not None else str(uuid.uuid4())
@@ -1001,7 +1027,8 @@ def _output_asset_payload(asset_id: int) -> dict[str, Any] | None:
 @simple_blueprint.route("/api/simple/runs/<int:run_id>", methods=["GET"])
 def simple_get_run(run_id: int):
     wf_store = _workflow_store()
-    client = _client()
+    backend = _backend()
+    client = backend.client()
     try:
         run = WorkflowExecutionService(store=wf_store, client=client).refresh(run_id)
     except Exception as exc:
@@ -1027,7 +1054,7 @@ def simple_get_run(run_id: int):
         "outputs": outputs,
         "is_complete": run.status in {"completed", "failed", "cancelled"},
         # Live sampler progress from the ComfyUI WebSocket; null when it was not seen.
-        "live": monitor.snapshot(run.prompt_id) if (monitor := _progress_monitor(client)) else None,
+        "live": monitor.snapshot(run.prompt_id) if (monitor := backend.monitor(client)) else None,
     })
 
 
@@ -1035,7 +1062,7 @@ def simple_get_run(run_id: int):
 def simple_cancel_run(run_id: int):
     wf_store = _workflow_store()
     try:
-        run = WorkflowExecutionService(store=wf_store, client=_client()).cancel(run_id)
+        run = WorkflowExecutionService(store=wf_store, client=_backend().client()).cancel(run_id)
         return jsonify({"ok": True, "run": run.model_dump(mode="json")})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
