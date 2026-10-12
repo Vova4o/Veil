@@ -390,6 +390,12 @@ class _RemoteBackend:
     def profile_health(self, profile):
         return check_profile_health(profile, _inventory())
 
+    def not_ready_payload(self):
+        return {"error": "Colab is not ready.", "code": "colab_signed_out", "suggestion": "Sign in."}
+
+    def run_details(self, prompt_id):
+        return {"backend": "colab", "job_state": "waiting"}
+
 
 @pytest.fixture
 def remote_env(monkeypatch):
@@ -418,7 +424,7 @@ def test_generate_reports_a_backend_that_is_not_ready(remote_env, monkeypatch):
         "profile_id": "krea2_moody_v40", "mode": "text", "prompt": "x", "improve_with_ai": False,
     })
     assert resp.status_code == 503
-    assert resp.get_json()["code"] == "comfyui_connection_failed"
+    assert resp.get_json()["code"] == "colab_signed_out"
     assert fake_client.queued == []
 
 

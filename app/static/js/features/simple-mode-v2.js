@@ -43,6 +43,10 @@ const state = {
     models: [],
     modelId: '',
     health: null,
+    // Where Create runs: this computer's ComfyUI or a Colab GPU (Integrations › Remote GPU).
+    backend: 'local',
+    colab: null,
+    colabPoll: null,
     mode: 'text',
     ratio: '1:1',
     photoRatio: 'source',
@@ -157,6 +161,7 @@ function init() {
     loadAmbient();
     watchAmbientSources();
     loadRuntimeSummary();
+    loadBackend();
 }
 
 // --- modes ---------------------------------------------------------------------------
@@ -593,7 +598,9 @@ function paintHealth(health) {
     let className = 'is-checking';
     let label = 'Checking';
     let text = 'Checking local components';
-    if (state.runtimeBusy) {
+    if (state.backend === 'colab') {
+        [className, label, text] = colabStatusLine();
+    } else if (state.runtimeBusy) {
         const seconds = Math.round((Date.now() - state.runtimeStartedAt) / 1000);
         className = 'is-starting';
         label = state.runtimeBusy === 'restarting' ? 'Restarting' : 'Starting';
@@ -652,6 +659,9 @@ async function loadHealth(force = false) {
 
 function blocking() {
     const health = state.health || {};
+    if (state.backend === 'colab' && health.backend?.signed_in === false) {
+        return 'Sign in to Google in Integrations › Remote GPU, or switch Create to This PC.';
+    }
     if (health.status === 'not_installed') return 'Download the missing components first.';
     if (health.status === 'workflow_pending') return 'The recipe is not prepared yet.';
     if (health.status === 'ready' && health.modes_ready?.[state.mode] === false) {
@@ -758,8 +768,10 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
     canvas('generating');
     $('generation-stop').hidden = false;
     // An offline ComfyUI is started by the generate request itself; say so instead of "sending".
-    const coldStart = state.health?.comfyui_online === false;
-    setGenerating(coldStart ? 'Starting ComfyUI…' : 'Sending to ComfyUI…',
+    const colabCold = state.backend === 'colab' && state.colab?.state !== 'ready';
+    const coldStart = state.backend !== 'colab' && state.health?.comfyui_online === false;
+    if (colabCold) setGenerating('Starting a Colab GPU…', 'The first run after a start takes about 2 minutes');
+    else setGenerating(coldStart ? 'Starting ComfyUI…' : state.backend === 'colab' ? 'Sending to Colab…' : 'Sending to ComfyUI…',
         coldStart ? 'The first run after a start takes longer' : plan.agentName ? `Prompt by ${plan.agentName}` : '');
     createButton(true, 8, 'Queueing…');
     if (plan.note) showNote(plan.note);
@@ -793,6 +805,7 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
         loadHealth(true);
         loadRuntimeSummary();
     }
+    if (state.backend === 'colab') loadColabRuntime();
     plan.editProfile = data.edit_profile || plan.editProfile;
     plan.seconds = data.seconds_per_image || plan.seconds || TXT2IMG_SECONDS;
     plan.width = data.width;
@@ -805,6 +818,7 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
         outputs: new Map(),
         failed: [],
         live: new Map(),
+        remote: new Map(),
         startedAt: Date.now(),
     });
     job.total = job.runIds.length;
@@ -852,6 +866,16 @@ function runProgress(job) {
         remaining = current + queuedAfter * per;
     } else {
         const elapsed = (Date.now() - job.startedAt) / 1000;
+        const remoteStage = remoteStageText(currentId ? job.remote?.get(currentId) : null);
+        if (remoteStage && (!live || live.state === 'queued')) {
+            // A Colab GPU still starting or downloading models: no honest estimate yet.
+            return {
+                percent: Math.round(8 + 90 * Math.min(0.97, finished / total)),
+                stage: remoteStage,
+                eta: '',
+                elapsed: `${formatDuration(elapsed)} in`,
+            };
+        }
         fraction = Math.min(0.9, Math.max(0, elapsed - finished * per) / per);
         stage = live ? LIVE_STAGES[live.stage] || '' : '';
         remaining = Math.max(0, per * (total - finished) - Math.max(0, elapsed - finished * per));
@@ -874,6 +898,7 @@ function pollRuns(job) {
             try {
                 const data = await json(`/api/simple/runs/${id}`);
                 if (data.live) job.live.set(id, data.live);
+                if (data.remote) job.remote.set(id, data.remote);
                 if (Array.isArray(data.outputs) && data.outputs.length) job.outputs.set(id, data.outputs);
                 if (data.is_complete) {
                     job.done.add(id);
@@ -1436,6 +1461,9 @@ function wire() {
     $('runtime-folders').addEventListener('click', runtimeFolderClick);
     $('runtime-rescan').onclick = rescanDesktop;
     $('runtime-action').onclick = runtimeActionClick;
+    document.querySelectorAll('#backend-switch [data-backend]').forEach(button => {
+        button.onclick = () => setBackend(button.dataset.backend);
+    });
     $('runtime-settings-form').onsubmit = saveRuntimeSettings;
 
     addEventListener('keydown', event => {
@@ -2262,6 +2290,137 @@ function runtimeUp(status) {
     return Boolean(status) && ['ready', 'external', 'busy'].includes(status.status);
 }
 
+// --- remote GPU (Colab) ---------------------------------------------------------------
+
+const COLAB_BOOT_STAGES = {
+    allocating: 'getting a GPU',
+    comfyui: 'getting ComfyUI',
+    requirements: 'installing packages',
+    nodes: 'installing the photo-edit nodes',
+    starting: 'starting ComfyUI',
+};
+
+function shortGpuName(name) {
+    return String(name || '').split(',')[0].replace(/^NVIDIA\s+/, '').replace(/\s+Server Edition$/, '');
+}
+
+/** Status line for a Colab backend: badge class, badge label and text. */
+function colabStatusLine() {
+    const runtime = state.colab || state.health?.backend || {};
+    const gpu = runtime.gpu || 'GPU';
+    if (state.health?.backend?.signed_in === false) return ['is-missing', 'Colab', 'Sign in to Google to use the Colab GPU'];
+    switch (runtime.state) {
+    case 'allocating':
+        return ['is-starting', 'Starting', `Colab ${gpu} · getting a GPU…`];
+    case 'booting':
+        return ['is-starting', 'Starting', `Colab ${gpu} · ${COLAB_BOOT_STAGES[runtime.boot_stage] || 'setting up'}…`];
+    case 'stopping':
+        return ['is-starting', 'Stopping', `Colab ${gpu} · stopping…`];
+    case 'error':
+        return ['is-missing', 'Colab', runtime.error?.message || 'The Colab runtime failed'];
+    case 'ready': {
+        const name = runtime.gpu_name ? shortGpuName(runtime.gpu_name) : `Colab ${gpu}`;
+        const tail = runtime.active_jobs
+            ? ` · ${runtime.active_jobs} running`
+            : runtime.stops_in_seconds != null ? ` · stops in ${formatDuration(runtime.stops_in_seconds)} without work` : '';
+        return ['is-ready', 'Colab', `${name} · ready${tail}`];
+    }
+    default:
+        return ['is-idle', 'Colab', `Colab ${gpu} · starts with the first run, about 2 min`];
+    }
+}
+
+/** What a Colab run is waiting for before ComfyUI reports its own progress. */
+function remoteStageText(remote) {
+    if (!remote) return '';
+    const gpu = remote.gpu || 'GPU';
+    if (remote.runtime_state === 'allocating') return `Getting a Colab ${gpu}`;
+    if (remote.runtime_state === 'booting' && ['waiting', 'sent', 'received'].includes(remote.job_state)) {
+        return `Setting up Colab: ${COLAB_BOOT_STAGES[remote.boot_stage] || 'starting'}`;
+    }
+    const downloads = Object.values(remote.downloads || {});
+    if (downloads.length) {
+        const total = downloads.reduce((sum, item) => sum + (item.total || 0), 0);
+        const done = downloads.reduce((sum, item) => sum + (item.done || 0), 0);
+        return total
+            ? `Downloading models · ${Math.round((100 * done) / total)}%`
+            : `Downloading ${downloads.length} model file${downloads.length === 1 ? '' : 's'} on Colab`;
+    }
+    if (['waiting', 'sent', 'received', 'preparing'].includes(remote.job_state)) return 'Sending to Colab';
+    if (remote.job_state === 'collecting') return 'Fetching the image from Colab';
+    return '';
+}
+
+function paintBackendSwitch() {
+    document.querySelectorAll('#backend-switch [data-backend]').forEach(button => {
+        const active = button.dataset.backend === state.backend;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-checked', String(active));
+        button.disabled = Boolean(state.job);
+    });
+}
+
+async function loadBackend() {
+    try {
+        const data = await json('/api/remote/settings');
+        state.backend = data.backend === 'colab' ? 'colab' : 'local';
+    } catch {
+        state.backend = 'local';
+    }
+    paintBackendSwitch();
+    if (state.backend === 'colab') {
+        await loadHealth(true);
+        loadColabRuntime();
+    }
+}
+
+async function setBackend(backend) {
+    if (state.job || backend === state.backend) return;
+    try {
+        const data = await json('/api/remote/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ backend }),
+        });
+        state.backend = data.backend;
+    } catch (err) {
+        return error('Could not switch where Create runs', err.message);
+    }
+    paintBackendSwitch();
+    clearTimeout(state.colabPoll);
+    if (state.backend === 'colab') await loadColabRuntime();
+    await loadHealth(true);
+}
+
+async function loadColabRuntime() {
+    clearTimeout(state.colabPoll);
+    if (state.backend !== 'colab') return;
+    try {
+        state.colab = await json('/api/remote/colab/runtime');
+    } catch {
+        return;
+    }
+    paintHealth(state.health);
+    const runtime = state.colab?.state;
+    // Fast while it starts or stops, slower for the idle countdown, none while off.
+    const delay = ['allocating', 'booting', 'stopping'].includes(runtime) ? 2000 : runtime === 'ready' ? 10000 : 0;
+    if (delay) state.colabPoll = setTimeout(loadColabRuntime, delay);
+}
+
+async function colabPower(start) {
+    const button = $('runtime-action');
+    button.disabled = true;
+    try {
+        state.colab = await json(`/api/remote/colab/runtime/${start ? 'start' : 'stop'}`, { method: 'POST' });
+    } catch (err) {
+        error(start ? 'Could not start Colab' : 'Could not stop Colab', err.message);
+    } finally {
+        button.disabled = false;
+    }
+    paintHealth(state.health);
+    loadColabRuntime();
+}
+
 function paintRuntimeDot() {
     const dot = $('runtime-settings-dot');
     dot.className = 'runtime-settings-dot';
@@ -2273,11 +2432,21 @@ const RUNTIME_ACTIONS = {
     start: { label: 'Start ComfyUI', icon: '<path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>' },
     restart: { label: 'Restart ComfyUI', icon: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path>' },
     settings: { label: 'Set up ComfyUI', icon: '<path d="M12 15V3"></path><path d="m7 10 5 5 5-5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' },
+    'colab-start': { label: 'Start Colab', icon: '<path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>' },
+    'colab-stop': { label: 'Stop Colab', icon: '<rect x="6" y="6" width="12" height="12" rx="2"></rect>' },
+    'colab-sign-in': { label: 'Sign in', icon: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path>' },
 };
 
 /** What the status line offers: start an offline ComfyUI, or restart the one Create started. */
 function runtimeAction() {
     const health = state.health || {};
+    if (state.backend === 'colab') {
+        if (state.job) return null;
+        if (health.backend?.signed_in === false) return 'colab-sign-in';
+        const runtime = state.colab?.state;
+        if (!runtime || runtime === 'off' || runtime === 'error') return 'colab-start';
+        return ['allocating', 'booting', 'ready'].includes(runtime) ? 'colab-stop' : null;
+    }
     if (state.runtimeBusy || state.job) return null;
     if (health.comfyui_online === false) {
         if (!state.runtimeConfig) return null;
@@ -2289,6 +2458,7 @@ function runtimeAction() {
 }
 
 function paintRuntimeAction() {
+    paintBackendSwitch();
     const button = $('runtime-action');
     const action = runtimeAction();
     button.hidden = !action;
@@ -2386,6 +2556,11 @@ async function stopRuntime() {
 
 function runtimeActionClick() {
     const action = $('runtime-action').dataset.action;
+    if (action === 'colab-sign-in') {
+        window.location.href = '/settings/ai#remote';
+        return;
+    }
+    if (action === 'colab-start' || action === 'colab-stop') return colabPower(action === 'colab-start');
     if (action === 'settings') return openRuntimeSettings();
     if (action === 'start' || action === 'restart') return startRuntime(action);
 }

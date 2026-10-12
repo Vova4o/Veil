@@ -1053,6 +1053,9 @@ Create can render on a Google Colab GPU under the user's own Google account (pla
 | `POST` | `/api/remote/colab/login/code` | Body `{"code": "..."}`: hand Google's authorization code to the waiting CLI; the code is not stored |
 | `POST` | `/api/remote/colab/logout` | Remove the CLI's saved sign-in in WSL (also signs out the CLI outside CMV) |
 | `GET` | `/api/remote/colab/usage` | Compute-unit balance, the current CU per hour, active assignments and CMV's runtimes; cached 60 s, `?refresh=1` asks again |
+| `GET` | `/api/remote/colab/runtime` | CMV's Colab runtime: state (`off`, `allocating`, `booting`, `ready`, `stopping`, `error`), GPU, boot stage, active jobs, images done and seconds until the idle auto-stop |
+| `POST` | `/api/remote/colab/runtime/start` | Allocate the runtime and boot the worker in the background (Create runs also start it on demand) |
+| `POST` | `/api/remote/colab/runtime/stop` | Release the runtime now; runs still waiting on it fail |
 | `GET/POST` | `/api/remote/settings` | Where Create runs (`local` or `colab`), the Colab GPU (`G4` default, `A100`, `L4`, `T4`, `H100`) and the idle auto-stop (2-60 minutes, default 10) |
 
 ## Create (Simple) API

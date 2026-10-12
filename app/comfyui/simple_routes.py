@@ -274,12 +274,27 @@ class _LocalBackend:
             invalidate_runtime_inventory()
         return True
 
+    def not_ready_payload(self) -> dict[str, str]:
+        return {
+            "error": "Could not connect to or automatically start ComfyUI.",
+            "code": "comfyui_connection_failed",
+            "suggestion": "ComfyUI is not running and automatic startup failed. Check the ComfyUI path in settings using the gear icon in the header.",
+        }
+
     def profile_health(self, profile: ApprovedProfile) -> dict[str, Any]:
         return _profile_health(profile)
 
+    def run_details(self, prompt_id: str) -> dict[str, Any] | None:
+        return None
+
 
 def _backend() -> InferenceBackend:
-    """Where Create runs its graphs: the local ComfyUI until a remote GPU is chosen."""
+    """Where Create runs its graphs: the local ComfyUI, or a Colab GPU when chosen."""
+    store = _config_store()
+    if store.remote_settings()["backend"] == "colab":
+        from app.remote.colab_backend import colab_backend
+
+        return colab_backend(store)
     return _LocalBackend()
 
 
@@ -679,12 +694,8 @@ def simple_fetch_image():
         return jsonify({"error": message, "code": code}), status
 
 
-def _comfyui_offline_response():
-    return jsonify({
-        "error": "Could not connect to or automatically start ComfyUI.",
-        "code": "comfyui_connection_failed",
-        "suggestion": "ComfyUI is not running and automatic startup failed. Check the ComfyUI path in settings using the gear icon in the header.",
-    }), 503
+def _backend_not_ready_response(backend: InferenceBackend):
+    return jsonify(backend.not_ready_payload()), 503
 
 
 def _upload_input_image(client: ComfyUIJobClient, prefix: str, data: bytes) -> str:
@@ -724,7 +735,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     backend = _backend()
     # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
     if not backend.ensure_ready(timeout=120.0):
-        return _comfyui_offline_response()
+        return _backend_not_ready_response(backend)
 
     health = backend.profile_health(profile)
     if health["status"] == "not_installed":
@@ -1055,6 +1066,8 @@ def simple_get_run(run_id: int):
         "is_complete": run.status in {"completed", "failed", "cancelled"},
         # Live sampler progress from the ComfyUI WebSocket; null when it was not seen.
         "live": monitor.snapshot(run.prompt_id) if (monitor := backend.monitor(client)) else None,
+        # A remote GPU: the runtime starting or models downloading before ComfyUI runs the job.
+        "remote": backend.run_details(run.prompt_id),
     })
 
 

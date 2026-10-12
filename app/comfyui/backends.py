@@ -58,7 +58,15 @@ class InferenceBackend(Protocol):
         """Whether runs can be queued now; a local backend may start ComfyUI first."""
         ...
 
+    def not_ready_payload(self) -> dict[str, str]:
+        """The error, code and suggestion Create shows when ``ensure_ready`` is False."""
+        ...
+
     def profile_health(self, profile: ApprovedProfile) -> dict[str, Any]: ...
+
+    def run_details(self, prompt_id: str) -> dict[str, Any] | None:
+        """What a queued run waits for beyond ComfyUI's own progress (a remote GPU starting)."""
+        ...
 
 
 __all__ = ["BackendKind", "ComfyUIJobClient", "InferenceBackend"]

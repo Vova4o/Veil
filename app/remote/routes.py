@@ -255,6 +255,51 @@ def colab_usage():
     return jsonify(payload)
 
 
+def _runtime_payload(store: ConfigStore) -> dict[str, Any]:
+    from .colab_backend import existing_runtime
+
+    runtime = existing_runtime()
+    if runtime is None:
+        colab = store.remote_settings()["colab"]
+        return {"state": "off", "gpu": colab["gpu"], "idle_minutes": colab["idle_minutes"], "active_jobs": 0}
+    return runtime.status()
+
+
+@remote_blueprint.route("/api/remote/colab/runtime", methods=["GET"])
+def colab_runtime_status():
+    """CMV's Colab runtime: off, allocating, booting, ready, stopping or error, with its GPU."""
+    return jsonify(_runtime_payload(_config_store()))
+
+
+@remote_blueprint.route("/api/remote/colab/runtime/start", methods=["POST"])
+def colab_runtime_start():
+    from .colab_backend import colab_runtime
+
+    if (denied := _local_only()) is not None:
+        return denied
+    store = _config_store()
+    try:
+        signed_in = _cli().token_present()
+    except (ColabCLIError, wsl.WslError) as exc:
+        return _error(exc)
+    if not signed_in:
+        return jsonify({"error": "Sign in to Google in Integrations › Remote GPU first.", "code": "colab_signed_out"}), 409
+    colab_runtime(store).ensure_started()
+    return jsonify(_runtime_payload(store))
+
+
+@remote_blueprint.route("/api/remote/colab/runtime/stop", methods=["POST"])
+def colab_runtime_stop():
+    from .colab_backend import existing_runtime
+
+    if (denied := _local_only()) is not None:
+        return denied
+    runtime = existing_runtime()
+    if runtime is not None:
+        threading.Thread(target=runtime.stop, args=("stopped by the user",), daemon=True).start()
+    return jsonify({**_runtime_payload(_config_store()), "state": "stopping" if runtime else "off"})
+
+
 @remote_blueprint.route("/api/remote/settings", methods=["GET", "POST"])
 def remote_settings():
     store = _config_store()

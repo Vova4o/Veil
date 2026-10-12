@@ -144,6 +144,37 @@
 .model-status-action:hover{background:color-mix(in srgb,var(--accent,#2dd4bf) 24%,transparent)}
 .model-status-action svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 
+/* Where Create runs: this computer or a Colab GPU */
+.backend-switch{
+    margin-left:auto;
+    flex:none;
+    display:inline-flex;
+    padding:2px;
+    border-radius:999px;
+    border:1px solid color-mix(in srgb,var(--border,#2a3245) 80%,transparent);
+    background:color-mix(in srgb,var(--surface2,#19202f) 70%,transparent);
+}
+.model-status-action:not([hidden]) + .backend-switch{margin-left:6px}
+.backend-switch button{
+    min-height:20px;
+    padding:2px 9px;
+    border:0;
+    border-radius:999px;
+    background:transparent;
+    color:var(--text-muted,#657088);
+    font:inherit;
+    font-size:10px;
+    font-weight:700;
+    white-space:nowrap;
+    cursor:pointer;
+}
+.backend-switch button:hover:not(:disabled){color:var(--text-dim,#9aa4b8)}
+.backend-switch button.active{
+    background:color-mix(in srgb,var(--accent,#2dd4bf) 18%,transparent);
+    color:var(--accent,#2dd4bf);
+}
+.backend-switch button:disabled{cursor:default;opacity:.6}
+
 /* Semi-transparent Model Health Panel */
 .model-health-panel{
     display:flex;
