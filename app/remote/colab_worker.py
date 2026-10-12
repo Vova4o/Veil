@@ -842,10 +842,14 @@ class Worker:
     def _collect(self, job_id: str) -> None:
         with self._lock:
             job = self.jobs.pop(job_id, None)
+            # A batch shares one uploaded photo: it stays while another job still uses it.
+            in_use = {name for other in self.jobs.values() for name in other["job"]["inputs"]}
         shutil.rmtree(self.outbox / job_id, ignore_errors=True)
         (self.inbox / f"{job_id}.job.json").unlink(missing_ok=True)
         if job is not None:
             for name in job["job"]["inputs"]:
+                if name in in_use:
+                    continue
                 (self.inputs / name).unlink(missing_ok=True)
                 (self.comfy_dir / "input" / "cmv" / name).unlink(missing_ok=True)
         try:

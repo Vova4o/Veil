@@ -207,6 +207,22 @@ def test_finish_copies_outputs_and_collect_removes_everything(worker):
     assert ("POST", "/history", {"delete": [JOB]}) in comfy.calls
 
 
+def test_a_shared_photo_stays_until_the_last_job_of_the_batch_is_collected(worker):
+    worker._api = _FakeComfy(history={})
+    second = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    for job_id in (JOB, second):
+        (worker.inbox / f"{job_id}.job.json").write_text(_job(id=job_id), encoding="utf-8")
+    worker._scan_inbox()
+    shared = worker.inputs / "cmv_source_abc.png"
+    copied = worker.comfy_dir / "input" / "cmv" / "cmv_source_abc.png"
+    _age(worker.inbox / f"{JOB}.collected", write=True)
+    worker._scan_inbox()
+    assert shared.exists() and copied.exists(), "the batch's other job still needs the photo"
+    _age(worker.inbox / f"{second}.collected", write=True)
+    worker._scan_inbox()
+    assert not shared.exists() and not copied.exists()
+
+
 def test_failed_history_reports_the_execution_error(worker):
     error = {"node_id": "7", "exception_message": "CUDA out of memory"}
     history = {JOB: {"status": {"status_str": "error", "messages": [["execution_error", error]]}, "outputs": {}}}
