@@ -61,6 +61,7 @@ from .preview import (
     get_or_create_preview,
     preview_mimetype,
 )
+from .remote.routes import remote_blueprint
 from .reset_service import ResetOperationError, reset_application_index
 from .schemas import (
     AlbumCreateRequest,
@@ -95,6 +96,7 @@ app.register_blueprint(editor_blueprint)
 app.register_blueprint(simple_blueprint)
 app.register_blueprint(social_blueprint)
 app.register_blueprint(studio_blueprint)
+app.register_blueprint(remote_blueprint)
 
 app.jinja_env.auto_reload = True
 

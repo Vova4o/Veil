@@ -17,6 +17,7 @@ PUBLIC_ROUTE_FILES = (
     ROOT / "app" / "comfyui" / "routes.py",
     ROOT / "app" / "comfyui" / "simple_routes.py",
     ROOT / "app" / "integrations" / "social" / "routes.py",
+    ROOT / "app" / "remote" / "routes.py",
     ROOT / "app" / "visual_runtime" / "routes.py",
 )
 

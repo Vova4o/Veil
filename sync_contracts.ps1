@@ -6,7 +6,8 @@
     В этом репозитории контракт — ручной (генератора OpenAPI нет):
       1. Flask-маршруты из PUBLIC_ROUTE_FILES (см. tests/test_openapi_contract.py):
          app/main.py, app/ai/routes.py, app/comfyui/routes.py,
-         app/comfyui/simple_routes.py, app/integrations/social/routes.py
+         app/comfyui/simple_routes.py, app/integrations/social/routes.py,
+         app/remote/routes.py
       2. Документ site/api/openapi.json (OpenAPI 3.1.0, рендерится через Scalar
          в site/api/index.html).
 

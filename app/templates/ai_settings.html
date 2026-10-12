@@ -132,6 +132,11 @@
                         <span>Social accounts</span>
                         <span id="rail-count-social" class="rail-count" hidden></span>
                     </a>
+                    <p class="rail-group-label">Compute</p>
+                    <a class="rail-link" href="#remote" data-pane="remote">
+                        <span>Remote GPU</span>
+                        <span id="rail-count-remote" class="rail-count" hidden></span>
+                    </a>
                 </nav>
             </aside>
 
@@ -197,6 +202,17 @@
                 <span>Show optional adapters <span class="social-optional-note">(Telegram — registration-required)</span></span>
             </label>
             <div id="social-grid" class="social-grid" aria-live="polite"></div>
+        </section>
+
+        <section class="settings-section integrations-pane" id="remote-section" data-pane="remote" aria-labelledby="remote-heading" hidden>
+            <div class="section-heading">
+                <div>
+                    <p class="section-kicker">Google Colab</p>
+                    <h2 id="remote-heading">Remote GPU</h2>
+                    <p>Create can render on a Colab GPU under your own Google account instead of this computer's graphics card. Nothing is checked until this tab is open; sign-in goes through Google's own page and the Colab CLI keeps the token inside WSL.</p>
+                </div>
+            </div>
+            <div id="remote-grid" class="cli-grid remote-grid" aria-live="polite"></div>
         </section>
 
             </div>
@@ -415,6 +431,10 @@
     <script
         type="module"
         src="/static/js/social-accounts.js?v={{ static_version('js/social-accounts.js') }}"
+    ></script>
+    <script
+        type="module"
+        src="/static/js/remote-gpu.js?v={{ static_version('js/remote-gpu.js') }}"
     ></script>
 </body>
 </html>

@@ -277,7 +277,7 @@ function profileKindLabel(profile) {
 /* Integrations pane routing + rail counts                             */
 /* ------------------------------------------------------------------ */
 
-const RAIL_PANES = ['providers', 'cli', 'social'];
+const RAIL_PANES = ['providers', 'cli', 'social', 'remote'];
 
 function currentPane() {
     const hash = window.location.hash.replace('#', '');

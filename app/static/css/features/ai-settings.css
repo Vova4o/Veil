@@ -1443,3 +1443,210 @@ html {
     }
 }
 
+
+/* Integrations › Remote GPU */
+.remote-grid {
+    align-items: start;
+}
+
+.remote-log {
+    margin: 12px 0 0;
+    max-height: 190px;
+    padding: 10px 12px;
+    overflow: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--bg-elevated);
+    color: var(--text-dim);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 10.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.remote-login {
+    margin-top: 12px;
+    padding: 12px 13px;
+    border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent-dim) 55%, transparent);
+}
+
+.remote-login-step {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.remote-login-link {
+    display: inline-block;
+    margin-top: 7px;
+    color: var(--accent-hover);
+    font-size: 11px;
+}
+
+.remote-login-row {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+}
+
+.remote-login-code {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 31px;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 12px;
+}
+
+.remote-login-code:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.remote-balance {
+    margin-top: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.remote-balance strong {
+    font-family: var(--font-title);
+    font-size: 30px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.remote-balance span {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.remote-stats {
+    margin: 12px 0 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 5px 14px;
+    font-size: 11px;
+}
+
+.remote-stats dt {
+    color: var(--text-muted);
+}
+
+.remote-stats dd {
+    margin: 0;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.remote-sessions {
+    margin: 12px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+    list-style: none;
+}
+
+.remote-sessions li {
+    padding: 7px 9px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    font-size: 11px;
+}
+
+.remote-sessions span {
+    color: var(--text-muted);
+}
+
+.remote-gpu-list {
+    margin-top: 13px;
+    display: grid;
+    gap: 6px;
+}
+
+.remote-gpu-option {
+    padding: 8px 10px;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.remote-gpu-option:hover {
+    border-color: var(--border);
+}
+
+.remote-gpu-option.selected {
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    background: color-mix(in srgb, var(--accent-dim) 60%, var(--bg-elevated));
+}
+
+.remote-gpu-option input {
+    margin-top: 2px;
+    accent-color: var(--accent);
+}
+
+.remote-gpu-text {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.remote-gpu-text strong {
+    font-size: 12px;
+}
+
+.remote-gpu-text small {
+    color: var(--text-muted);
+    font-size: 10.5px;
+    line-height: 1.4;
+}
+
+.remote-idle {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.remote-idle-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--text-dim);
+    font-size: 11.5px;
+}
+
+.remote-idle-label strong {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.remote-idle input[type="range"] {
+    width: 100%;
+    margin-top: 10px;
+    accent-color: var(--accent);
+}
+
+@media (max-width: 900px) {
+    .remote-login-row {
+        flex-direction: column;
+    }
+}

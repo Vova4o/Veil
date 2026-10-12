@@ -13,6 +13,12 @@ from .paths import normalize_path
 CONFIG_VERSION = 3
 _config_lock = threading.RLock()
 
+# Where Create runs its graphs, and the Colab remote GPU settings (docs/COLAB-REMOTE-PLAN.md).
+REMOTE_BACKENDS = ("local", "colab")
+COLAB_GPUS = ("G4", "A100", "L4", "T4", "H100")
+DEFAULT_COLAB_GPU = "G4"
+IDLE_MINUTES_MIN, IDLE_MINUTES_MAX, DEFAULT_IDLE_MINUTES = 2, 60, 10
+
 
 class ConfigStoreError(RuntimeError):
     """Raised when the persistent application configuration cannot be used."""
@@ -32,6 +38,24 @@ class SourceSettings:
             "enabled": self.enabled,
             "recursive": self.recursive,
         }
+
+
+def _remote_settings(raw: Any) -> dict[str, Any]:
+    remote = raw if isinstance(raw, dict) else {}
+    colab = remote.get("colab") if isinstance(remote.get("colab"), dict) else {}
+    backend = remote.get("backend")
+    gpu = str(colab.get("gpu") or "").upper()
+    try:
+        idle = int(colab.get("idle_minutes"))
+    except (TypeError, ValueError):
+        idle = DEFAULT_IDLE_MINUTES
+    return {
+        "backend": backend if backend in REMOTE_BACKENDS else "local",
+        "colab": {
+            "gpu": gpu if gpu in COLAB_GPUS else DEFAULT_COLAB_GPU,
+            "idle_minutes": min(IDLE_MINUTES_MAX, max(IDLE_MINUTES_MIN, idle)),
+        },
+    }
 
 
 def _default_config() -> dict[str, Any]:
@@ -70,6 +94,7 @@ def _default_config() -> dict[str, Any]:
                 "client_secret": None,
             },
         },
+        "remote": _remote_settings(None),
     }
 
 
@@ -188,6 +213,7 @@ class ConfigStore:
                         "client_secret": social_vk.get("client_secret"),
                     },
                 },
+                "remote": _remote_settings(raw.get("remote")),
             }
 
     def save(self, config: dict[str, Any]) -> None:
@@ -425,6 +451,36 @@ class ConfigStore:
 
             self.save(config)
             return comfyui
+
+    def remote_settings(self) -> dict[str, Any]:
+        return _remote_settings(self.load().get("remote"))
+
+    def update_remote_settings(
+        self,
+        *,
+        backend: str | None = None,
+        colab_gpu: str | None = None,
+        colab_idle_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        """Change remote GPU settings; values outside the allowed ones raise ValueError."""
+        if backend is not None and backend not in REMOTE_BACKENDS:
+            raise ValueError(f"Unknown backend: {backend}")
+        if colab_gpu is not None and colab_gpu.upper() not in COLAB_GPUS:
+            raise ValueError(f"Unknown Colab GPU: {colab_gpu}")
+        if colab_idle_minutes is not None and not IDLE_MINUTES_MIN <= int(colab_idle_minutes) <= IDLE_MINUTES_MAX:
+            raise ValueError(f"Idle minutes must be {IDLE_MINUTES_MIN}-{IDLE_MINUTES_MAX}.")
+        with _config_lock:
+            config = self.load()
+            remote = _remote_settings(config.get("remote"))
+            if backend is not None:
+                remote["backend"] = backend
+            if colab_gpu is not None:
+                remote["colab"]["gpu"] = colab_gpu.upper()
+            if colab_idle_minutes is not None:
+                remote["colab"]["idle_minutes"] = int(colab_idle_minutes)
+            config["remote"] = remote
+            self.save(config)
+            return remote
 
     def social_settings(self) -> dict[str, Any]:
         settings = self.load().get("social", {

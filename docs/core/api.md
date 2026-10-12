@@ -24,6 +24,7 @@ The pre-Simple-Mode `/api/editor/*` workflow-editor surface is intentionally **l
 - [AI Prompt Drafts](#ai-prompt-drafts)
 - [AI Prompt Operations](#ai-prompt-operations)
 - [ComfyUI Runtime and Legacy Workflow Editor](#comfyui-runtime-and-legacy-workflow-editor)
+- [Remote GPU (Google Colab)](#remote-gpu-google-colab)
 - [Create (Simple) API](#create-simple-api)
 - [Social API](#social-api)
 - [System](#system)
@@ -1037,6 +1038,22 @@ workflow. If a draft originated from Remix, the new asset also references its so
 | `GET` | `/api/editor/models/scan_stream` | SSE stream of progress updates for an active rescan |
 
 ---
+
+## Remote GPU (Google Colab)
+
+Create can render on a Google Colab GPU under the user's own Google account (plan: [COLAB-REMOTE-PLAN.md](../COLAB-REMOTE-PLAN.md)). On Windows CMV drives Google's Colab CLI (`google-colab-cli`) inside WSL. Sign-in is the CLI's own copy-paste Google flow: CMV opens the Google link and hands the code to the waiting CLI process; it never reads or stores the token, which the CLI keeps in WSL. CMV keeps its runtimes in its own CLI session file. Routes that start programs (`install`, `login`, `logout`, WSL setup) answer only to the app on this computer.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/remote/colab/status` | WSL and its distribution, the Colab CLI version, the signed-in account (email, token lifetime), the install job, whether a sign-in is pending, and the remote settings with GPU choices |
+| `POST` | `/api/remote/wsl/install` | Start `wsl --install` with elevation; Windows asks for consent and a restart |
+| `GET/POST` | `/api/remote/colab/install` | Install or update the Colab CLI inside WSL (uv from its official installer, then `uv tool install -U google-colab-cli`); GET returns the job state and its last output lines |
+| `GET` | `/api/remote/colab/update` | The installed CLI version and a newer release, if the CLI knows one |
+| `POST` | `/api/remote/colab/login` | Start sign-in and return the Google URL; `signed_in: true` without a URL when the CLI is already signed in |
+| `POST` | `/api/remote/colab/login/code` | Body `{"code": "..."}`: hand Google's authorization code to the waiting CLI; the code is not stored |
+| `POST` | `/api/remote/colab/logout` | Remove the CLI's saved sign-in in WSL (also signs out the CLI outside CMV) |
+| `GET` | `/api/remote/colab/usage` | Compute-unit balance, the current CU per hour, active assignments and CMV's runtimes; cached 60 s, `?refresh=1` asks again |
+| `GET/POST` | `/api/remote/settings` | Where Create runs (`local` or `colab`), the Colab GPU (`G4` default, `A100`, `L4`, `T4`, `H100`) and the idle auto-stop (2-60 minutes, default 10) |
 
 ## Create (Simple) API
 
