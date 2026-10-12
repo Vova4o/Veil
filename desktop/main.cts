@@ -8,6 +8,10 @@ const APP_URL = 'cmv://app';
 app.setName('Comfy Meta Viewer');
 const profile = process.env.COMFY_META_DESKTOP_PROFILE || path.join(app.getPath('appData'), 'Comfy Meta Viewer');
 app.setPath('userData', profile);
+// Chromium sizes its HTTP cache at ~1% of free disk space and discards the whole cache
+// ("Invalid cache (current) size") once free space shrinks below what it already holds.
+// Library images are local files behind the backend, so a fixed modest cache is enough.
+app.commandLine.appendSwitch('disk-cache-size', String(256 * 1024 * 1024));
 mkdirSync(profile, { recursive: true });
 protocol.registerSchemesAsPrivileged([{ scheme: 'cmv', privileges: {
     standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true,
