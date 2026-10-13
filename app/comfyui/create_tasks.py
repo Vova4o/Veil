@@ -16,6 +16,7 @@ from app import database as db
 
 from .create_agent import CreateAgentError
 from .create_outputs import ensure_output_source
+from .manager import COMFYUI_STARTUP_TIMEOUT_SECONDS
 from .workflow_execution import WorkflowExecutionService
 from .workflow_store import WorkflowStore
 
@@ -176,7 +177,7 @@ class CreateTaskService:
         def prepare():
             with self.app.app_context():
                 try:
-                    outcome["ready"] = backend.ensure_ready(timeout=120.0)
+                    outcome["ready"] = backend.ensure_ready(timeout=COMFYUI_STARTUP_TIMEOUT_SECONDS)
                 except Exception as exc:
                     logger.exception("Create task %s runtime startup failed", task_id)
                     outcome["error"] = {**backend.not_ready_payload(), "technical_error": str(exc)[:8000]}

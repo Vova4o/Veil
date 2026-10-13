@@ -65,3 +65,47 @@ def test_concurrent_autostarts_share_one_managed_process(monkeypatch):
         assert first.result(timeout=3)
         assert second.result(timeout=3)
     assert managed.start_managed.call_count == 1
+
+
+def test_startup_timeout_is_logged_once_while_process_remains_alive(monkeypatch):
+    managed = manager.ComfyUIManager()
+    managed._mode = manager.ComfyUIMode.MANAGED
+    managed._process = Mock(pid=42)
+    managed._process.poll.return_value = None
+    clock = {"now": 0.0}
+    monkeypatch.setattr(manager.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(manager.time, "monotonic", lambda: clock["now"])
+
+    def tick(seconds):
+        clock["now"] += 61
+        if clock["now"] > 245:
+            managed._stop_monitor_event.set()
+
+    monkeypatch.setattr(manager.time, "sleep", tick)
+    client = Mock()
+    client.check_health.side_effect = manager.ComfyUIClientError("offline")
+    monkeypatch.setattr(manager, "ComfyUIClient", lambda **kwargs: client)
+    managed._monitor_loop()
+    assert sum("Timed out waiting" in line for line in managed.get_logs()) == 1
+    assert managed.status == manager.ComfyUIStatus.ERROR
+
+
+def test_default_startup_wait_accepts_a_cold_api_after_two_minutes(monkeypatch):
+    managed = manager.ComfyUIManager()
+    managed._mode = manager.ComfyUIMode.MANAGED
+    managed._process = Mock(pid=42)
+    managed._process.poll.return_value = None
+    monkeypatch.setattr(manager, "comfy_manager", managed)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(manager.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(manager.time, "sleep", lambda seconds: clock.update(now=clock["now"] + 10))
+
+    def health():
+        if clock["now"] < 133:
+            raise manager.ComfyUIClientError("still starting")
+        return {"online": True}
+
+    client = Mock()
+    client.check_health.side_effect = health
+    monkeypatch.setattr(manager, "ComfyUIClient", lambda **kwargs: client)
+    assert manager.ensure_comfyui_online()

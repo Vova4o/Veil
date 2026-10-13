@@ -43,6 +43,54 @@ os.replace(here / "pid.tmp", here / "pid.txt")
 time.sleep(120)
 """
 
+PIPE_READER_PARENT = """
+import json, sys, threading, time
+from pathlib import Path
+from app.comfyui.manager import ComfyUIManager
+
+reading = threading.Event()
+def read_owner():
+    reading.set()
+    sys.stdin.read(1)
+threading.Thread(target=read_owner, daemon=True).start()
+assert reading.wait(2)
+manager = ComfyUIManager()
+manager._monitor_loop = lambda: None
+try:
+    manager.start_managed(install_path=Path(sys.argv[1]), custom_python=sys.executable)
+    deadline = time.monotonic() + 4
+    while time.monotonic() < deadline and 'COMFY_STARTED' not in manager.get_logs():
+        time.sleep(.02)
+    print(json.dumps({'ready': 'COMFY_STARTED' in manager.get_logs(), 'logs': manager.get_logs()}), flush=True)
+finally:
+    manager.stop_managed()
+"""
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows inherited stdin pipe regression")
+def test_managed_comfyui_starts_while_desktop_reads_its_owner_pipe(tmp_path):
+    import json
+
+    (tmp_path / "main.py").write_text(
+        "import time\nprint('COMFY_STARTED', flush=True)\ntime.sleep(30)\n", encoding="utf-8",
+    )
+    # Electron keeps this pipe open; the backend continuously waits for shutdown/EOF.
+    parent = subprocess.Popen(
+        [sys.executable, "-c", PIPE_READER_PARENT, str(tmp_path)],
+        cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        assert parent.wait(timeout=15) == 0
+        result = json.loads(parent.stdout.read())
+        assert result["ready"], result["logs"]
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=5)
+        parent.stdin.close()
+        parent.stdout.close()
+        parent.stderr.close()
+
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Job objects are Windows-only")
 def test_managed_comfyui_dies_with_a_crashed_parent(tmp_path):

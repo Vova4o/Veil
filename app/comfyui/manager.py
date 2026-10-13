@@ -18,6 +18,8 @@ from .launcher import generate_launcher_script
 from .validation import validate_extra_args
 from .win_job import CREATE_SUSPENDED, KillOnCloseJob, resume_process
 
+COMFYUI_STARTUP_TIMEOUT_SECONDS = 180.0
+
 
 class ComfyUIMode(str, Enum):
     NONE = "none"
@@ -167,6 +169,10 @@ class ComfyUIManager:
             popen_kwargs: dict[str, Any] = {
                 "cwd": str(detection.comfy_dir),
                 "env": child_env,
+                # Electron's owner pipe is continuously read by desktop_server.
+                # Inheriting that synchronous Windows pipe can block the child
+                # interpreter before main.py runs. ComfyUI has no stdin protocol.
+                "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.STDOUT,
                 "text": True,
@@ -367,8 +373,9 @@ class ComfyUIManager:
             pass
 
     def _monitor_loop(self) -> None:
-        start_time = time.time()
+        start_time = time.monotonic()
         ready_detected = False
+        timeout_reported = False
 
         while not self._stop_monitor_event.is_set():
             with self._lock:
@@ -402,11 +409,14 @@ class ComfyUIManager:
             except ComfyUIClientError:
                 with self._lock:
                     if self._mode == ComfyUIMode.MANAGED and not ready_detected:
-                        self._status = ComfyUIStatus.STARTING
-                        if time.time() - start_time > 120.0:
+                        if time.monotonic() - start_time > COMFYUI_STARTUP_TIMEOUT_SECONDS:
                             self._status = ComfyUIStatus.ERROR
                             self._last_error = "Timeout waiting for ComfyUI API readiness"
-                            self._log("[CMV] Timed out waiting for ComfyUI API readiness")
+                            if not timeout_reported:
+                                self._log("[CMV] Timed out waiting for ComfyUI API readiness")
+                                timeout_reported = True
+                        else:
+                            self._status = ComfyUIStatus.STARTING
 
             time.sleep(1.5)
 
@@ -484,7 +494,7 @@ def resolve_comfyui_installation(store: Any | None = None) -> ComfyUIDetectionRe
     return detection if detection.is_valid else None
 
 
-def ensure_comfyui_online(store: Any | None = None, timeout: float = 60.0) -> bool:
+def ensure_comfyui_online(store: Any | None = None, timeout: float = COMFYUI_STARTUP_TIMEOUT_SECONDS) -> bool:
     """Ensure ComfyUI API is online. If offline, automatically launches a managed process and waits for readiness."""
     import logging
     log = logging.getLogger("comfy-meta-viewer.comfyui")

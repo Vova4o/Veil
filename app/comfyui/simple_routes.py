@@ -903,8 +903,9 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, bac
         width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
 
     backend = backend or _backend()
+    from .manager import COMFYUI_STARTUP_TIMEOUT_SECONDS
     # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
-    if not runtime_ready and not backend.ensure_ready(timeout=120.0):
+    if not runtime_ready and not backend.ensure_ready(timeout=COMFYUI_STARTUP_TIMEOUT_SECONDS):
         return _backend_not_ready_response(backend)
     if cancelled and cancelled():
         return jsonify({"error": "Generation was stopped.", "code": "cancelled"}), 409
