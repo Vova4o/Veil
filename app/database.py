@@ -6,11 +6,12 @@ import sqlite3
 import threading
 import time
 from collections.abc import Iterable
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .asset_work import serialized_asset_work
 from .paths import build_runtime_paths, normalize_path, portable_filename
 from .schemas import (
     AssetInsertRow,
@@ -1335,6 +1336,8 @@ def init_db() -> None:
         _migrate_rating_indexes(conn)
         _create_late_indexes(conn)
         _migrate_metadata_indexes(conn)
+        from .library_repair import initialize
+        initialize(conn)
         conn.commit()
     finally:
         conn.close()
@@ -1794,6 +1797,7 @@ def update_folder_status(folder_id: int, status: str) -> None:
         conn.close()
 
 
+@serialized_asset_work
 def update_source_settings(
     folder_id: int,
     *,
@@ -2274,6 +2278,7 @@ def commit_worker_batch(
         conn.close()
 
 
+@serialized_asset_work
 def ensure_image_processed(image_id: int, img_path: str) -> None:
     conn = get_conn()
     try:
@@ -2323,6 +2328,7 @@ def ensure_image_processed(image_id: int, img_path: str) -> None:
         conn.close()
 
 
+@serialized_asset_work
 def ensure_upload_image_processed(image_id: int, original_data: bytes) -> None:
     conn = get_conn()
     try:
@@ -2425,7 +2431,7 @@ def get_images_page(
             "name": "i.file_name COLLATE NOCASE",
             "date": "i.file_mtime",
             "size": "i.file_size",
-            "type": "i.format",
+            "type": "i.mime_type",
         }
         if sort_by != "custom" and sort_by not in sort_by_map:
             raise ValueError(f"Invalid sort_by parameter: {sort_by}")
@@ -2440,7 +2446,7 @@ def get_images_page(
             "i.file_name COLLATE NOCASE",
             "i.file_mtime",
             "i.file_size",
-            "i.format",
+            "i.mime_type",
         }
         allowed_directions = {"ASC", "DESC"}
 
@@ -2501,8 +2507,9 @@ def get_images_page(
             subquery_order = f"ORDER BY i2.file_name COLLATE NOCASE {direction}, i2.id {direction}"
             main_order = f"ORDER BY i.file_name COLLATE NOCASE {direction}, i.id {direction}"
         elif sort_by == "type":
-            subquery_order = f"ORDER BY i2.format {direction}, i2.file_name COLLATE NOCASE {direction}, i2.id {direction}"
-            main_order = f"ORDER BY i.format {direction}, i.file_name COLLATE NOCASE {direction}, i.id {direction}"
+            # MIME type is available at indexing, before metadata extraction finishes.
+            subquery_order = f"ORDER BY i2.mime_type {direction}, i2.file_name COLLATE NOCASE {direction}, i2.id {direction}"
+            main_order = f"ORDER BY i.mime_type {direction}, i.file_name COLLATE NOCASE {direction}, i.id {direction}"
         else:
             sort_col_sub = sort_column.replace("i.", "i2.")
             subquery_order = f"ORDER BY {sort_col_sub} {direction}, i2.id {direction}"
@@ -2732,6 +2739,20 @@ def iter_image_original_data(
 
 
 def get_asset_detail(asset_id: int) -> ImageDetail | None:
+    # Ready details remain a cheap read even while the repair decodes another asset.
+    with closing(get_conn()) as conn:
+        row = conn.execute('SELECT metadata_json, error FROM images WHERE id = ?', (asset_id,)).fetchone()
+    if row is not None and row['metadata_json'] is None and row['error'] is None:
+        return _get_pending_asset_detail(asset_id)
+    return _get_asset_detail(asset_id)
+
+
+@serialized_asset_work
+def _get_pending_asset_detail(asset_id: int) -> ImageDetail | None:
+    return _get_asset_detail(asset_id)
+
+
+def _get_asset_detail(asset_id: int) -> ImageDetail | None:
     conn = get_conn()
     try:
         row = conn.execute(
@@ -2899,6 +2920,7 @@ def get_image_detail(image_id: int) -> ImageDetail | None:
     return get_asset_detail(image_id)
 
 
+@serialized_asset_work
 def delete_folder(folder_id: int) -> None:
     conn = get_conn()
     try:

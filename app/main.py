@@ -790,6 +790,36 @@ def api_factory_reset():
     return _perform_reset(factory_reset=True)
 
 
+@app.route("/api/library/repair", methods=["POST"])
+def api_repair_library():
+    from .job_worker import start_job_worker
+    from .library_repair import start_repair
+    body = request.get_json(silent=True)
+    body = {} if body is None else body
+    source_id = body.get('source_id') if isinstance(body, dict) else None
+    if not isinstance(body, dict) or (source_id is not None and (type(source_id) is not int or source_id <= 0)):
+        return jsonify({'error': 'source_id must be a positive integer'}), 400
+    if source_id is not None:
+        source = db.get_folder_record(source_id)
+        if source is None:
+            return jsonify({'error': 'Source not found'}), 404
+        if not source['enabled']:
+            return jsonify({'error': 'Enable the source before repairing it'}), 409
+    repair = start_repair({
+        'thumbnails': str(storage_path('THUMBNAIL_FOLDER')),
+        'previews': str(storage_path('PREVIEW_FOLDER')),
+        'cutouts': str(storage_path('CUTOUT_FOLDER')),
+    }, source_id)
+    start_job_worker()
+    return jsonify({'repair': repair}), 202
+
+
+@app.route("/api/library/repair", methods=["GET"])
+def api_repair_library_status():
+    from .library_repair import get_repair
+    return jsonify({'repair': get_repair()})
+
+
 @app.route("/api/diagnostics", methods=["GET"])
 def api_diagnostics():
     thumb_dir = storage_path("THUMBNAIL_FOLDER")

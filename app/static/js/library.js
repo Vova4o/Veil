@@ -640,10 +640,12 @@ const schedulePreviewRefresh = createTrailingThrottle(
     PREVIEW_SWAP_THROTTLE_MS,
 );
 
+let previewDetailToken = 0;
 async function refreshPreviewDetail(activeAsset) {
+    const token = previewDetailToken;
     try {
         const detail = await fetchJson(`/api/assets/${activeAsset.id}`);
-        if (state.activeAssetId === activeAsset.id && state.showPreview) {
+        if (token === previewDetailToken && state.activeAssetId === activeAsset.id && state.showPreview) {
             currentSelectedDetail = detail;
             const hasWorkflow = !!(detail.workflow_ui_json || detail.workflow);
             const hasPos = !!detail.prompt_parameters?.positive_prompt;
@@ -657,12 +659,14 @@ async function refreshPreviewDetail(activeAsset) {
             });
         }
     } catch (error) {
+        if (token !== previewDetailToken) return;
         console.error('Failed to load asset details for preview options:', error);
         setPreviewActionsAvailability({ rating: activeAsset.media_type === 'image' });
     }
 }
 
 function updatePreviewPanel() {
+    previewDetailToken++;
     clearPreviewCopyFeedback();
     setPreviewActionsAvailability();
 
@@ -765,12 +769,14 @@ async function refreshAssets({ reconcile = false, preserveScroll = false } = {})
         }));
 
         const data = await fetchJson(`/api/library/assets?${params}`, { signal: controller.signal });
+        if (state.assetRequestController !== controller) return;
         state.assets = data.assets || [];
         state.total = data.total || 0;
         if (!state.assets.some(asset => asset.id === state.activeAssetId)) {
             state.activeAssetId = state.assets[0]?.id ?? null;
         }
     } catch (error) {
+        if (state.assetRequestController !== controller) return;
         if (error.name !== 'AbortError') showToast(error.message, true);
     } finally {
         if (state.assetRequestController === controller) {
@@ -864,10 +870,12 @@ async function loadAssets({ append = false } = {}) {
             await ensureServerCustomOrder(currentLibraryCollectionDescriptor());
         }
         const data = await fetchJson(buildAssetsUrl(), { signal: controller.signal });
+        if (state.assetRequestController !== controller) return false;
         state.assets = append ? [...state.assets, ...(data.assets || [])] : (data.assets || []);
         state.total = data.total || 0;
         succeeded = true;
     } catch (error) {
+        if (state.assetRequestController !== controller) return false;
         if (error.name !== 'AbortError') {
             showToast(error.message, true);
             if (!append) state.assets = [];
@@ -2698,3 +2706,13 @@ async function initialize() {
 }
 
 initialize();
+
+window.addEventListener('library-repaired', async () => {
+    currentSelectedDetail = null;
+    try {
+        await refreshAssets({ reconcile: true, preserveScroll: true });
+        await loadMetadata({ includeFilters: true });
+    } catch (error) {
+        showToast(`Library was checked, but the view could not refresh: ${error.message}`, true);
+    }
+});

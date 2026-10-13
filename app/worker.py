@@ -4,12 +4,13 @@ import json
 import sys
 import threading
 import traceback
-from contextlib import closing
+from contextlib import closing, nullcontext
 from pathlib import Path
 
 from PIL import Image
 
 from . import database as db
+from .asset_work import serialized_asset_work
 from .extractor import (
     extract_metadata,
     extract_metadata_from_bytes,
@@ -21,6 +22,7 @@ from .media import (
     VideoProcessingError,
     make_video_thumbnail,
     probe_video,
+    temporary_media_file,
 )
 from .paths import build_runtime_paths, normalize_path
 
@@ -109,7 +111,8 @@ def _record_error(image_id: int, message: str) -> None:
         conn.commit()
 
 
-def _process_video(asset_id: int, abs_path: Path) -> None:
+def _process_video(asset_id: int, abs_path: Path, *, thumbnail: bool = True,
+                   thumbnail_dir: Path | None = None) -> None:
     format_name = abs_path.suffix.lower().lstrip(".") or None
     width = 0
     height = 0
@@ -142,16 +145,21 @@ def _process_video(asset_id: int, abs_path: Path) -> None:
 
     preview_status = "ready"
     preview_error = None
-    try:
-        thumb_data = make_video_thumbnail(abs_path, duration=duration)
-        _thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        (_thumbnail_dir / f"{asset_id}.jpg").write_bytes(thumb_data)
-    except MediaToolUnavailableError as exc:
-        preview_status = "unavailable"
-        preview_error = str(exc)
-    except VideoProcessingError as exc:
-        preview_status = "error"
-        preview_error = str(exc)
+    if thumbnail:
+        try:
+            thumb_data = make_video_thumbnail(abs_path, duration=duration)
+            cache_dir = thumbnail_dir if thumbnail_dir is not None else _thumbnail_dir
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            target = cache_dir / f"{asset_id}.jpg"
+            temporary = target.with_suffix('.jpg.tmp')
+            temporary.write_bytes(thumb_data)
+            temporary.replace(target)
+        except MediaToolUnavailableError as exc:
+            preview_status = "unavailable"
+            preview_error = str(exc)
+        except VideoProcessingError as exc:
+            preview_status = "error"
+            preview_error = str(exc)
 
     metadata = {
         "file": abs_path.name,
@@ -194,113 +202,112 @@ def _process_video(asset_id: int, abs_path: Path) -> None:
         conn.commit()
 
 
+@serialized_asset_work
+def process_asset(asset_id: int, thumbnail_dir: Path, *, metadata: bool = True,
+                  thumbnail: bool = True, only_pending: bool = False) -> bool:
+    """Re-read ownership under the index lock; publish metadata before decoding a thumbnail."""
+    with closing(db.get_conn()) as conn:
+        row = conn.execute(
+            """SELECT i.*, f.path AS folder_path, f.enabled
+               FROM images i JOIN folders f ON f.id = i.folder_id WHERE i.id = ?""",
+            (asset_id,),
+        ).fetchone()
+    if row is None or not row["enabled"]:
+        return False
+    if only_pending and (row['metadata_json'] is not None or row['error'] is not None):
+        metadata = False
+    original = db.get_asset_original_data(asset_id) if row["has_original_data"] else None
+    path = Path(row["folder_path"]) / row["rel_path"]
+    try:
+        if not row['has_original_data'] and not Path(row['folder_path']).is_dir():
+            db.update_source_state(row['folder_id'], 'unavailable',
+                f"Source directory is unavailable: {row['folder_path']}")
+            return False
+        if row["has_original_data"] and original is None:
+            raise FileNotFoundError("Original asset data missing")
+        if row['media_type'] == 'video':
+            context = temporary_media_file(original, row['file_name']) if original is not None else nullcontext(path)
+            with context as video_path:
+                if metadata:
+                    _process_video(asset_id, video_path, thumbnail=thumbnail, thumbnail_dir=thumbnail_dir)
+                elif thumbnail:
+                    data = make_video_thumbnail(video_path, duration=row['duration'])
+                    thumbnail_dir.mkdir(parents=True, exist_ok=True)
+                    target = thumbnail_dir / f'{asset_id}.jpg'
+                    temporary = target.with_suffix('.jpg.tmp')
+                    temporary.write_bytes(data)
+                    temporary.replace(target)
+                    db.update_asset_preview_status(asset_id, 'ready')
+            with closing(db.get_conn()) as conn:
+                result = conn.execute('SELECT preview_status FROM images WHERE id = ?', (asset_id,)).fetchone()
+            if result is None or result['preview_status'] != 'ready':
+                return False
+            if metadata:
+                with closing(db.get_conn()) as conn:
+                    dimensions = conn.execute('SELECT width, height FROM images WHERE id = ?', (asset_id,)).fetchone()
+                return bool(dimensions and dimensions['width'] and dimensions['height'])
+            return True
+        initial_stat = None if original is not None else path.stat()
+        if initial_stat is not None and (initial_stat.st_size != row['file_size']
+                or abs(initial_stat.st_mtime - row['file_mtime']) >= 0.001):
+            raise OSError('File changed since indexing; check it again after the source settles')
+
+        def check_source() -> None:
+            if initial_stat is not None:
+                current = path.stat()
+                if (initial_stat.st_size, initial_stat.st_mtime_ns) != (current.st_size, current.st_mtime_ns):
+                    raise OSError('File changed while processing; retry after the source settles')
+
+        if metadata:
+            meta = (extract_metadata_from_bytes(original, row["file_name"])
+                    if original is not None else extract_metadata(path))
+            check_source()
+            with closing(db.get_conn()) as conn:
+                db._update_image_metadata(conn, asset_id, meta)
+                conn.commit()
+        if thumbnail:
+            data = (make_thumbnail_bytes_from_bytes(original)
+                    if original is not None else make_thumbnail_bytes(path))
+            check_source()
+            if not data:
+                db.update_asset_preview_status(asset_id, "error", "Image preview generation failed")
+                return False
+            thumbnail_dir.mkdir(parents=True, exist_ok=True)
+            target = thumbnail_dir / f"{asset_id}.jpg"
+            temporary = target.with_suffix(".jpg.tmp")
+            temporary.write_bytes(data)
+            temporary.replace(target)
+            db.update_asset_preview_status(asset_id, "ready")
+        with closing(db.get_conn()) as conn:
+            error = conn.execute("SELECT error FROM images WHERE id = ?", (asset_id,)).fetchone()
+        return error is not None and not error["error"]
+    except Exception as exc:
+        if metadata:
+            _record_error(asset_id, str(exc))
+        else:
+            db.update_asset_preview_status(asset_id, "error", str(exc))
+        return False
+
+
 def _worker_loop():
     print("[Worker] Background processing loop started", flush=True)
-    batch_size = 50
     while not _stop_event.is_set():
         try:
-            batch = _next_asset_batch(batch_size=batch_size)
+            batch = _next_asset_batch()
             if not batch:
                 _stop_event.wait(0.5)
                 continue
-
-            image_updates: list[tuple] = []
-            error_updates: list[tuple[str, int]] = []
-
-            def _flush_batch() -> None:
-                nonlocal image_updates, error_updates
-                if image_updates or error_updates:
-                    db.commit_worker_batch(
-                        image_updates=image_updates,
-                        error_updates=error_updates,
-                    )
-                    image_updates = []
-                    error_updates = []
-
             for row in batch:
                 if _stop_event.is_set():
                     break
-
-                img_id = row["id"]
-                rel_path = row["rel_path"]
-                folder_path = row["folder_path"]
-
-                if folder_path in ("__uploads__", "__uploads_no_metadata__"):
-                    orig_data = db.get_asset_original_data(img_id)
-                    if orig_data:
-                        try:
-                            meta = extract_metadata_from_bytes(orig_data, rel_path)
-                            thumb_data = make_thumbnail_bytes_from_bytes(orig_data)
-                            preview_status = "ready" if thumb_data else "error"
-                            preview_error = None if thumb_data else "Image preview generation failed"
-                            if thumb_data:
-                                _thumbnail_dir.mkdir(parents=True, exist_ok=True)
-                                (_thumbnail_dir / f"{img_id}.jpg").write_bytes(thumb_data)
-                            image_updates.append((
-                                meta.format,
-                                meta.size[0] if meta.size else 0,
-                                meta.size[1] if meta.size else 0,
-                                meta.mode,
-                                meta.error,
-                                meta.model_dump_json(),
-                                preview_status,
-                                preview_error,
-                                img_id,
-                            ))
-                        except Exception as e:
-                            tb = str(e) + "\n" + traceback.format_exc()
-                            error_updates.append((tb, img_id))
-                    else:
-                        error_updates.append(("Original asset data missing", img_id))
-                    continue
-
-                abs_path = Path(folder_path) / rel_path
-                if abs_path.is_file():
-                    try:
-                        if row["media_type"] == "video":
-                            _flush_batch()
-                            _process_video(img_id, abs_path)
-                        else:
-                            meta = extract_metadata(abs_path)
-                            thumb_data = make_thumbnail_bytes(abs_path)
-                            preview_status = "ready" if thumb_data else "error"
-                            preview_error = None if thumb_data else "Image preview generation failed"
-
-                            # Publish processed DB state after the cache file is ready.
-                            if thumb_data:
-                                _thumbnail_dir.mkdir(parents=True, exist_ok=True)
-                                (_thumbnail_dir / f"{img_id}.jpg").write_bytes(thumb_data)
-
-                            image_updates.append((
-                                meta.format,
-                                meta.size[0] if meta.size else 0,
-                                meta.size[1] if meta.size else 0,
-                                meta.mode,
-                                meta.error,
-                                meta.model_dump_json(),
-                                preview_status,
-                                preview_error,
-                                img_id,
-                            ))
-                    except Exception as e:
-                        err_str = str(e) + "\n" + traceback.format_exc()
-                        error_updates.append((err_str, img_id))
-                else:
-                    if not Path(folder_path).is_dir():
-                        _flush_batch()
-                        db.update_source_state(
-                            row["folder_id"],
-                            "unavailable",
-                            f"Source directory is unavailable: {folder_path}",
-                        )
-                        _stop_event.wait(1.0)
-                        break
-                    else:
-                        error_updates.append((f"File not found: {abs_path}", img_id))
-
-            _flush_batch()
-
-        except Exception as e:
-            print(f"[Worker Error] Loop error: {e}", file=sys.stderr, flush=True)
+                # The queued row may have been completed by foreground detail loading or repair.
+                with closing(db.get_conn()) as conn:
+                    pending = conn.execute(
+                        "SELECT metadata_json, error FROM images WHERE id = ?", (row["id"],)
+                    ).fetchone()
+                if pending is not None and pending["metadata_json"] is None and pending["error"] is None:
+                    process_asset(row["id"], _thumbnail_dir, only_pending=True)
+        except Exception as exc:
+            print(f"[Worker Error] Loop error: {exc}", file=sys.stderr, flush=True)
             traceback.print_exc()
             _stop_event.wait(2.0)

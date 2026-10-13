@@ -31,6 +31,9 @@ import { currentSearchTerms, isExactMatch } from './components/search-bar.js';
 import { skeletonMetaView } from './components/skeleton.js';
 import { showImageContextMenu } from './components/image-context-menu.js';
 import { renderWorkflowGraph, initWorkflowGraphEvents } from './features/workflow-graph.js';
+import { loadAssetDetail } from './api.js';
+
+let metadataRenderToken = 0;
 
 export function renderUploadView() {
     dom.contentArea.innerHTML = `<div class="drop-zone anim-scale-in" id="drop-zone">
@@ -44,6 +47,7 @@ export function renderUploadView() {
 }
 
 export function renderMeta(img) {
+    const token = ++metadataRenderToken;
     if (!img) {
         if (!isBrowsableCollection(currentCollection) && images.length === 0) {
             renderUploadView();
@@ -86,12 +90,17 @@ export function renderMeta(img) {
     if (img.id && !detailCache[img.id]) {
         dom.contentArea.innerHTML = skeletonMetaView();
         // Load detail in background
-        loadDetail(img).then(() => {
+        loadAssetDetail(img).then(detail => {
+            if (token !== metadataRenderToken || !detail || galleryActive) return;
             const isImagesTab = dom.tabImages?.classList.contains('active');
             const currentList = isImagesTab ? sidebarImages : images;
             if (currentList[activeIndex]?.id === img?.id) {
                 renderMeta(img);
             }
+        }).catch(() => {
+            if (token !== metadataRenderToken || galleryActive) return;
+            dom.contentArea.innerHTML = '<div class="empty-state"><p>Metadata could not be loaded.</p><button class="btn" type="button">Retry</button></div>';
+            dom.contentArea.querySelector('button').onclick = () => renderMeta(img);
         });
         return;
     }
@@ -414,31 +423,6 @@ function copyAllMeta() {
     const img = activeIndex >= 0 && images[activeIndex];
     const detail = (img && img.id && detailCache[img.id]) || img;
     if (detail) copyText(JSON.stringify(detail, null, 2));
-}
-
-const promiseCache = {};
-
-function loadDetail(img) {
-    if (!img.id) return;
-    if (detailCache[img.id]) return detailCache[img.id];
-    if (promiseCache[img.id]) return promiseCache[img.id];
-
-    promiseCache[img.id] = (async () => {
-        try {
-            const resp = await fetch(`/api/images/${img.id}`, { priority: 'high' });
-            if (resp.ok) {
-                const data = await resp.json();
-                detailCache[img.id] = data;
-                return data;
-            }
-        } catch (_e) {
-            /* ignore */
-        } finally {
-            delete promiseCache[img.id];
-        }
-    })();
-
-    return promiseCache[img.id];
 }
 
 function attachEventListeners() {

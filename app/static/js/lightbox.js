@@ -371,7 +371,10 @@ export function rotateCounterClockwise() {
     applyImageTransform();
 }
 
+let lightboxOpenToken = 0;
+
 export async function openLightbox(index, imagesArray = null) {
+    const token = ++lightboxOpenToken;
     if (imagesArray) {
         currentImagesArray = imagesArray;
         usesGalleryPagination = imagesArray === images;
@@ -380,23 +383,27 @@ export async function openLightbox(index, imagesArray = null) {
     const img = currentImagesArray[index];
     if (!img) return;
 
-    // Load detail if needed
-    if (img && img.id && !detailCache[img.id]) {
-        try {
-            const resp = await fetch(`/api/assets/${img.id}`);
-            if (resp.ok) detailCache[img.id] = await resp.json();
-        } catch (_e) { /* ignore */ }
-    }
-
     dom.lightbox.classList.add('open');
     document.body.style.overflow = 'hidden';
     resetZoom();
     resetCutoutPanel();
     updateLightbox();
     prefetchNextGalleryPage();
+
+    // Show the selected media immediately; details must never reopen a closed viewer.
+    if (img && img.id && !detailCache[img.id]) {
+        try {
+            const { loadAssetDetail } = await import('./api.js');
+            const detail = await loadAssetDetail(img);
+            if (detail && token === lightboxOpenToken && currentImagesArray[lightboxIndex]?.id === img.id) {
+                updateLightbox();
+            }
+        } catch (_e) { /* ignore */ }
+    }
 }
 
 export function closeLightbox() {
+    lightboxOpenToken++;
     stopPanning();
     scheduleLightboxFrame.cancel();
     cancelImageLoad({ clearSource: true });

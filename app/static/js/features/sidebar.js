@@ -464,7 +464,10 @@ function initFoldersSSE() {
     if (foldersEventSource) return;
 
     foldersEventSource = new EventSource('/api/folders/events');
-    foldersEventSource.onmessage = async (event) => {
+    // Coalesce queued snapshots while applying one update at a time.
+    let queuedEvent = null;
+    let applyingEvent = false;
+    const applyEvent = async (event) => {
         try {
             const state = JSON.parse(event.data);
 
@@ -482,6 +485,7 @@ function initFoldersSSE() {
             }
             
             let changed = false;
+            let sourceRevisionChanged = false;
             const contentChangedSourceIds = new Set();
             let activeSourceDisabled = false;
             const trackedFields = [
@@ -503,6 +507,7 @@ function initFoldersSSE() {
                 if (update) {
                     if (trackedFields.some(field => f[field] !== update[field])) {
                         changed = true;
+                        sourceRevisionChanged ||= f.revision !== update.revision;
                         if (
                             f.revision !== update.revision
                             || f.processed_count !== update.processed_count
@@ -529,7 +534,8 @@ function initFoldersSSE() {
                 return;
             }
             if (contentChangedSourceIds.size > 0) {
-                refreshCacheBuster();
+                // Metadata progress changes details, not the original image bytes.
+                if (sourceRevisionChanged) refreshCacheBuster();
                 const {
                     invalidateApiCache,
                     loadCollectionImages,
@@ -551,6 +557,20 @@ function initFoldersSSE() {
             }
         } catch (e) {
             console.error('SSE message parsing error:', e);
+        }
+    };
+    foldersEventSource.onmessage = async event => {
+        queuedEvent = event;
+        if (applyingEvent) return;
+        applyingEvent = true;
+        try {
+            while (queuedEvent) {
+                const next = queuedEvent;
+                queuedEvent = null;
+                await applyEvent(next); // eslint-disable-line no-await-in-loop -- preserve snapshot order
+            }
+        } finally {
+            applyingEvent = false;
         }
     };
     

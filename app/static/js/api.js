@@ -40,45 +40,40 @@ import {
 } from './state.js';
 import { imageRenderSignature, showLoading, showError } from './utils.js';
 import { isSupportedMediaFile } from './media-files.js';
+import { JsonRequestCache, LatestRequest } from './request-state.js';
 
 const PAGE_SIZE = 50;
-const responseCache = new Map();
-const pendingRequests = new Map();
-
-function requestKey(url) {
-    return url;
-}
-
-async function fetchJson(url, { force = false, options = undefined } = {}) {
-    await Promise.resolve();
-    const key = requestKey(url);
-    const method = options?.method || 'GET';
-
-    if (method === 'GET' && !force && responseCache.has(key)) {
-        return responseCache.get(key);
-    }
-    if (method === 'GET' && pendingRequests.has(key)) {
-        return pendingRequests.get(key);
-    }
-
-    const request = fetch(url, options).then(async response => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.error) {
-            throw new Error(data.error || `${response.status} ${response.statusText}`);
-        }
-        if (method === 'GET') responseCache.set(key, data);
-        return data;
-    }).finally(() => {
-        if (method === 'GET') pendingRequests.delete(key);
-    });
-
-    if (method === 'GET') pendingRequests.set(key, request);
-    return request;
-}
+const requestCache = new JsonRequestCache();
+const collectionRequests = new LatestRequest();
+const sidebarRequests = new LatestRequest();
+const detailRequests = new Map();
+const fetchJson = (url, options) => requestCache.fetch(url, options);
 
 export function invalidateApiCache() {
-    responseCache.clear();
-    pendingRequests.clear();
+    requestCache.invalidate();
+    detailRequests.clear();
+    collectionRequests.begin();
+    sidebarRequests.begin();
+    setIsLoading(false);
+}
+
+export function loadAssetDetail(img) {
+    if (!img?.id) return Promise.resolve(img);
+    const cache = detailCache;
+    if (cache[img.id]) return Promise.resolve(cache[img.id]);
+    const generation = requestCache.generation;
+    const existing = detailRequests.get(img.id);
+    if (existing?.cache === cache && existing?.generation === generation) return existing.promise;
+    const entry = { cache, generation };
+    entry.promise = fetchJson(`/api/assets/${img.id}`, { force: true }).then(detail => {
+        if (cache !== detailCache || generation !== requestCache.generation) return null;
+        cache[img.id] = detail;
+        return detail;
+    }).finally(() => {
+        if (detailRequests.get(img.id) === entry) detailRequests.delete(img.id);
+    });
+    detailRequests.set(img.id, entry);
+    return entry.promise;
 }
 
 function collectionFilter(collection = currentCollection) {
@@ -312,6 +307,10 @@ export async function loadMore() {
         dom.contentArea.appendChild(spinner);
     }
     const nextPage = currentPage + 1;
+    const token = collectionRequests.generation;
+    const collection = { ...currentCollection };
+    const targetImages = images;
+    const url = collectionImagesUrl(collection, nextPage, PAGE_SIZE);
     let didLoad = false;
     try {
         const data = await traceAsync("api.loadMore.fetch", {
@@ -319,9 +318,12 @@ export async function loadMore() {
             collection: currentCollection.type,
             collection_id: currentCollection.id ?? "all",
             page_size: PAGE_SIZE,
-        }, () => fetchJson(collectionImagesUrl(currentCollection, nextPage, PAGE_SIZE)));
+        }, () => fetchJson(url));
+        if (!collectionRequests.owns(token) || images !== targetImages
+            || url !== collectionImagesUrl(currentCollection, nextPage, PAGE_SIZE)) return false;
         if (data.images?.length) {
-            images.push(...data.images);
+            const existingIds = new Set(images.map(img => img.id));
+            images.push(...data.images.filter(img => !existingIds.has(img.id)));
             setCurrentPage(nextPage);
             setTotalImages(data.total || totalImages);
             setAllLoaded(images.length >= (data.total || 0));
@@ -334,15 +336,18 @@ export async function loadMore() {
     } catch(e) {
         console.error('loadMore error:', e);
     } finally {
-        setIsLoading(false);
+        if (collectionRequests.owns(token)) setIsLoading(false);
         if (spinner) spinner.remove();
     }
     return didLoad;
 }
 
 export async function loadSidebarImages({ force = false, render = true, preserveCount = false } = {}) {
+    const token = sidebarRequests.begin();
     const limit = preserveCount ? Math.max(PAGE_SIZE, sidebarPage * PAGE_SIZE) : PAGE_SIZE;
-    const data = await fetchJson(sidebarImagesUrl(1, limit), { force });
+    const url = sidebarImagesUrl(1, limit);
+    const data = await fetchJson(url, { force });
+    if (!sidebarRequests.owns(token) || url !== sidebarImagesUrl(1, limit)) return data;
     const nextImages = data.images || [];
     const previousSignatures = new Map(sidebarImages.map(img => [img.id, imageRenderSignature(img)]));
     const changedImageIds = new Set(
@@ -582,6 +587,10 @@ export function deleteImageAt(index) {
 }
 
 export async function loadCollectionImages(collection, { force = false, render = true, preserveCount = false } = {}) {
+    collection = { ...collection };
+    const token = collectionRequests.begin();
+    const previousActiveImageId = images[activeIndex]?.id;
+    setCurrentCollection(collection);
     setIsLoading(true);
     const collectionLabel = collection.type === 'album'
         ? 'album'
@@ -594,8 +603,11 @@ export async function loadCollectionImages(collection, { force = false, render =
             const { ensureServerCustomOrder } = await import('./custom-order.js');
             await ensureServerCustomOrder(collection);
         }
+        if (!collectionRequests.owns(token)) return null;
         const limit = preserveCount ? Math.max(PAGE_SIZE, currentPage * PAGE_SIZE) : PAGE_SIZE;
-        const data = await fetchJson(collectionImagesUrl(collection, 1, limit), { force });
+        const url = collectionImagesUrl(collection, 1, limit);
+        const data = await fetchJson(url, { force });
+        if (!collectionRequests.owns(token) || url !== collectionImagesUrl(currentCollection, 1, limit)) return data;
         const nextImages = data.images || [];
         const previousSignatures = new Map(images.map(img => [img.id, imageRenderSignature(img)]));
         const changedImageIds = new Set(
@@ -603,7 +615,7 @@ export async function loadCollectionImages(collection, { force = false, render =
                 .filter(img => previousSignatures.has(img.id) && previousSignatures.get(img.id) !== imageRenderSignature(img))
                 .map(img => img.id),
         );
-        const activeImageId = images[activeIndex]?.id;
+        const activeImageId = previousActiveImageId;
         
         setCurrentCollection(collection);
         dom.folderNameEl.textContent = collection.name || '';
@@ -646,10 +658,11 @@ export async function loadCollectionImages(collection, { force = false, render =
         
         return data;
     } catch(e) {
+        if (!collectionRequests.owns(token)) return null;
         if (render) showError(`Error loading ${collection.type}: ` + e.message);
         throw e;
     } finally {
-        setIsLoading(false);
+        if (collectionRequests.owns(token)) setIsLoading(false);
     }
 }
 

@@ -56,6 +56,7 @@
     </script>
     <script src="/static/js/nav-prefetch.js" defer></script>
     <script src="/static/js/theme-manager.js?v={{ static_version('js/theme-manager.js') }}" type="module"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/features/library-repair.css') }}?v={{ static_version('css/features/library-repair.css') }}">
 </head>
 <body class="studio-theme">
 
@@ -150,9 +151,12 @@
             </button>
             <div class="header-dropdown header-system-dropdown" role="menu" hidden>
                 <div class="header-menu-label">Maintenance</div>
+<button class="header-menu-item" id="btn-repair-library" type="button" role="menuitem" data-header-menu-action title="Check metadata and previews while preserving your library">
+ <span><strong>Check and repair library</strong><small>Recover metadata and broken previews</small></span>
+ </button>
                 <button class="header-menu-item" id="btn-reset-index" type="button" role="menuitem" data-header-menu-action title="Recreate index and generated caches">
                     <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M18.5 9A7 7 0 0 0 6 6.5L4 11"></path><path d="M5.5 15A7 7 0 0 0 18 17.5l2-4.5"></path></svg>
-                    <span><strong>Reset index</strong><small>Rebuild the database and caches</small></span>
+                    <span><strong>Reset index</strong><small>Delete library data and rebuild the database</small></span>
                 </button>
                 <button class="header-menu-item danger" id="btn-factory-reset" type="button" role="menuitem" data-header-menu-action title="Delete index, saved sources, and preferences">
                     <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"></path></svg>
@@ -465,7 +469,7 @@
                 
                 <div class="shortcut-group">
                     <h4>How to use</h4>
-                    <p class="help-text">Drag & drop images or videos anywhere, or click <strong>Open Folder</strong> to connect a directory. Source controls toggle monitoring, subfolder scanning, and manual reconciliation. <strong>Reset Index</strong> rebuilds disposable data; <strong>Factory Reset</strong> also forgets saved sources and preferences.</p>
+                    <p class="help-text">Drag & drop images or videos anywhere, or click <strong>Open Folder</strong> to connect a directory. <strong>Check and repair library</strong> recovers metadata and previews while preserving albums, ratings, notes and custom order. Source controls toggle monitoring, subfolder scanning, and manual reconciliation. <strong>Reset Index</strong> deletes library organization and uploaded originals, then reindexes saved folders. <strong>Factory Reset</strong> also forgets saved sources and preferences.</p>
                 </div>
             </div>
             
@@ -515,5 +519,6 @@
 
 <script type="module" src="/static/js/app.js"></script>
 
+<script type="module" src="{{ url_for('static', filename='js/library-repair.js') }}?v={{ static_version('js/library-repair.js') }}"></script>
 </body>
 </html>

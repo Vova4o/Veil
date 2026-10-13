@@ -1,0 +1,21 @@
+.library-repair-dialog {
+    inset: 0;
+    margin: auto;
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    padding: 24px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-weight: 400;
+}
+.library-repair-dialog [hidden] { display: none !important; }
+.library-repair-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+.library-repair-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.library-repair-heading h2 { font-size: 18px; margin: 0; }
+.library-repair-dialog p { line-height: 1.5; margin: 16px 0; }
+.library-repair-dialog progress { width: 100%; accent-color: var(--accent); }
+.library-repair-dialog details { overflow-wrap: anywhere; }
+.library-repair-dialog li { margin-block: 8px; }

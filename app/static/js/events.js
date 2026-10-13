@@ -222,6 +222,27 @@ export function initEvents() {
         message: 'Delete the SQLite index and all generated caches? Saved source folders will be reindexed. Source files stay untouched, but virtual albums, favorites, ratings, tags, notes, and uploaded originals stored only in CMV will be permanently deleted.',
     }));
 
+    window.addEventListener('library-repaired', async () => {
+        const api = await import('./api.js');
+        api.invalidateApiCache();
+        const { setDetailCache, isBrowsableCollection, refreshCacheBuster, setFolders, setAlbums, showToast } = await import('./state.js');
+        setDetailCache({});
+        refreshCacheBuster();
+        try {
+            const [folders, albums] = await Promise.all([api.getFolders({ force: true }), api.getAlbums({ force: true })]);
+            setFolders(folders);
+            setAlbums(albums);
+            const sidebar = await import('./features/sidebar.js');
+            await Promise.all([sidebar.renderFoldersList(folders), sidebar.renderAlbumsList(albums)]);
+            await api.loadSidebarImages({ force: true, preserveCount: true });
+            if (isBrowsableCollection(currentCollection)) {
+                await api.loadCollectionImages({ ...currentCollection }, { force: true, preserveCount: true });
+            }
+        } catch (error) {
+            showToast(`Library was checked, but the view could not refresh: ${error.message}`);
+        }
+    });
+
     dom.btnFactoryReset?.addEventListener('click', () => performReset({
         factoryReset: true,
         title: 'Factory Reset',

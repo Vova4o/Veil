@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import database as db
+from .asset_work import serialized_asset_work
 from .cutout import clear_cutout
 from .media import (
     SUPPORTED_MEDIA_EXTENSIONS,
@@ -122,6 +123,7 @@ def scan_source_directory(folder_path: Path, *, recursive: bool) -> SourceSnapsh
     )
 
 
+@serialized_asset_work
 def index_source_directory(
     folder_path: Path,
     *,
@@ -132,6 +134,7 @@ def index_source_directory(
     recursive: bool = False,
     snapshot: SourceSnapshot | None = None,
     force_rel_paths: set[str] | None = None,
+    prune_missing: bool = True,
 ) -> IndexResult:
     """Reconcile one physical source without changing files inside it."""
     current = snapshot or scan_source_directory(folder_path, recursive=recursive)
@@ -245,7 +248,7 @@ def index_source_directory(
         db.batch_rename_assets(renames)
 
     deleted_ids: list[int] = []
-    if not current.errors:
+    if not current.errors and prune_missing:
         deleted_files = [path for path in deleted_files if path not in renamed_old]
         deleted_ids = [
             int(old_records[path]["id"])

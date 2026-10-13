@@ -105,6 +105,18 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], None]] = {
 }
 
 
+def _handle_repair_library(payload: dict[str, Any]) -> None:
+    from .library_repair import run_repair
+    run_repair(payload, stop_requested=lambda: (
+        _stop_event.is_set() and threading.current_thread() is _worker_thread
+    ))
+    if _stop_event.is_set() and threading.current_thread() is _worker_thread:
+        raise _StopRequested()
+
+
+_HANDLERS['repair_library'] = _handle_repair_library
+
+
 def process_pending_job() -> bool:
     """Claim and run a single job. Returns True when work was done."""
     job = db.claim_next_job()
@@ -120,6 +132,14 @@ def process_pending_job() -> bool:
         raise
     except Exception as exc:
         status = db.fail_job(job["id"], f"{type(exc).__name__}: {exc}")
+        if job['op'] == 'repair_library' and status in ('dead', 'pending'):
+            from .library_repair import _save, get_repair
+            state = get_repair(job['payload']['repair_id'])
+            if state:
+                state['errors'].append(str(exc))
+                state['errors'] = state['errors'][-20:]
+                state['phase'] = 'retrying'
+                _save(state['id'], state, 'failed' if status == 'dead' else 'pending')
         logger.warning(
             "job %s (%s) failed on attempt %s -> %s: %s",
             job["id"],
