@@ -1058,11 +1058,25 @@ Create can render on a Google Colab GPU under the user's own Google account (pla
 | `POST` | `/api/remote/colab/runtime/stop` | Release the runtime now; runs still waiting on it fail |
 | `GET/POST` | `/api/remote/settings` | Where Create runs (`local` or `colab`), the Colab GPU (`G4` default, `A100`, `L4`, `T4`, `H100`) and the idle auto-stop (2-60 minutes, default 10) |
 
+## Model sources
+
+The Civitai API key that model downloads use, here and for Colab runtimes (Integrations › Model sources). It is kept in the system credential store, like provider API keys; `config.json` holds it only where no credential store is available, and a key an older version saved there moves into the store the first time it is read. No route returns the key. For Colab, CMV turns each Civitai link into a short-lived signed link locally, so the key never reaches the runtime. Routes that set, check or remove the key answer only to the app on this computer.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/model-sources` | `{"civitai": {"saved", "storage": "system" \| "config" \| null, "secret_store"}}` |
+| `POST` | `/api/model-sources/civitai` | Body `{"token": "..."}`: check the key with Civitai (`GET /api/v1/me`) and save it. A key Civitai refuses is not saved (400 `token_rejected`); when Civitai cannot be reached the key is saved with a `warning`. Returns the state and the Civitai `account` (`username`, `member`) |
+| `DELETE` | `/api/model-sources/civitai` | Remove the saved key |
+| `POST` | `/api/model-sources/civitai/check` | Ask Civitai whose saved key this is; 404 `token_missing` when none is saved |
+
+`POST /api/comfyui/config` still accepts `civitai_api_token` from Create's ComfyUI settings and saves it the same way; an empty value keeps the saved key.
+
 ## Create (Simple) API
 
 The Create workspace (`GET /create` or `GET /editor`) runs one fixed model profile, Moody Krea 2
-(`krea2_moody_v40`). There is no model choice: the user picks a mode (`text`, `reference`, `edit`),
-an aspect ratio and 1-4 images. The prompt is written by the agent configured on the Integrations
+(`krea2_moody_v40`). There is no model choice: the user picks a mode (`text`, `reference`,
+`variation`, `edit`), an aspect ratio (a variation keeps the photo's) or the noise level of a
+variation, and 1-4 images. The prompt is written by the agent configured on the Integrations
 page (`POST /api/simple/agent`) and then queued with `POST /api/simple/generate`; the two steps are
 separate so the prompt can be shown, edited and re-run without the agent.
 
@@ -1112,9 +1126,29 @@ never used), plus the instruction files the agent follows.
 One-shot bootstrap for the Create page: `profiles`, `default_profile_id`, `ambient_candidates` and
 `agent_status`.
 
+### `GET /api/simple/agents`
+
+What Create's agent menu offers. `opencode` describes the newest OpenCode installation (`label`,
+`variants`: whether it takes reasoning levels) and every model it can run with its card: `vision`,
+`free`, `variants`. The menu filters its providers through Integrations › Local AI tools › Display settings.
+`antigravity` groups the IDs returned by `agy models` into models and `levels` (each level keeps
+its executable model ID). `codex` reads the paginated native app-server `model/list` catalog;
+`claude` reads the model aliases in the CLI's stream-JSON initialization response. Neither starts
+inference. All catalogs are cached for 10 minutes; `?refresh=1` refreshes every installed host.
+
+`vision` is `true`, `false` or `null` (unknown). Codex uses `inputModalities`; where explicit
+metadata is absent, only known families are classified (`vision_source: "family"`). GPT-OSS is
+text-only; Gemini and Claude families support photos. Unknown families stay unknown, and inferred
+photo support is marked `Photos*` in the menu. `variants` lists native reasoning levels where
+available. Each host has its own `error`; one failed discovery leaves the others usable.
+`agents` retains other Integrations profiles and saved CLI models absent from the native catalog,
+deduplicated by host/model. Models can be selected directly in Create without an Integrations profile.
+
 ### `POST /api/simple/agent`
 
-Lets the agent write the prompt (text and reference modes) or the edit command (edit mode).
+Lets the agent write the prompt (text, reference and variation modes) or the edit command (edit
+mode). A variation gets the same instruction as `reference`: a faithful description of the photo.
+The noise level is the user's choice and is not sent to the agent.
 
 ```json
 {
@@ -1128,6 +1162,13 @@ Lets the agent write the prompt (text and reference modes) or the edit command (
 }
 ```
 
+`agent_host` (`opencode`, `antigravity`, `codex`, `claude`) and `agent_model` run a model picked
+in Create instead of the Integrations defaults. Omitted `agent_host` means OpenCode for compatibility.
+`agent_variant` must be a reasoning level from that model's catalog: OpenCode 2.x receives
+`provider/model#variant`, 1.x uses its default; Codex receives `model_reasoning_effort`, Claude
+receives `--effort`. Antigravity's chosen level is already encoded in `agent_model`.
+The backend validates model/level and photo support again. Errors: `409` `model_unavailable`, `vision_required`,
+`cli_unavailable`; `400` `variant_unavailable`.
 `previous_prompt` marks a refinement (the agent keeps it except what the request changes).
 `subject_image` is the optional second photo of the edit mode; the agent sees both photos side by
 side. `agent_profile_id` replaces the default agent for this call.
@@ -1275,9 +1316,15 @@ Queues one ComfyUI prompt per image (consecutive seeds) of the fixed recipe for 
 ```
 
 `prompt` is required (written by the agent or by hand). `reference_image` is required in the
-`reference` and `edit` modes; `edit_profile`, `subject_image` and `negative_prompt` are edit-only.
-The request, the prompt, the agent and the edit profile are stored in the draft and in the PNG
-metadata (`cmv_user_request`, `cmv_prompt`, `cmv_agent`, `cmv_edit_profile`).
+`reference`, `variation` and `edit` modes; `edit_profile`, `subject_image` and `negative_prompt` are
+edit-only. `variation` starts from the photo itself (image to image): the photo is scaled to about
+1 MP in its own proportions (multiples of 16) and `denoise` (0-1, default 0.65, variation-only) sets
+how much of it is repainted from the prompt; 1.0 keeps only its proportions. The prompt for a
+variation is the same faithful description of the photo the agent writes in `reference` mode.
+The request, the prompt, the agent, the edit profile and the noise level are stored in the draft and
+in the PNG metadata (`cmv_user_request`, `cmv_prompt`, `cmv_agent`, `cmv_edit_profile`,
+`cmv_denoise`). Every result also lands in ComfyUI's output folder (`CMV/Create`), including runs on
+Colab: CMV copies them there under the next free ComfyUI-style name.
 
 **Response (`200`):**
 
@@ -1290,6 +1337,7 @@ metadata (`cmv_user_request`, `cmv_prompt`, `cmv_agent`, `cmv_edit_profile`).
   "requested": 2,
   "mode": "edit",
   "edit_profile": "light",
+  "denoise": null,
   "seconds_per_image": 115,
   "width": 896,
   "height": 1152,
@@ -1299,7 +1347,7 @@ metadata (`cmv_user_request`, `cmv_prompt`, `cmv_agent`, `cmv_edit_profile`).
 ```
 
 Errors: `400` `mode_unsupported`, `image_required`, `instruction_required`, `prompt_required`,
-`edit_profile_invalid`, `subject_invalid`, `edit_only`; `409` `model_not_installed` with
+`edit_profile_invalid`, `subject_invalid`, `edit_only`, `variation_only`; `409` `model_not_installed` with
 `missing_resources`, `restart_required` / `nodes_missing` with `missing_nodes`; `502`
 `comfyui_rejected`; `503` `comfyui_connection_failed`.
 
