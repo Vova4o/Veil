@@ -31,6 +31,7 @@ from app.comfyui.create_agent import (
     pick_agent_profile,
     run_create_agent,
     wants_intimate_module,
+    wants_original_module,
 )
 from app.comfyui.simple_profiles import APPROVED_PROFILES
 from app.main import app
@@ -144,6 +145,81 @@ def test_variation_bundle_describes_a_vae_conditioned_result_without_edit_instru
 ])
 def test_intimate_module_trigger(text, expected):
     assert wants_intimate_module(text) is expected
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("original", True),
+    ("[ORIGINAL] describe the photo", True),
+    ("оригинал", True),
+    ("оригинальное фото", True),
+    ("1:1", True),
+    ("опиши 1 : 1, поменяй цвет блузки", True),
+    ("one-to-one", True),
+    ("one to one", True),
+    ("один в один", True),
+    ("один-в-один", True),
+    ("как на фото", True),
+    ("как на исходнике", True),
+    ("как есть", True),
+    ("as-is", True),
+    ("без приукрас", True),
+    ("без прикрас", True),
+    ("без приукрашивания", True),
+    ("без идеализации", True),
+    ("без ретуши", True),
+    ("no beautification", True),
+    ("without idealization", True),
+    ("no retouching", True),
+    (None, False),
+    ("", False),
+    ("originality", False),
+    ("unoriginal", False),
+    ("11:1", False),
+    ("1:10", False),
+    ("1:1:1", False),
+    ("1:1.5", False),
+    ("0.1:1", False),
+    ("оригинальность", False),
+    ("как обычно", False),
+    ("change the blouse color", False),
+])
+def test_original_module_trigger(text, expected):
+    assert wants_original_module(text) is expected
+
+
+@pytest.mark.parametrize(("mode", "references", "edit_profile"), [
+    ("text", 0, None),
+    ("reference", 1, None),
+    ("variation", 1, None),
+    ("edit", 1, "light"),
+    ("edit", 2, "donor_detail"),
+])
+def test_original_request_reaches_the_agent_in_every_create_route(mode, references, edit_profile):
+    router = FakeRouter(PromptResult(positive_prompt="The requested result.", edit_profile=edit_profile))
+    request = "original, change the blouse color to blue"
+    result = run_create_agent(
+        profile=PROFILE, store=FakeStore([VISION]), mode=mode, request=request,
+        image=_png() if references else None, subject=_png() if references == 2 else None, router=router,
+    )
+    call = router.calls[0]
+    sections = {item.section_id: item.content for item in call["bundle"].sections}
+    assert "original" in sections
+    assert "without idealizing" in sections["original"]
+    assert "mode_" + mode in sections
+    assert call["bundle"].sections[-1].section_id == "create_krea2"
+    assert request in call["user_input"]
+    assert result.edit_profile == edit_profile
+
+
+def test_original_is_a_current_request_modifier_not_inherited_prompt_text():
+    router = FakeRouter(PromptResult(positive_prompt="A blue blouse."))
+    run_create_agent(
+        profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="change the blouse color to blue",
+        previous_prompt="An original painting with a woman in a red blouse.", router=router,
+    )
+    call = router.calls[0]
+    assert "original" not in {item.section_id for item in call["bundle"].sections}
+    assert "PREVIOUS PROMPT" in call["user_input"]
 
 
 # --- agent profile -----------------------------------------------------------------

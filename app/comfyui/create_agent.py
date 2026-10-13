@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 CreateMode = Literal["text", "reference", "variation", "edit"]
 CREATE_CONTENT_DIR = CONTENT_DIR / "create" / "krea2"
-CREATE_INSTRUCTION_VERSION = "2"
+CREATE_INSTRUCTION_VERSION = "3"
 # Agent CLIs need time to read a long task package and an image; profile timeouts
 # saved for short translations (60 s) are too tight for Create.
 MIN_AGENT_TIMEOUT_SECONDS = 240
@@ -180,12 +180,28 @@ def wants_intimate_module(*texts: str | None) -> bool:
     return any(text and _INTIMATE_RE.search(text) for text in texts)
 
 
+_ORIGINAL_RE = re.compile(
+    r"(?<!\w)(?:original|оригинал(?:а|у|ом|е|ьн(?:ый|ая|ое|ые|ого|ой|ому|ым|ую|ых|ыми))?|"
+    r"(?<![:：.])1\s*[:：]\s*1(?![:：.])|one[\s-]+to[\s-]+one|один[\s-]+в[\s-]+один|"
+    r"как\s+(?:есть|на\s+(?:фото|исходнике))|as[\s-]+is|"
+    r"без\s+(?:приукрас|прикрас|приукрашивания|идеализации|ретуши)|"
+    r"(?:no|without)\s+(?:beautification|idealization|retouching))(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def wants_original_module(request: str | None) -> bool:
+    """Whether the current request explicitly asks for unembellished fidelity."""
+    return bool(request and _ORIGINAL_RE.search(request))
+
+
 def build_create_bundle(
     profile: ApprovedProfile,
     mode: CreateMode,
     *,
     references: int = 1,
     intimate: bool = False,
+    original: bool = False,
 ) -> CreateInstructionBundle:
     """Compile the Create instruction for one mode.
 
@@ -207,6 +223,8 @@ def build_create_bundle(
             _edit_profiles_section(profile, references=references),
             f"{profile.id}/manifest.json",
         ))
+    if original:
+        sections.append(_section("original", "module", *_content("original.md")))
     sections.append(_section("create_krea2", "output_contract", *_content("output.md")))
     return CreateInstructionBundle(
         task=create_task(profile, mode),
@@ -769,6 +787,7 @@ def run_create_agent(
         mode,
         references=references,
         intimate=wants_intimate_module(request, previous_prompt),
+        original=wants_original_module(request),
     )
     user_input = build_user_input(
         mode=mode,
