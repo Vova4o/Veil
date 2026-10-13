@@ -1198,40 +1198,6 @@ body.assistant-open{overflow:hidden}
 .result-next-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 @media(max-width:560px){.result-next-btn span{display:none}.result-next-btn{padding:6px 9px}}
 
-/* Edit photo: by text alone or with a second photo (in the photo panel's header). */
-.edit-kinds{
-    display:grid;
-    grid-template-columns:repeat(2,auto);
-    gap:2px;
-    padding:2px;
-    border:1px solid var(--border-subtle,rgba(255,255,255,.1));
-    border-radius:10px;
-    background:color-mix(in srgb,var(--bg-elevated,#161c2b) 22%,transparent);
-}
-.edit-kinds[hidden]{display:none}
-.edit-kind{
-    min-height:26px;
-    min-width:0;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:6px;
-    padding:3px 10px;
-    border:0;
-    border-radius:8px;
-    background:transparent;
-    color:var(--text-dim,#9aa4b8);
-    font:inherit;
-    font-size:11px;
-    font-weight:650;
-    white-space:nowrap;
-    cursor:pointer;
-    transition:background .15s ease,color .15s ease;
-}
-.edit-kind svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.edit-kind:hover{color:var(--text,#f0f2f7)}
-.edit-kind.active{color:var(--text,#f0f2f7);background:color-mix(in srgb,var(--accent,#2dd4bf) 16%,transparent)}
-
 /* The status line shows only what needs the user; starting and running states are not shown. */
 .model-status-line.is-quiet .model-health-badge,.model-status-line.is-quiet .model-status-text{display:none}
 

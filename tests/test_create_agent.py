@@ -337,6 +337,25 @@ def test_agent_cannot_silently_substitute_an_incompatible_edit_profile(selected,
     assert caught.value.status == 502
 
 
+def test_edit_task_reports_a_frame_change():
+    router = FakeRouter(PromptResult(positive_prompt="Change the sweater to red.", edit_profile="light"))
+    run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="красный свитер",
+                     image=_png(640, 960), dimensions=(1344, 768), router=router)
+    text = router.calls[0]["user_input"]
+    assert "PHOTO 1 SIZE: 640x960 pixels" in text
+    assert "FRAME CHANGE: the output is wider than photo 1" in text and "strips at the sides" in text
+    assert "## Frame change" in router.calls[0]["bundle"].render()
+
+
+def test_edit_task_in_the_photo_frame_has_no_frame_change():
+    router = FakeRouter(PromptResult(positive_prompt="Change the sweater to red.", edit_profile="light"))
+    run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="красный свитер",
+                     image=_png(640, 960), dimensions=(832, 1248), router=router)
+    text = router.calls[0]["user_input"]
+    assert "PHOTO 1 SIZE: 640x960 pixels" in text
+    assert "FRAME CHANGE" not in text
+
+
 def test_edit_without_vision_agent_writes_command_blind():
     router = FakeRouter(PromptResult(positive_prompt="Make the dress red.", edit_profile="light"))
     result = run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="edit", request="красное платье",

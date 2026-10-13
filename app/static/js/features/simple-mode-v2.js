@@ -25,15 +25,15 @@ const MODE_COPY = {
     },
     edit: {
         label: 'Edit photo',
-        hint: 'Say what to change. The editing adapter uses your photo to retain the surrounding details.',
+        hint: 'Say what to change. The editing adapter keeps the rest of your photo; a second photo is optional.',
         placeholder: 'For example: change her sweater to a black satin camisole',
         button: 'Edit photo',
     },
 };
-// "Edit photo" with a second photo: a person, a garment or a tattoo to bring in.
+// "Edit photo" once the optional second photo (a person, a garment or a tattoo) is added.
 const EDIT_REFERENCE_COPY = {
     label: 'Edit with reference',
-    hint: 'Add the photo to edit and a replacement reference. Say what to transfer; the first photo supplies the scene.',
+    hint: 'Say what to bring in from the reference; the photo to edit supplies the scene.',
     placeholder: 'For example: dress her in the red silk dress from the reference',
     button: 'Edit with reference',
 };
@@ -49,13 +49,9 @@ const REF_COPY = {
         main: ['Photo to vary', 'The new image starts from this photo'],
     },
     edit: {
-        eyebrow: 'PHOTO',
-        main: ['Photo to edit', 'The source for the edit; say what to change'],
-    },
-    editReference: {
         eyebrow: 'PHOTOS',
-        main: ['Photo to edit', 'The scene to change'],
-        subject: ['Reference', 'A person, a garment or a tattoo to bring in'],
+        main: ['Photo to edit', 'The source for the edit; say what to change'],
+        subject: ['Reference', 'Optional: a person, a garment or a tattoo to bring in'],
     },
 };
 const LAYOUT_EASING = 'cubic-bezier(.16,1,.3,1)';
@@ -93,8 +89,6 @@ const state = {
     colab: null,
     colabPoll: null,
     mode: 'text',
-    // Edit photo: by text alone, or with a second photo to bring in.
-    editKind: 'text',
     ratio: '1:1',
     photoRatio: 'source',
     denoise: DENOISE_DEFAULT,
@@ -162,7 +156,6 @@ function restore() {
     try {
         const mode = localStorage.getItem('cmv_create_mode');
         if (MODE_COPY[mode]) state.mode = mode;
-        if (localStorage.getItem('cmv_create_edit_kind') === 'reference') state.editKind = 'reference';
         const choice = JSON.parse(localStorage.getItem('cmv_create_agent') || 'null');
         if (choice?.agentKind === 'opencode' && choice.model) state.agentChoice = choice;
         if (choice?.agentKind === 'profile' && choice.id) state.agentChoice = choice;
@@ -238,7 +231,7 @@ function setMode(mode, { keepRefine = false, quiet = false } = {}) {
         button.classList.toggle('active', active);
         button.setAttribute('aria-checked', String(active));
     });
-    paintEditKind();
+    paintModeCopy();
     if (!keepRefine && state.refineFrom && state.refineFrom.mode !== mode) clearRefine();
     animateLayout(paintRefs);
     // A variation keeps the photo's proportions; the noise level takes the ratio's place.
@@ -251,39 +244,21 @@ function setMode(mode, { keepRefine = false, quiet = false } = {}) {
     resizePrompt();
 }
 
-function withReference(mode = state.mode) {
-    return mode === 'edit' && state.editKind === 'reference';
+/** Edit photo takes an optional second photo: a person, a garment or a tattoo to bring in. */
+function takesSubject(mode = state.mode) {
+    return mode === 'edit';
 }
 
 function modeCopy(mode = state.mode) {
-    return withReference(mode) ? EDIT_REFERENCE_COPY : MODE_COPY[mode];
+    return takesSubject(mode) && state.subject ? EDIT_REFERENCE_COPY : MODE_COPY[mode];
 }
 
-function refCopy(mode = state.mode) {
-    return withReference(mode) ? REF_COPY.editReference : REF_COPY[mode];
-}
-
-/** The hint, placeholder and button of the mode, and the edit sub-switch. */
-function paintEditKind() {
+/** The hint, placeholder and button of the mode; an edit with a second photo has its own. */
+function paintModeCopy() {
     const copy = modeCopy();
     $('mode-hint').textContent = copy.hint;
     $('prompt').placeholder = copy.placeholder;
     $('create-label').textContent = copy.button;
-    $('edit-kinds').hidden = state.mode !== 'edit';
-    document.querySelectorAll('[data-edit-kind]').forEach(button => {
-        const active = button.dataset.editKind === state.editKind;
-        button.classList.toggle('active', active);
-        button.setAttribute('aria-checked', String(active));
-    });
-}
-
-function setEditKind(kind) {
-    if (kind !== 'text' && kind !== 'reference') return;
-    state.editKind = kind;
-    save('cmv_create_edit_kind', kind);
-    paintEditKind();
-    if (state.mode === 'edit') animateLayout(paintRefs);
-    resizePrompt();
 }
 
 function currentRatio() {
@@ -415,6 +390,7 @@ async function setPhoto(slot, file) {
     }
     hideError();
     paintRefs();
+    paintModeCopy();
     syncRatio();
     return true;
 }
@@ -426,6 +402,7 @@ function clearPhoto(slot) {
     const input = slot === 'subject' ? $('subject-input') : $('photo-input');
     if (input) input.value = '';
     paintRefs();
+    paintModeCopy();
     syncRatio();
 }
 
@@ -444,10 +421,10 @@ function paintRefBlock(slot, photo, copy) {
     if (photo) preview.querySelector('img').src = photo.objectUrl || photo.dataUrl;
 }
 
-/** The left panel: one block for the reference mode, two for edits (scene and donor). */
+/** The left panel: one block for the photo modes, two for edits (the photo and an optional reference). */
 function paintRefs() {
     const layout = $('studio-layout');
-    const copy = refCopy();
+    const copy = REF_COPY[state.mode];
     layout.dataset.refs = String(Boolean(copy));
     $('refs-card').hidden = !copy;
     if (copy) {
@@ -566,7 +543,7 @@ async function importImageUrl(url, slot) {
         error('Not an image link', 'Paste a link that starts with http:// or https://.');
         return;
     }
-    const target = slot === 'subject' && withReference() ? 'subject' : 'main';
+    const target = slot === 'subject' && takesSubject() ? 'subject' : 'main';
     const block = $(`ref-${target}`);
     const loading = block?.querySelector('.ref-loading');
     if (loading) loading.hidden = false;
@@ -591,7 +568,7 @@ function acceptImage(file, slot) {
         setMode('reference');
         showNote('The photo is used as a reference for a new picture. Choose "Edit photo" to change the photo itself.');
     }
-    const target = slot === 'subject' && withReference() ? 'subject' : 'main';
+    const target = slot === 'subject' && takesSubject() ? 'subject' : 'main';
     return setPhoto(target, file);
 }
 
@@ -1187,9 +1164,6 @@ async function create() {
     if (mode !== 'text' && !state.photo) {
         return error('Add a photo', 'This mode needs a photo: drop it here, choose a file or paste it with Ctrl+V.');
     }
-    if (withReference(mode) && !state.subject) {
-        return error('Add the reference', 'Add a person, a garment or a tattoo to the second block, or switch to "By text".');
-    }
     if (mode === 'edit' && !request) return error('Nothing to change', 'Describe what to change in the photo.');
     if (mode === 'text' && !request) return error('Nothing to create', 'Describe the picture you want.');
     const why = blocking();
@@ -1208,8 +1182,8 @@ async function create() {
     canvas('generating');
     $('generation-stop').hidden = false;
     const photo = mode === 'text' ? null : state.photo;
-    const subject = withReference(mode) ? state.subject : null;
-    const copy = refCopy(mode);
+    const subject = takesSubject(mode) ? state.subject : null;
+    const copy = REF_COPY[mode];
     state.resultRefs = [
         photo && { label: copy.main[0], src: photo.dataUrl },
         subject && { label: copy.subject[0], src: subject.dataUrl },
@@ -1328,12 +1302,11 @@ async function restoreCreateTask() {
         $('prompt').value = req.request || '';
         $('prompt').dispatchEvent(new Event('input'));
         setMode(req.mode);
-        if (req.mode === 'edit') setEditKind(subject ? 'reference' : 'text');
         syncBatch();
         paintDenoise();
         job.plan = { mode: req.mode, photo, subject, ratio: req.aspect_ratio,
             userRequest: req.request, denoise: req.denoise };
-        const copy = refCopy(req.mode);
+        const copy = REF_COPY[req.mode];
         state.resultRefs = [
             photo && { label: copy.main[0], src: photo.dataUrl },
             subject && { label: copy.subject[0], src: subject.dataUrl },
@@ -1814,7 +1787,6 @@ async function regenerate() {
         return error('Add the photo again', 'The photo of this run is no longer loaded. Add it, then press Regenerate.');
     }
     if (state.mode !== run.mode) setMode(run.mode);
-    if (run.mode === 'edit') setEditKind(run.subject ? 'reference' : 'text');
     const why = blocking();
     if (why) return error('Not ready yet', why);
     hideError();
@@ -1838,7 +1810,6 @@ async function editThis({ bringReference = false } = {}) {
         const blob = await response.blob();
         const file = new File([blob], current.filename || 'result.png', { type: blob.type || 'image/png' });
         setMode('edit');
-        setEditKind(bringReference ? 'reference' : 'text');
         clearPhoto('subject');
         if (!(await setPhoto('main', file))) return;
         clearRefine();
@@ -2041,9 +2012,6 @@ function closeSession() {
 function wire() {
     document.querySelectorAll('[data-mode]').forEach(button => {
         button.onclick = () => setMode(button.dataset.mode);
-    });
-    document.querySelectorAll('[data-edit-kind]').forEach(button => {
-        button.onclick = () => setEditKind(button.dataset.editKind);
     });
     document.querySelectorAll('[data-ratio]').forEach(button => {
         button.onclick = () => {
@@ -2332,7 +2300,7 @@ function viewerItems() {
             label: all.length > 1 ? `Result ${index + 1}` : 'Result',
             src: item.preview_url || item.thumbnail_url,
         }));
-    const copy = refCopy();
+    const copy = REF_COPY[state.mode];
     const panel = copy ? [
         state.photo && { kind: 'ref', slot: 'main', label: copy.main[0], src: state.photo.objectUrl },
         copy.subject && state.subject && { kind: 'ref', slot: 'subject', label: copy.subject[0], src: state.subject.objectUrl },

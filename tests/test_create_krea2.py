@@ -24,6 +24,7 @@ from app.comfyui.simple_profiles import (
     check_profile_health,
     compile_edit_workflow,
     compile_simple_workflow,
+    edit_frame_change,
     resolve_dimensions,
     resolve_edit_profile,
 )
@@ -70,6 +71,17 @@ def test_resolve_dimensions_keeps_source_ratio_at_one_megapixel():
     assert wide_w / wide_h <= 2.6
     # Without a source the first preset is used.
     assert resolve_dimensions(PROFILE, "source") == (1024, 1024)
+
+
+def test_edit_frame_change_mirrors_the_edit_node_fit():
+    # A 2:3 photo in a 16:9 frame keeps its full height; the node paints strips at the sides.
+    assert edit_frame_change((832, 1248), (1344, 768)) == "sides"
+    assert edit_frame_change((1248, 832), (768, 1344)) == "top and bottom"
+    # The same shape, or one the node center-crops (within 8%), gets no new strips.
+    assert edit_frame_change((640, 960), (832, 1248)) is None
+    assert edit_frame_change((860, 1180), (896, 1152)) is None
+    assert edit_frame_change((832, 1216), (896, 1152)) == "sides"
+    assert edit_frame_change((0, 0), (896, 1152)) is None
 
 
 @pytest.mark.parametrize(("mode", "strength"), [("text", 1.0), ("reference", 0.0)])

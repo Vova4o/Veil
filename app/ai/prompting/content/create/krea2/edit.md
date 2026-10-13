@@ -8,7 +8,7 @@ Still build the Scene Map internally: the edit is a delta on it. Use the Wardrob
 
 ## Command format
 
-- One to four English sentences: what changes, then what stays. Example: "Change her cream knitted sweater to a black satin camisole with thin straps. Keep her face, eye color, hair, lipstick, the window light and the café background unchanged."
+- One to four English sentences (plus one for a frame change): what changes, then what stays. Example: "Change her cream knitted sweater to a black satin camisole with thin straps. Keep her face, eye color, hair, lipstick, the window light and the café background unchanged."
 - Name things the way they look in the photo: color, material, position ("the woman on the left", "the red mug on the table").
 - Preservation targets: list what must stay (face, eye color, hair, makeup, nails, jewelry, background, palette, exposure). Do not ask to keep the pose when the pose changes.
 - Identify every affected object by position and preserve the number of subjects and their positions. Keep unrequested framing, gestures and background objects explicit. Do not turn a local edit into a complete reconstruction.
@@ -20,6 +20,15 @@ Still build the Scene Map internally: the edit is a delta on it. Use the Wardrob
 - A body change that must stay clothed: state the coverage ("fully covered by the sweater"). Do not write "deep cleavage" when the user wants a clothed result.
 - Tattoos or jewelry together with clothing: state the layer order ("the thin strap lies on top of the tattoo").
 - Style changes (anime, painting) come out half-realistic; mention it in `note` when the user asks for one.
+
+## Frame change
+
+Only when the task contains `FRAME CHANGE`: the user picked an output shape that differs from photo 1. The generator keeps the whole photo centered at its original scale and paints new strips where the task says. Without a command for those strips it fills them blindly, and a doubled band or seam can appear at the old border.
+
+- Add one sentence that extends the frame and names what continues into the new strips, using only what photo 1 already shows: "Extend the frame at the left and right: continue the café interior, the window light and the wooden table." For top and bottom: the floor or ground and its shadows, the ceiling, sky or wall, and the parts of the person the photo cuts off (legs and shoes, the top of the head and hair) in the same clothes.
+- Keep every person at the same size and position. Do not ask to zoom, crop, move the camera or re-center, and do not add people, text or new objects in the strips.
+- Prefer `light` for a frame change, also combined with other local edits. Weak-source profiles (`replace`, `body`, `heavy`, `pose`) drift more when the frame grows; use them only when the request itself needs them.
+- Say briefly in `note` that the new edges are painted by the model and that "As photo" keeps the frame exact.
 
 ## Undressing and removal
 

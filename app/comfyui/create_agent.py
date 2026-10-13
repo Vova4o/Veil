@@ -38,13 +38,13 @@ from app.ai.prompting import (
 from app.ai.prompting.models import CapabilityStatus
 from app.ai.prompting.registry import CONTENT_DIR
 
-from .simple_profiles import ApprovedProfile, resolve_edit_profile
+from .simple_profiles import ApprovedProfile, edit_frame_change, resolve_edit_profile
 
 logger = logging.getLogger(__name__)
 
 CreateMode = Literal["text", "reference", "variation", "edit"]
 CREATE_CONTENT_DIR = CONTENT_DIR / "create" / "krea2"
-CREATE_INSTRUCTION_VERSION = "3"
+CREATE_INSTRUCTION_VERSION = "4"
 # Agent CLIs need time to read a long task package and an image; profile timeouts
 # saved for short translations (60 s) are too tight for Create.
 MIN_AGENT_TIMEOUT_SECONDS = 240
@@ -563,7 +563,9 @@ def build_user_input(
     previous_prompt: str | None,
     image_state: str,
     dimensions: tuple[int, int] | None,
+    source_size: tuple[int, int] | None = None,
 ) -> str:
+    """The per-run part of the task; ``source_size`` (photo 1) lets an edit see a frame change."""
     parts = [f"MODE: {mode}"]
     cleaned = request.strip()[:MAX_REQUEST_CHARS]
     if cleaned:
@@ -580,7 +582,29 @@ def build_user_input(
     parts.append(f"PHOTOS: {image_state}")
     if dimensions:
         parts.append(f"OUTPUT SIZE: {dimensions[0]}x{dimensions[1]} pixels")
+    if mode == "edit" and source_size and dimensions:
+        parts.append(f"PHOTO 1 SIZE: {source_size[0]}x{source_size[1]} pixels")
+        strips = edit_frame_change(source_size, dimensions)
+        if strips:
+            shape = "wider" if strips == "sides" else "taller"
+            parts.append(
+                f"FRAME CHANGE: the output is {shape} than photo 1. The generator keeps all of photo 1 "
+                f"centered and draws new strips at the {strips}; follow \"Frame change\" in the mode section."
+            )
     return "\n\n".join(parts)
+
+
+def image_size(data: bytes | None) -> tuple[int, int] | None:
+    """Pixel size of an image, or ``None`` when it cannot be read."""
+    if not data:
+        return None
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            return int(image.width), int(image.height)
+    except (UnidentifiedImageError, OSError):
+        return None
 
 
 def _image_state(mode: CreateMode, *, has_image: bool, has_subject: bool, sees: bool) -> str:
@@ -795,6 +819,7 @@ def run_create_agent(
         previous_prompt=previous_prompt,
         image_state=_image_state(mode, has_image=image is not None, has_subject=subject is not None, sees=sees),
         dimensions=dimensions,
+        source_size=image_size(image) if mode == "edit" else None,
     )
     execution_profile = dict(agent)
     execution_profile["timeout_seconds"] = max(

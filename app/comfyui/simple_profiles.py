@@ -513,6 +513,29 @@ def has_edit_workflow(profile: ApprovedProfile) -> bool:
     return "edit" in profile.modes and (profile.directory / "edit.workflow.json").is_file()
 
 
+# Krea2EditModelPatch (fit_mode=fit) center-crops a photo that fills at least 92% of
+# the output frame on both sides; a narrower fit keeps the whole photo and outpaints the rest.
+EDIT_FIT_CROP_TOLERANCE = 0.08
+
+
+def edit_frame_change(source_size: tuple[int, int], target_size: tuple[int, int]) -> str | None:
+    """Where the edit adapter draws new strips around the photo, or ``None`` when it does not.
+
+    Returns ``"sides"`` for an output wider than the photo and ``"top and bottom"``
+    for a taller one.
+    """
+    source_w, source_h = source_size
+    target_w, target_h = target_size
+    if min(source_w, source_h, target_w, target_h) <= 0:
+        return None
+    scale = min(target_w / source_w, target_h / source_h)
+    if source_w * scale < target_w * (1 - EDIT_FIT_CROP_TOLERANCE):
+        return "sides"
+    if source_h * scale < target_h * (1 - EDIT_FIT_CROP_TOLERANCE):
+        return "top and bottom"
+    return None
+
+
 def resolve_edit_profile(
     profile: ApprovedProfile,
     edit_profile: str | None = None,
