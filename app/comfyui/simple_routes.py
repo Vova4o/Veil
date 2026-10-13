@@ -1132,6 +1132,7 @@ def _agent_error_payload(exc: CreateAgentError) -> dict[str, Any]:
     return {
         "error": str(exc),
         "code": exc.code,
+        "stage": "agent",
         "technical_error": (exc.technical_error or "")[:4000] or None,
     }
 
@@ -1160,6 +1161,7 @@ def _stream_agent_run(run_kwargs: dict[str, Any], finish) -> Response:
             events.put(("error", {
                 "error": "The agent run failed.",
                 "code": "agent_failed",
+                "stage": "agent",
                 "status": 500,
                 "technical_error": str(exc)[:4000] or None,
             }))

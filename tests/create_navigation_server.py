@@ -12,7 +12,8 @@ from waitress import create_server
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_create_continuity import create_runtime
 
-from app.comfyui import desktop
+from app.comfyui import desktop, simple_routes
+from app.comfyui.create_agent import CreateAgentError
 from app.main import app
 
 monkeypatch = pytest.MonkeyPatch()
@@ -39,6 +40,17 @@ def release_generation():
 @app.route("/__smoke/state")
 def smoke_state():
     return jsonify({"queued": len(backend.queued), "agent_started": started.is_set()})
+
+
+@app.route("/__smoke/agent-error", methods=["POST"])
+def fail_next_agent():
+    def fail(**kwargs):
+        raise CreateAgentError(
+            "Antigravity returned an invalid structured result.", code="contract_violation", status=502,
+            technical_error="schema_version must be a string.",
+        )
+    monkeypatch.setattr(simple_routes, "run_create_agent", fail)
+    return jsonify({"ok": True})
 
 
 server = create_server(app, host="127.0.0.1", port=0, threads=8)

@@ -455,6 +455,20 @@ def test_codex_progress_skips_the_echoed_task_and_keeps_the_journal():
     assert create_agent.progress_reader({"kind": "openai_compatible"}, seen.append) is None
 
 
+@pytest.mark.parametrize("answer", [
+    '{"status":"SUCCESS","response":"private transcript","structured_output":{"positive_prompt":"A cup."}}',
+    '{\n  "status": "SUCCESS",\n  "structured_output": {"positive_prompt": "A cup."}\n}',
+    '```json\n{"positive_prompt":"A cup."}\n```',
+])
+def test_antigravity_progress_hides_the_final_transport_json(answer):
+    seen = []
+    read = create_agent.progress_reader({"kind": "cli", "cli_type": "antigravity"}, seen.append)
+    read("Reading the attached photo.\n")
+    for line in answer.splitlines():
+        read(line + "\n")
+    assert seen == [{"phase": "working", "log": "Reading the attached photo."}, {"phase": "writing"}]
+
+
 def test_run_reports_start_and_forwards_host_lines():
     seen = []
 

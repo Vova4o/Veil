@@ -1576,6 +1576,11 @@ function abortJob() {
 
 function handleGenerateError(err) {
     const code = err.data?.code;
+    const technical = err.data?.technical_error;
+    if (err.data?.stage === 'agent' || code === 'contract_violation' || code === 'incompatible_format' || code === 'provider_error'
+        || code === 'cli_error' || code === 'edit_profile_invalid' || code === 'agent_failed') {
+        return error('The agent could not prepare the prompt', err.message, technical);
+    }
     if (err.data?.missing_resources) {
         paintHealth({ ...(state.health || {}), status: 'not_installed', missing_resources: err.data.missing_resources, installable: true });
     }
@@ -1587,9 +1592,9 @@ function handleGenerateError(err) {
     }
     if (err.status === 502 || err.status === 503 || code === 'comfyui_rejected' || code === 'comfyui_connection_failed') {
         return error('ComfyUI is unavailable or rejected the task',
-            err.data?.suggestion || err.message || 'Make sure ComfyUI is running. Configure the address with the gear icon in the header.');
+            err.data?.suggestion || err.message || 'Make sure ComfyUI is running. Configure the address with the gear icon in the header.', technical);
     }
-    return error('Could not start generation', err.message);
+    return error('Could not start generation', err.message, technical);
 }
 
 function formatDuration(seconds) {

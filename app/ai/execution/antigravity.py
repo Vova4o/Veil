@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +23,6 @@ from .agent_cli import (
     agent_run_workspace,
     image_file_name,
     render_task_package,
-    unwrap_markdown_fence,
     validate_image_path,
     validate_user_input,
 )
@@ -30,6 +30,7 @@ from .agent_cli import (
 logger = logging.getLogger("cmv.ai.antigravity")
 
 DEFAULT_ANTIGRAVITY_TIMEOUT_SECONDS = 5 * 60
+RESULT_SCHEMA_FILE_NAME = "cmv-result.schema.json"
 
 
 class AntigravityPromptExecutionError(RuntimeError):
@@ -81,12 +82,45 @@ def build_antigravity_command(executable: str, *, model: str | None, timeout_sec
         "--print-timeout",
         f"{timeout_sec}s",
         "--disable-slash-commands",
+        "--output-format",
+        "json",
+        "--json-schema",
+        RESULT_SCHEMA_FILE_NAME,
         "--dangerously-skip-permissions",
         "--sandbox",
     ]
     if model:
         command.extend(["--model", model])
     return command
+
+
+def parse_antigravity_json_output(stdout: str) -> str:
+    """Use agy's schema-checked result, excluding its response/tool transcript."""
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise AntigravityPromptExecutionError(
+            "Antigravity did not return its JSON result envelope.",
+            code="incompatible_format", stage="host",
+            technical_error=stdout[:16_000] or str(exc),
+        ) from exc
+    if not isinstance(payload, dict):
+        raise AntigravityPromptExecutionError(
+            "Antigravity returned an unexpected JSON value.",
+            code="incompatible_format", stage="host", technical_error=stdout[:16_000],
+        )
+    if payload.get("status") != "SUCCESS":
+        raise AntigravityPromptExecutionError(
+            "Antigravity did not complete the task successfully.",
+            code="provider_error", stage="host", technical_error=stdout[:16_000],
+        )
+    structured = payload.get("structured_output")
+    if not isinstance(structured, dict):
+        raise AntigravityPromptExecutionError(
+            "Antigravity returned no schema-checked result.",
+            code="incompatible_format", stage="host", technical_error=stdout[:16_000],
+        )
+    return json.dumps(structured, ensure_ascii=False)
 
 
 class AntigravityPromptExecutor:
@@ -152,6 +186,11 @@ class AntigravityPromptExecutor:
             with agent_run_workspace(
                 "cmv-agy-", image_path=validated_image, task_package=task_package
             ) as workspace:
+                schema = PromptResult.model_json_schema()
+                schema["required"] = list(schema["properties"])
+                (workspace.root / RESULT_SCHEMA_FILE_NAME).write_text(
+                    json.dumps(schema, ensure_ascii=False), encoding="utf-8"
+                )
                 completed = run_command(
                     command,
                     timeout=timeout_sec,
@@ -180,17 +219,17 @@ class AntigravityPromptExecutor:
         if completed.stderr:
             logger.warning("[Antigravity] STDERR: %s", completed.stderr)
 
-        if completed.returncode != 0 and not raw_output:
+        if completed.returncode != 0:
             raise AntigravityPromptExecutionError(
                 f"Antigravity CLI exited with code {completed.returncode}: {completed.stderr}",
                 code="cli_error",
                 stage="execution",
-                technical_error=completed.stderr,
+                technical_error=completed.stderr or raw_output,
             )
 
         raw_sha256 = hashlib.sha256(raw_output.encode("utf-8")).hexdigest()
-        cleaned_output, was_unwrapped = unwrap_markdown_fence(raw_output)
-        normalizations = ("unwrapped_markdown_code_block",) if was_unwrapped else ()
+        cleaned_output = parse_antigravity_json_output(raw_output)
+        normalizations = ("extracted_antigravity_structured_output",)
 
         try:
             parsed_result = parse_prompt_result(cleaned_output)
@@ -200,7 +239,7 @@ class AntigravityPromptExecutor:
                 f"Failed to parse Antigravity output into PromptResult: {exc}",
                 code="contract_violation",
                 stage="normalization",
-                technical_error=raw_output,
+                technical_error=f"{exc.technical_error or exc}\n\nAntigravity response:\n{raw_output[:16_000]}",
             ) from exc
 
         return AntigravityPromptExecutionResult(
@@ -217,4 +256,5 @@ __all__ = [
     "AntigravityPromptExecutionResult",
     "AntigravityPromptExecutor",
     "build_antigravity_command",
+    "parse_antigravity_json_output",
 ]

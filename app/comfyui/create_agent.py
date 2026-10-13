@@ -700,10 +700,19 @@ def _codex_reader(emit: ProgressSink) -> Callable[[str], None]:
     return read
 
 
-def _line_reader(emit: ProgressSink) -> Callable[[str], None]:
+def _antigravity_reader(emit: ProgressSink) -> Callable[[str], None]:
+    state = {"answer": False}
+
     def read(line: str) -> None:
         stripped = line.strip()
-        if stripped:
+        if not stripped or state["answer"]:
+            return
+        # agy's final JSON envelope is transport data, not a progress journal.
+        # Suppress every line of a pretty-printed envelope as well as one-line JSON.
+        if stripped.startswith(("{", "```")):
+            state["answer"] = True
+            emit({"phase": "writing"})
+        else:
             emit({"phase": "working", "log": stripped[:MAX_PROGRESS_LINE_CHARS]})
 
     return read
@@ -713,8 +722,8 @@ def progress_reader(agent: dict[str, Any], emit: ProgressSink) -> Callable[[str]
     """Turn one host's raw output lines into progress events for the Create page.
 
     OpenCode prints whole parts (no token deltas), Codex keeps its journal on stderr,
-    Antigravity prints plain lines. Claude Code answers with one JSON envelope at the
-    end and direct API calls are not streamed; they report only start and finish.
+    Antigravity's final JSON envelope is hidden. Claude Code answers with one JSON
+    envelope at the end and direct API calls are not streamed; they report only start and finish.
     """
     if agent.get("kind") != "cli":
         return None
@@ -724,7 +733,7 @@ def progress_reader(agent: dict[str, Any], emit: ProgressSink) -> Callable[[str]
     if cli_type == "codex":
         return _codex_reader(emit)
     if cli_type == "antigravity":
-        return _line_reader(emit)
+        return _antigravity_reader(emit)
     return None
 
 

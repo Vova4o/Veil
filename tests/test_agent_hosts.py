@@ -14,6 +14,7 @@ from app.ai.execution.agent_cli import unwrap_markdown_fence
 from app.ai.execution.antigravity import (
     AntigravityPromptExecutionError,
     AntigravityPromptExecutor,
+    parse_antigravity_json_output,
 )
 from app.ai.execution.claude_code import (
     ClaudeCodePromptExecutionError,
@@ -258,9 +259,13 @@ def test_antigravity_executor_writes_task_file_and_image(monkeypatch):
         seen["args"] = list(args)
         seen["files"] = sorted(path.name for path in cwd.iterdir())
         seen["task"] = (cwd / "cmv-task.md").read_text(encoding="utf-8")
+        seen["schema"] = json.loads((cwd / "cmv-result.schema.json").read_text(encoding="utf-8"))
         return CommandResult(
             returncode=0,
-            stdout='{"schema_version": "1", "positive_prompt": "a garden path", "negative_prompt": ""}',
+            stdout=json.dumps({"status": "SUCCESS", "structured_output": {
+                "schema_version": "1", "positive_prompt": "a garden path", "negative_prompt": "",
+                "edit_profile": None, "note": "",
+            }, "response": "unreliable transcript with toolAction/toolSummary"}),
             stderr="",
             elapsed_ms=7,
         )
@@ -277,9 +282,48 @@ def test_antigravity_executor_writes_task_file_and_image(monkeypatch):
     )
 
     assert sum(len(part) for part in seen["args"]) < 8_000
-    assert seen["files"] == ["cmv-task.md", "input.jpg"]
+    assert seen["files"] == ["cmv-result.schema.json", "cmv-task.md", "input.jpg"]
     assert long_input.strip() in seen["task"]
     assert "`input.jpg`" in seen["task"]
     assert seen["args"][seen["args"].index("--model") + 1] == "gemini-3-pro"
     assert seen["args"][seen["args"].index("--print-timeout") + 1] == "90s"
+    assert seen["args"][seen["args"].index("--output-format") + 1] == "json"
+    assert seen["args"][seen["args"].index("--json-schema") + 1] == "cmv-result.schema.json"
+    assert set(seen["schema"]["required"]) == {"schema_version", "positive_prompt", "negative_prompt", "edit_profile", "note"}
+    assert seen["schema"]["additionalProperties"] is False
     assert executed.result.positive_prompt == "a garden path"
+    assert executed.response_normalizations == ("extracted_antigravity_structured_output",)
+
+
+@pytest.mark.parametrize(("payload", "code"), [
+    ("not JSON", "incompatible_format"),
+    ("[]", "incompatible_format"),
+    ('{"status":"ERROR","response":"provider failed","structured_output":{"positive_prompt":"x"}}', "provider_error"),
+    ('{"status":"SUCCESS","response":"{\\"positive_prompt\\":\\"x\\"}"}', "incompatible_format"),
+    ('{"status":"SUCCESS","structured_output":"x"}', "incompatible_format"),
+])
+def test_antigravity_requires_successful_schema_checked_output(payload, code):
+    with pytest.raises(AntigravityPromptExecutionError) as caught:
+        parse_antigravity_json_output(payload)
+    assert caught.value.code == code
+
+
+@pytest.mark.parametrize(("returncode", "structured", "code"), [
+    (1, {"positive_prompt": "A cup."}, "cli_error"),
+    (0, {"schema_version": 1, "positive_prompt": "A cup."}, "contract_violation"),
+    (0, {"positive_prompt": "A cup.", "toolSummary": "done"}, "contract_violation"),
+])
+def test_antigravity_rejects_failed_processes_and_invalid_structured_results(monkeypatch, returncode, structured, code):
+    from app.ai.execution import antigravity as agy_module
+
+    monkeypatch.setattr(agy_module, "find_executable", lambda *_: "C:/tools/agy.exe")
+    monkeypatch.setattr(agy_module, "run_command", lambda *_, **__: CommandResult(
+        returncode=returncode, stdout=json.dumps({"status": "SUCCESS", "structured_output": structured}),
+        stderr="", elapsed_ms=1,
+    ))
+    with pytest.raises(AntigravityPromptExecutionError) as caught:
+        AntigravityPromptExecutor().execute(
+            profile={"kind": "cli", "cli_type": "antigravity"}, task=_task(), user_input="A cup.",
+        )
+    assert caught.value.code == code
+    assert caught.value.technical_error

@@ -364,7 +364,7 @@ Identity Edit копирует тело с исходника — слайдер
 
 ### Этап 1 — бэкенд профиля (2026-10-10)
 
-- Профиль `krea2_moody_v40` (сортируется первым → профиль по умолчанию): `manifest.json` (`modes`, `sda_modes`, `max_batch`, `quality_presets: []`), `resources.json` (SHA256 + `custom_nodes`), `workflow.json` + `bindings.json`, `edit.workflow.json` + `edit.bindings.json`, `prompt_style.md`.
+- Профиль `krea2_moody_v40` (сортируется первым → профиль по умолчанию): `manifest.json` (`modes`, `sda_modes`, `max_batch`, `quality_presets: []`), `resources.json` (SHA256 + `custom_nodes`), `workflow.json` + `bindings.json`, `edit.workflow.json` + `edit.bindings.json`. Инструкции агента находятся в `app/ai/prompting/content/create/krea2/`; неиспользуемый дубликат `prompt_style.md` удалён.
 - [`simple_profiles.py`](../app/comfyui/simple_profiles.py): `CustomNodeRequirement`, поля профиля, привязки со списком целей, `resolve_dimensions`, `compile_edit_workflow`, `has_edit_workflow`; health: `missing_nodes`, `nodes_known`, `restart_required`, `modes_ready` (нехватка нод блокирует только `edit`).
 - [`node_packs.py`](../app/comfyui/node_packs.py): установка архива закреплённого коммита (защита от `../`, сверка SHA256 входного файла, staging + rename, метка `.cmv-node-pack.json`, чужие папки не трогает).
 - [`simple_routes.py`](../app/comfyui/simple_routes.py): `POST /api/simple/models/<id>/install` ставит и ноды (`node_packs`, `restart_required`, `manual_install`); `POST /api/simple/generate` принимает `mode` (`text`/`reference`/`edit`), для профилей без пресетов — `_generate_fixed`: N задач с сидами подряд, загрузка исходника для правки, ответ с `run_ids`, `width`/`height`. Старые профили `model_01…08` идут прежним путём до этапа 3.
@@ -603,3 +603,35 @@ git diff --check. Проверены включение модуля во все
 Агент во всех прогонах выбирал `light` (для замены — `replace`) и писал фразу о кадре.
 
 Шов на боковой достройке — ограничение весов Identity Edit v1.2 (CHANGELOG нод: артефакт частично выучен весами, v2 обучается). A/B на том же сиде: `grounding_px` 512, `ref_boost` 2, оба вместе и явная фраза «the same unbroken diagonal top rail» дают почти тот же излом перил; другой сид (20261014) — правдоподобный столб на шве. Настройки и текст шов не лечат, меняет только сид. Варианты для UI — открытый вопрос: подсказка «несколько картинок» при смене кадра, тональная склейка полос по известной границе, ожидание весов v2.
+
+## 15. Antigravity: проверенный JSON вместо текстового ответа (2026-10-13)
+
+На пользовательском скриншоте JSON ответа agy попал в журнал агента под `Queued`:
+старый reader принимал каждую строку stdout за прогресс. Это само по себе не
+подтверждало ошибку разбора. Отдельно обнаружено, что текстовый ответ agy может
+содержать Markdown, несколько JSON-фрагментов, числовую `schema_version` и
+служебные `toolAction` / `toolSummary`; удаление Markdown-ограждения этого не решает.
+
+Адаптер теперь запускает agy с `--output-format json --json-schema cmv-result.schema.json`.
+Схема строится из `PromptResult`, требует все пять полей и запрещает дополнительные.
+Читается только `structured_output` из конверта со статусом `SUCCESS`, затем результат
+проходит обычную Pydantic-валидацию. Поле `response` остаётся диагностическим журналом
+хоста и не используется как промпт. Ненулевой exit code, отсутствие проверенного
+результата и нарушение контракта завершаются ошибкой; повреждённый JSON не восстанавливается.
+
+Финальный JSON больше не показывается строками прогресса. Ошибки агента получают
+`stage: agent`: UI отделяет их от ошибок очереди ComfyUI, показывает техническую
+диагностику в закрытых `Details` и возвращает кнопку Create в рабочее состояние.
+
+`simple_models/krea2_moody_v40/prompt_style.md` и его неиспользуемое поле/загрузчик
+удалены. Create уже собирал инструкции только из `app/ai/prompting/content/create/krea2/`.
+В удалённом файле Pony/SDXL упоминались как запрет на их теги; энкодером был указан
+Qwen3-VL. Файл не мог менять пакет инструкций Create.
+
+Проверка: 829 pytest + 92 subtests, 69 Node-тестов, Ruff, Pyrefly по app, ESLint,
+контракты OpenAPI и git diff --check. Browser smoke в Edge подтвердил выход из
+ожидания при ошибке агента, доступную кнопку Create, диагностику в Details и
+отсутствие постановки генерации в очередь. Живой запуск обновлённого адаптера:
+Antigravity Gemini 3.8 Flash Low, нейтральная тестовая фотография сада,
+29,6 с; все поля `PromptResult` валидны. Проверена доставка задания, чтение фото
+и структурированный ответ агента; новая генерация изображения для этой правки не запускалась.

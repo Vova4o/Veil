@@ -25,6 +25,25 @@ function harness() {
     return { run: code => vm.runInContext(code, context), elements, saved };
 }
 
+test('agent 502 errors show an agent message with optional diagnostics', () => {
+    const h = harness();
+    h.run(`handleGenerateError({ status: 502, message: 'Invalid JSON result.',
+        data: { code: 'contract_violation', stage: 'agent', technical_error: 'Expected a string.' } });`);
+    assert.equal(h.elements.get('error-title').textContent, 'The agent could not prepare the prompt');
+    assert.equal(h.elements.get('error-text').textContent, 'Invalid JSON result.');
+    assert.equal(h.elements.get('error-details').hidden, false);
+    assert.equal(h.elements.get('error-technical').textContent, 'Expected a string.');
+    h.run(`handleGenerateError({ status: 502, message: 'Timed out.', data: { code: 'cli_timeout', stage: 'agent' } });`);
+    assert.equal(h.elements.get('error-title').textContent, 'The agent could not prepare the prompt');
+    assert.equal(h.elements.get('error-details').hidden, true);
+});
+
+test('ComfyUI 502 errors keep the generation error message', () => {
+    const h = harness();
+    h.run(`handleGenerateError({ status: 502, message: 'Queue rejected.', data: { code: 'comfyui_rejected' } });`);
+    assert.equal(h.elements.get('error-title').textContent, 'ComfyUI is unavailable or rejected the task');
+});
+
 test('model tags preserve unknown capabilities and identify family inference', () => {
     const h = harness();
     assert.match(h.run('agentTags(null, false)'), /Photos unknown/);
