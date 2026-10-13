@@ -148,3 +148,32 @@ The anatomical rendering is executed with clinical precision, prioritizing the s
 
 The man's wardrobe remains locked 1:1, consisting of a blue and red "ICON" baseball cap, a black zip-up bomber jacket, distressed blue denim jeans with a silver wallet chain, and a black leather fanny pack at his waist. The industrial setting is anchored by a white transit van and a large utility truck with its rear cargo door open in the background, under a network of overhead power lines. The diffused natural light from the grey sky provides even illumination across her bare skin, highlighting the organic textures and soft-tissue contours of her figure. The shot retains authentic high-definition mobile camera characteristics, including crisp optical focal falloff and subtle digital sensor grain in the deep shadow transitions, anchoring the explicit transformation into the realistic industrial context.
 ```
+
+## MASTER REFERENCE EXAMPLES — PHOTO EDIT DELTA COMMANDS (MODE: EDIT)
+
+When the active mode is `edit`, do NOT use the full scene description format above. Emit only one to four concise editor instruction sentences: what changes, then what stays unchanged.
+
+### Example E1 — Upper Body Reveal (Pulling Down / Unbuttoning)
+```
+Pull down the neckline of her dark ribbed knit sweater below her breasts, gathering the fabric across her upper midriff and keeping the sleeves on her arms. Fully expose her bare breasts and textured areolas with fine Montgomery gland bumps, projected nipples, and natural skin relief. Keep her facial features, eye color, hairstyle, necklace, and the room background completely unchanged.
+```
+
+### Example E2 — Lower Body Reveal (Pulling Panties Down / Shifting Aside)
+```
+Pull her blue denim shorts and white cotton panties down past her hips to her mid-thighs, keeping the bunched fabric resting around her thighs. Expose her bare pelvic region, smooth lower abdomen, and natural labial contours with realistic skin texture. Keep her face, smile, upper body clothing, pose, and outdoor lighting unchanged.
+```
+
+### Example E3 — Full Garment Removal (Profile `remove`)
+```
+Positive prompt:
+Bare torso, bare shoulders, and bare arms from shoulders to wrists with smooth taut skin, delicate collarbones, and exposed rounded breasts with textured areolas. Keep her face, eyeliner, bangs, and the café interior background unchanged.
+
+Negative prompt:
+cream knitted sweater, long knitted sleeves, roll collar, cuffs
+```
+
+### Example E4 — Face Replacement with Donor Photo (Profile `donor`)
+```
+Replace the woman's face and facial identity with the face and facial features of the woman from the second image (photo 2), matching her eye shape, nose contour, and lips. Keep the hairstyle, body pose, lingerie, lighting, and the bedroom background from photo 1 completely unchanged.
+```
+

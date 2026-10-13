@@ -110,14 +110,14 @@
     {
       "id": "donor",
       "label": "Person from the second photo",
-      "description": "Bring the person from the donor photo into the scene; name the donor's clothes in the command.",
+      "description": "Bring the person or face from the donor photo into the scene; name the donor's clothes or facial features in the command.",
       "references": 2,
       "seconds": 190,
       "settings": {
         "cfg": 1.0,
         "steps": 8,
-        "ref_boost": 1.0,
-        "ref_boost_a": 1.0,
+        "ref_boost": 2.0,
+        "ref_boost_a": 2.5,
         "grounding_px": 768
       }
     },
