@@ -1332,6 +1332,7 @@ async function restoreCreateTask() {
 async function applyTaskSnapshot(job, data) {
     if (state.job !== job) return;
     job.backend = data.backend;
+    job.runtimeProgress = data.runtime_progress || null;
     const previousPhase = job.phase;
     job.phase = data.phase;
     if (data.plan) {
@@ -1345,6 +1346,9 @@ async function applyTaskSnapshot(job, data) {
             seconds: queued.seconds_per_image || prepared.seconds_per_image || TXT2IMG_SECONDS,
             width: queued.width || prepared.width, height: queued.height || prepared.height,
         });
+        stopAgentTimer();
+        paintAgentProgress({ text: job.plan.prompt });
+        recordTaskPlan(job, data);
         if (job.plan.note && job.shownNote !== job.plan.note) {
             job.shownNote = job.plan.note;
             showNote(job.plan.note);
@@ -1385,7 +1389,6 @@ async function applyTaskSnapshot(job, data) {
         if (data.queue_result || job.phase === 'running') {
             state.lastRun = { ...job.plan, runIds: job.runIds, time: job.startedAt, taskId: job.taskId };
             persistLastRun();
-            if (!state.session.some(entry => entry.key === job.runIds.join(','))) addSessionEntry(state.lastRun);
             clearRefine();
         }
         const outputs = data.outputs || [];
@@ -1415,6 +1418,7 @@ async function applyTaskSnapshot(job, data) {
         if (data.status === 'cancelled') showNote('Generation was stopped.');
         else handleGenerateError({ data: data.error, status: data.error?.status, message: data.error?.error || 'The task failed.' });
     }
+    paintLaunch();
 }
 
 const LIVE_STAGES = {
@@ -1923,8 +1927,9 @@ function runLabel(run) {
 
 function sessionRecord(run) {
     return {
-        key: (run.runIds || []).join(','),
+        key: run.runIds?.length ? run.runIds.join(',') : `task:${run.taskId}`,
         taskId: run.taskId || null,
+        status: run.status || null,
         time: run.time || Date.now(),
         mode: run.mode,
         userRequest: run.userRequest || '',
@@ -1941,19 +1946,29 @@ function sessionRecord(run) {
     };
 }
 
+/** Record an agent answer before queueing, including when startup later fails. */
+function recordTaskPlan(job, data) {
+    const signature = JSON.stringify([data.plan, data.run_ids, data.status]);
+    if (job.sessionSignature === signature) return;
+    job.sessionSignature = signature;
+    const record = sessionRecord({ ...job.plan, taskId: job.taskId, runIds: data.run_ids,
+        time: job.startedAt, status: data.status });
+    const existing = state.session.find(entry => entry.taskId === job.taskId || entry.key === record.key);
+    if (existing) Object.assign(existing, record, { outputs: existing.outputs || [] });
+    else {
+        state.session.unshift(record);
+        state.session = state.session.slice(0, SESSION_LIMIT);
+    }
+    saveSession();
+    paintSession();
+}
+
 function persistLastRun() {
     try { localStorage.setItem('cmv_create_last_run', JSON.stringify(sessionRecord(state.lastRun))); } catch {}
 }
 
 function saveSession() {
     try { localStorage.setItem('cmv_create_session', JSON.stringify(state.session.slice(0, SESSION_LIMIT))); } catch {}
-}
-
-function addSessionEntry(run) {
-    state.session.unshift(sessionRecord(run));
-    state.session = state.session.slice(0, SESSION_LIMIT);
-    saveSession();
-    paintSession();
 }
 
 function updateSessionOutputs(runIds, outputs, durations = []) {
@@ -1979,12 +1994,14 @@ function paintSession() {
         const time = new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const took = entry.seconds ? `${formatDuration(entry.seconds)} per image` : '';
         const noise = entry.mode === 'variation' && entry.denoise != null ? `noise ${Number(entry.denoise).toFixed(2)}` : '';
-        const meta = [runLabel(entry), entry.agentName || 'no agent', entry.editProfileLabel, noise, took].filter(Boolean).join(' · ');
+        const status = entry.status === 'failed' ? 'Generation failed · prompt saved'
+            : entry.status === 'cancelled' ? 'Stopped · prompt saved' : entry.status === 'queued' ? 'Prompt ready' : '';
+        const meta = [runLabel(entry), entry.agentName || 'no agent', entry.editProfileLabel, noise, took, status].filter(Boolean).join(' · ');
         const thumbs = (entry.outputs || []).map(item => `<img src="${esc(item.thumbnail_url || `/api/thumbnail/${item.id}`)}" alt="" loading="lazy">`).join('');
         return `<article class="session-entry">
             <header><strong>${esc(time)}</strong><span>${esc(meta)}</span></header>
             ${entry.userRequest ? `<p class="session-request">${esc(entry.userRequest)}</p>` : ''}
-            <details><summary>${entry.mode === 'edit' ? 'Edit command' : 'Prompt'}</summary><p class="session-prompt">${esc(entry.prompt)}</p>${entry.negative ? `<p class="session-negative">Remove: ${esc(entry.negative)}</p>` : ''}</details>
+            <details${['queued', 'failed', 'cancelled'].includes(entry.status) ? ' open' : ''}><summary>${entry.mode === 'edit' ? 'Edit command' : 'Prompt'}</summary><p class="session-prompt">${esc(entry.prompt)}</p>${entry.negative ? `<p class="session-negative">Remove: ${esc(entry.negative)}</p>` : ''}</details>
             ${entry.note ? `<p class="session-note">${esc(entry.note)}</p>` : ''}
             ${thumbs ? `<div class="session-thumbs">${thumbs}</div>` : ''}
             <div class="session-actions"><button type="button" class="download-mini-btn" data-session-open="${index}">Open prompt</button></div>
@@ -3014,6 +3031,11 @@ function launchStatus() {
         const title = state.runtimeBusy === 'restarting' ? 'Restarting ComfyUI' : 'Starting ComfyUI';
         return { kind: 'local', title, stage: 'On this computer', since: state.runtimeStartedAt / 1000 };
     }
+    if (job?.runtimeProgress) {
+        return job.runtimeProgress.state === 'starting'
+            ? { kind: 'local', title: 'Starting ComfyUI', stage: 'On this computer', since: job.runtimeProgress.started_at }
+            : null;
+    }
     if (job?.launch === 'local' && job.phase === 'queue') {
         return { kind: 'local', title: 'Starting ComfyUI', stage: 'On this computer', since: job.launchStartedAt / 1000 };
     }
@@ -3022,7 +3044,7 @@ function launchStatus() {
 
 function launchSucceeded(kind) {
     if (kind === 'colab') return state.colab?.state === 'ready' || currentRemote(state.job)?.runtime_state === 'ready';
-    return state.job?.phase === 'running' || runtimeUp(state.runtimeStatus);
+    return state.job?.runtimeProgress?.state === 'ready' || state.job?.phase === 'running' || runtimeUp(state.runtimeStatus);
 }
 
 /** The small notice while ComfyUI or a Colab GPU starts, then a short "ready". */

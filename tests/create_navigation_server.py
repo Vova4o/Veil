@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from flask import jsonify
+from flask import jsonify, request
 from waitress import create_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -21,6 +21,7 @@ root = Path(tempfile.mkdtemp(prefix="cmv-create-navigation-"))
 monkeypatch.setattr(desktop, "desktop_data_dir", lambda: root / "no-desktop")
 fixture = create_runtime.__wrapped__(root, monkeypatch)
 backend, started, release, output, png = next(fixture)
+normal_agent = simple_routes.run_create_agent
 backend.generation_release.clear()
 (root / "reference.png").write_bytes(png)
 
@@ -39,7 +40,23 @@ def release_generation():
 
 @app.route("/__smoke/state")
 def smoke_state():
-    return jsonify({"queued": len(backend.queued), "agent_started": started.is_set()})
+    return jsonify({"queued": len(backend.queued), "agent_started": started.is_set(),
+                    "startup_started": backend.startup_started.is_set()})
+
+
+@app.route("/__smoke/startup", methods=["POST"])
+def control_startup():
+    action = request.json["action"]
+    if action == "hold":
+        monkeypatch.setattr(simple_routes, "run_create_agent", normal_agent)
+        started.clear()
+        release.clear()
+        backend.startup_started.clear()
+        backend.startup_release.clear()
+        backend.startup_ok = False
+    else:
+        backend.startup_release.set()
+    return jsonify({"ok": True})
 
 
 @app.route("/__smoke/agent-error", methods=["POST"])

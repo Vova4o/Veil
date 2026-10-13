@@ -73,6 +73,11 @@ class ComfyUIManager:
             return self._status
 
     @property
+    def managed_process_alive(self) -> bool:
+        with self._lock:
+            return self._mode == ComfyUIMode.MANAGED and self._process is not None and self._process.poll() is None
+
+    @property
     def pid(self) -> int | None:
         with self._lock:
             if self._mode == ComfyUIMode.MANAGED and self._process:
@@ -500,50 +505,30 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = 60.0) -> bo
 
     log.info("[CMV] ComfyUI offline at %s:%s, attempting auto-start...", host, port)
 
-    # 2. If already starting or running, wait for it
-    info = comfy_manager.get_info()
-    if info.get("status") in ("starting", "ready", "busy") and comfy_manager.mode == ComfyUIMode.MANAGED:
-        log.info("[CMV] ComfyUI managed process already in state '%s', waiting...", info["status"])
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+    # Serialize launch decisions, not the readiness wait. A timeout does not mean
+    # the process died; retries must wait for that process instead of starting another.
+    with comfy_manager._lock:
+        if not comfy_manager.managed_process_alive:
+            installation = resolve_comfyui_installation(store)
+            if not installation or not installation.is_valid:
+                comfy_manager._last_error = "No valid ComfyUI Desktop installation was found."
+                log.error("[CMV] Could not find valid ComfyUI installation for auto-start")
+                return False
+            launch = launch_settings(settings, state_dir=state_dir_of(store))
             try:
-                if client.check_health().get("online"):
-                    log.info("[CMV] ComfyUI became ready")
-                    return True
-            except Exception:
-                pass
-            time.sleep(1.0)
-        log.warning("[CMV] Timed out waiting for existing managed ComfyUI process")
-        return False
-
-    # 3. Resolve installation directory
-    installation = resolve_comfyui_installation(store)
-    if not installation or not installation.is_valid:
-        log.error("[CMV] Could not find valid ComfyUI installation for auto-start")
-        return False
-
-    log.info("[CMV] Found ComfyUI at %s (interpreter: %s)", installation.comfy_dir, installation.interpreter)
-
-    launch = launch_settings(settings, state_dir=state_dir_of(store))
-    extra_args = launch.get("extra_args") or ""
-    custom_python = launch.get("custom_python")
-
-    try:
-        comfy_manager.start_managed(
-            install_path=installation.root_path,
-            host=host,
-            port=port,
-            extra_args=extra_args,
-            custom_python=custom_python,
-        )
-        log.info("[CMV] ComfyUI managed process started, waiting for API readiness...")
-    except Exception as exc:
-        log.error("[CMV] Failed to start ComfyUI managed process: %s", exc)
-        return False
+                comfy_manager.start_managed(
+                    install_path=installation.root_path, host=host, port=port,
+                    extra_args=launch.get("extra_args") or "", custom_python=launch.get("custom_python"),
+                )
+                log.info("[CMV] ComfyUI managed process started, waiting for API readiness...")
+            except Exception as exc:
+                comfy_manager._last_error = str(exc)
+                log.error("[CMV] Failed to start ComfyUI managed process: %s", exc)
+                return False
 
     # 4. Wait for ComfyUI API to report ready
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         try:
             health = client.check_health()
             if health.get("online"):
@@ -552,7 +537,7 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = 60.0) -> bo
         except Exception:
             pass
 
-        if comfy_manager.status == ComfyUIStatus.ERROR:
+        if not comfy_manager.managed_process_alive:
             log.error("[CMV] ComfyUI process entered ERROR state: %s", comfy_manager.get_info().get("last_error"))
             break
         time.sleep(1.0)

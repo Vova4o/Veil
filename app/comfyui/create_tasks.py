@@ -29,6 +29,7 @@ class CreateTaskService:
         self.store = WorkflowStore()
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
+        self._runtime_threads: dict[str, threading.Thread] = {}
 
     def _draft(self, task_id: str):
         conn = db.get_conn()
@@ -111,9 +112,13 @@ class CreateTaskService:
             return
         if payload["use_agent"]:
             kwargs, finish = routes._prepare_agent_request(routes.SimpleAgentRequest.model_validate(payload))
+            # Local startup and prompt preparation are independent. The prompt survives
+            # a startup failure; an agent failure is reported without waiting for startup.
+            readiness = self._prepare_local_runtime(task_id, backend) if backend.kind == "local" else None
             result = routes.run_create_agent(**kwargs, on_progress=lambda event: self._progress(task_id, event))
             plan = finish(result)
         else:
+            readiness = None
             plan = {
                 "positive_prompt": payload.get("prompt") or payload["request"],
                 "negative_prompt": payload.get("negative_prompt") or "",
@@ -124,6 +129,17 @@ class CreateTaskService:
         if self._cancelled(task_id):
             return
         self._update(task_id, phase="queue", plan=plan)
+        if readiness is not None:
+            thread, outcome = readiness
+            while thread.is_alive():
+                if self._cancelled(task_id):
+                    return
+                thread.join(timeout=0.1)
+            if self._cancelled(task_id):
+                return
+            if not outcome["ready"]:
+                self._update(task_id, status="failed", error={**outcome["error"], "status": 503})
+                return
 
         def queued(run):
             current = self._draft(task_id)
@@ -140,6 +156,7 @@ class CreateTaskService:
         profile = routes.APPROVED_PROFILES[req.profile_id or routes._default_profile_id()]
         response = make_response(routes._generate_fixed(
             profile, req, backend=backend, on_queued=queued, cancelled=lambda: self._cancelled(task_id),
+            runtime_ready=readiness is not None,
         ))
         result = response.get_json() or {}
         if self._cancelled(task_id):
@@ -150,6 +167,31 @@ class CreateTaskService:
             return
         self._update(task_id, phase="running", queue_result=result)
         self._monitor(task_id, backend=backend)
+
+    def _prepare_local_runtime(self, task_id: str, backend):
+        outcome: dict[str, Any] = {"ready": False}
+        started_at = time.time()
+        self._update(task_id, runtime_progress={"state": "starting", "started_at": started_at})
+
+        def prepare():
+            with self.app.app_context():
+                try:
+                    outcome["ready"] = backend.ensure_ready(timeout=120.0)
+                except Exception as exc:
+                    logger.exception("Create task %s runtime startup failed", task_id)
+                    outcome["error"] = {**backend.not_ready_payload(), "technical_error": str(exc)[:8000]}
+                if not outcome["ready"] and "error" not in outcome:
+                    outcome["error"] = backend.not_ready_payload()
+                self._update(task_id, runtime_progress={
+                    "state": "ready" if outcome["ready"] else "failed",
+                    "started_at": started_at,
+                })
+
+        thread = threading.Thread(target=prepare, name=f"cmv-create-runtime-{task_id}", daemon=True)
+        with self._lock:
+            self._runtime_threads[task_id] = thread
+            thread.start()
+        return thread, outcome
 
     def _monitor(self, task_id: str, *, backend=None) -> None:
         from . import simple_routes as routes
@@ -232,5 +274,5 @@ class CreateTaskService:
 
     def wait(self, *, timeout: float) -> None:
         deadline = time.monotonic() + timeout
-        for thread in list(self._threads.values()):
+        for thread in [*self._threads.values(), *self._runtime_threads.values()]:
             thread.join(max(0, deadline - time.monotonic()))

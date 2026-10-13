@@ -284,10 +284,22 @@ class _LocalBackend:
         return True
 
     def not_ready_payload(self) -> dict[str, str]:
+        from .manager import comfy_manager
+
+        info = comfy_manager.get_info()
+        still_starting = comfy_manager.managed_process_alive
         return {
             "error": "Could not connect to or automatically start ComfyUI.",
             "code": "comfyui_connection_failed",
-            "suggestion": "ComfyUI is not running and automatic startup failed. Check the ComfyUI path in settings using the gear icon in the header.",
+            "suggestion": (
+                "ComfyUI has not become ready yet; its process is still running. Check Details, then retry once it is ready."
+                if still_starting else
+                "ComfyUI could not start. Check Details for the startup error and the ComfyUI settings (gear icon)."
+            ),
+            "technical_error": "\n".join([
+                info.get("last_error") or "ComfyUI API did not respond before the startup deadline.",
+                *comfy_manager.get_logs(max_lines=40),
+            ])[-8000:],
         }
 
     def profile_health(self, profile: ApprovedProfile) -> dict[str, Any]:
@@ -855,7 +867,7 @@ def _upload_input_image(client: ComfyUIJobClient, prefix: str, data: bytes) -> s
     return f"{subfolder}/{uploaded['name']}" if subfolder else str(uploaded["name"])
 
 
-def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, backend=None, on_queued=None, cancelled=None):
+def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, backend=None, on_queued=None, cancelled=None, runtime_ready=False):
     """Queue a fixed-recipe profile run: one ComfyUI prompt per image with consecutive seeds."""
     if cancelled and cancelled():
         return jsonify({"error": "Generation was stopped.", "code": "cancelled"}), 409
@@ -892,7 +904,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, bac
 
     backend = backend or _backend()
     # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
-    if not backend.ensure_ready(timeout=120.0):
+    if not runtime_ready and not backend.ensure_ready(timeout=120.0):
         return _backend_not_ready_response(backend)
     if cancelled and cancelled():
         return jsonify({"error": "Generation was stopped.", "code": "cancelled"}), 409

@@ -51,12 +51,23 @@ def create_runtime(tmp_path, monkeypatch):
         def __init__(self):
             self.queued = []
             self.cancelled = []
+            self.startup_started = threading.Event()
+            self.startup_release = threading.Event()
+            self.startup_release.set()
+            self.startup_ok = True
+            self.startup_calls = 0
 
         def client(self):
             return self
 
         def ensure_ready(self, timeout):
-            return True
+            self.startup_calls += 1
+            self.startup_started.set()
+            assert self.startup_release.wait(30)
+            return self.startup_ok
+
+        def not_ready_payload(self):
+            return {"error": "Startup timed out.", "code": "comfyui_connection_failed"}
 
         def profile_health(self, profile):
             return {"status": "ready", "modes_ready": dict.fromkeys(profile.modes, True)}
@@ -105,6 +116,7 @@ def create_runtime(tmp_path, monkeypatch):
         yield backend, agent_started, agent_release, output, png
     finally:
         agent_release.set()
+        backend.startup_release.set()
         service = app.config.get("CREATE_TASK_SERVICE")
         if service:
             service.wait(timeout=5)
@@ -161,6 +173,77 @@ def test_stop_during_agent_does_not_queue_generation_after_its_answer(create_run
     release.set()
     app.config["CREATE_TASK_SERVICE"].wait(timeout=5)
     assert backend.queued == []
+
+
+def test_local_startup_overlaps_agent_and_keeps_prompt_before_startup_failure(create_runtime):
+    backend, started, release, _, _ = create_runtime
+    backend.startup_release.clear()
+    backend.startup_ok = False
+    client = app.test_client()
+    assert client.post("/api/simple/tasks", json={
+        "task_id": "cold-start", "request": "a garden", "mode": "text"}).status_code == 202
+    assert started.wait(2)
+    assert backend.startup_started.wait(2), "ComfyUI startup waits for the agent"
+    release.set()
+    wait_for(lambda: client.get("/api/simple/tasks/cold-start").json.get("plan"))
+    preparing = client.get("/api/simple/tasks/cold-start").json
+    assert preparing["plan"]["positive_prompt"] == "A quiet garden."
+    assert preparing["runtime_progress"]["state"] == "starting"
+    assert backend.queued == []
+    backend.startup_release.set()
+    app.config["CREATE_TASK_SERVICE"].wait(timeout=5)
+    failed = client.get("/api/simple/tasks/cold-start").json
+    assert failed["status"] == "failed"
+    assert failed["error"]["code"] == "comfyui_connection_failed"
+    assert failed["plan"] == preparing["plan"]
+    assert backend.startup_calls == 1
+
+
+def test_agent_failure_does_not_wait_for_parallel_comfyui_startup(create_runtime, monkeypatch):
+    from app.comfyui.create_agent import CreateAgentError
+    backend, _, _, _, _ = create_runtime
+    backend.startup_release.clear()
+
+    def fail(**kwargs):
+        assert backend.startup_started.wait(2)
+        raise CreateAgentError("Agent failed.", code="agent_failed", status=502)
+
+    monkeypatch.setattr(simple_routes, "run_create_agent", fail)
+    client = app.test_client()
+    client.post("/api/simple/tasks", json={"task_id": "agent-failure", "request": "garden"})
+    wait_for(lambda: client.get("/api/simple/tasks/agent-failure").json["is_complete"])
+    assert client.get("/api/simple/tasks/agent-failure").json["error"]["stage"] == "agent"
+    assert backend.queued == []
+
+
+def test_stop_while_local_startup_waits_keeps_prompt_and_never_queues(create_runtime):
+    backend, started, release, _, _ = create_runtime
+    backend.startup_release.clear()
+    client = app.test_client()
+    client.post("/api/simple/tasks", json={"task_id": "stop-startup", "request": "garden"})
+    assert started.wait(2)
+    release.set()
+    wait_for(lambda: client.get("/api/simple/tasks/stop-startup").json.get("plan"))
+    stopped = client.post("/api/simple/tasks/stop-startup/cancel").json
+    assert stopped["status"] == "cancelled"
+    assert stopped["plan"]["positive_prompt"] == "A quiet garden."
+    backend.startup_release.set()
+    app.config["CREATE_TASK_SERVICE"].wait(timeout=5)
+    assert backend.queued == []
+
+
+def test_ready_local_runtime_waits_for_agent_before_queueing(create_runtime):
+    backend, started, release, _, _ = create_runtime
+    client = app.test_client()
+    client.post("/api/simple/tasks", json={"task_id": "ready-first", "request": "garden"})
+    assert started.wait(2)
+    wait_for(lambda: client.get("/api/simple/tasks/ready-first").json.get("runtime_progress", {}).get("state") == "ready")
+    assert backend.queued == []
+    assert client.get("/api/simple/tasks/ready-first").json["phase"] == "agent"
+    release.set()
+    app.config["CREATE_TASK_SERVICE"].wait(timeout=5)
+    assert len(backend.queued) == 1
+    assert backend.startup_calls == 1
 
 
 def test_task_id_cannot_be_reused_for_another_request(create_runtime):
