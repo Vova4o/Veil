@@ -14,6 +14,8 @@ from app.ai.profiles import AIProfileStore
 from app.config_store import ConfigStore, ConfigStoreError
 from app.indexing import index_source_directory
 from app.main import app, configure_runtime
+from app.model_sources import tokens
+from app.model_sources.tokens import CIVITAI_SECRET, save_civitai_token
 from app.paths import build_runtime_paths
 from app.reset_service import (
     ResetOperationError,
@@ -184,6 +186,8 @@ class PhysicalResetTest(ResetTestCase):
             "model": "test-model",
         })
         self.assertEqual(secrets.values[profile["id"]], "factory-reset-secret")
+        save_civitai_token(ConfigStore(self.paths.config), "civitai-secret")
+        self.assertEqual(tokens.secret_store().get(CIVITAI_SECRET), "civitai-secret")
 
         result = reset_application_index(
             self.paths,
@@ -194,6 +198,7 @@ class PhysicalResetTest(ResetTestCase):
         self.assertTrue(result.factory_reset)
         self.assertFalse(self.paths.config.exists())
         self.assertEqual(secrets.values, {})
+        self.assertIsNone(tokens.secret_store().get(CIVITAI_SECRET))
         self.assertEqual(db.get_diagnostics()["folders"], 0)
         self.assertEqual(image.read_bytes(), before)
 

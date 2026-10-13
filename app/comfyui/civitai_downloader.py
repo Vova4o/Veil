@@ -12,6 +12,7 @@ from typing import Any
 
 from app import database
 from app.config_store import ConfigStore
+from app.model_sources.tokens import civitai_token
 
 from .detector import detect_comfyui
 from .resource_taxonomy import FOLDER_RESOURCE_TYPES
@@ -76,9 +77,9 @@ def _request_headers(token: str = "") -> dict[str, str]:
 
 def _api_token(store: ConfigStore | None) -> str:
     if store is not None:
-        token = str((store.comfyui_settings() or {}).get("civitai_api_token") or "")
-        if token.strip():
-            return token.strip()
+        token = civitai_token(store)
+        if token:
+            return token
     return _civitai_cli_token()
 
 

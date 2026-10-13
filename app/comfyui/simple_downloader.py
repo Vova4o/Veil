@@ -10,6 +10,7 @@ from typing import Any
 
 from app import database
 from app.config_store import ConfigStore
+from app.model_sources.tokens import civitai_token
 
 from .desktop import state_dir_of
 from .model_paths import ModelFolders, resolve_model_folders
@@ -77,9 +78,7 @@ def _recover_interrupted_downloads() -> None:
 
 
 def _api_token(store: ConfigStore | None) -> str:
-    if store is None:
-        return ""
-    return str((store.comfyui_settings() or {}).get("civitai_api_token") or "").strip()
+    return civitai_token(store) if store is not None else ""
 
 
 def _is_civitai_url(url: str) -> bool:

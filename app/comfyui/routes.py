@@ -5,6 +5,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.config_store import ConfigStore
+from app.model_sources.tokens import ModelSourceError, civitai_token, save_civitai_token
 
 from .desktop import (
     DESKTOP_DOWNLOAD_URL,
@@ -46,7 +47,8 @@ def _public_settings(store: ConfigStore) -> dict:
     """Saved settings without the token, naming the ComfyUI they resolve to."""
     settings = store.comfyui_settings()
     launch = launch_settings(settings, state_dir=state_dir_of(store))
-    settings["has_civitai_token"] = bool(settings.pop("civitai_api_token", None))
+    settings.pop("civitai_api_token", None)
+    settings["has_civitai_token"] = bool(civitai_token(store))
     settings["install_path"] = launch.get("install_path")
     settings["desktop_installation_id"] = launch.get("desktop_installation_id")
     return settings
@@ -88,6 +90,13 @@ def comfyui_config():
         # Kept in step for code that reads the folder directly.
         install_path, custom_python = str(installation.comfy_dir), ""
 
+    # An empty token field keeps the saved token; Integrations › Model sources removes it.
+    token = str(payload.get("civitai_api_token") or "").strip()
+    if token:
+        try:
+            save_civitai_token(store, token)
+        except ModelSourceError as exc:
+            return jsonify({"error": str(exc), "code": exc.code}), 502
     store.update_comfyui_settings(
         install_path=install_path,
         custom_python=custom_python,
@@ -95,7 +104,6 @@ def comfyui_config():
         port=payload.get("port"),
         extra_args=payload.get("extra_args"),
         auto_start=payload.get("auto_start"),
-        civitai_api_token=payload.get("civitai_api_token"),
         desktop_installation_id=installation_id,
         **folders,
     )

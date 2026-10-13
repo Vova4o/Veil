@@ -137,6 +137,9 @@
                         <span>Remote GPU</span>
                         <span id="rail-count-remote" class="rail-count" hidden></span>
                     </a>
+                    <a class="rail-link" href="#models" data-pane="models">
+                        <span>Model sources</span>
+                    </a>
                 </nav>
             </aside>
 
@@ -213,6 +216,17 @@
                 </div>
             </div>
             <div id="remote-grid" class="cli-grid remote-grid" aria-live="polite"></div>
+        </section>
+
+        <section class="settings-section integrations-pane" id="models-section" data-pane="models" aria-labelledby="models-heading" hidden>
+            <div class="section-heading">
+                <div>
+                    <p class="section-kicker">Downloads</p>
+                    <h2 id="models-heading">Model sources</h2>
+                    <p>Keys for sites that host models. They are used only to download models, here or on a Colab runtime, and stay on this computer.</p>
+                </div>
+            </div>
+            <div id="models-grid" class="cli-grid remote-grid" aria-live="polite"></div>
         </section>
 
             </div>
@@ -435,6 +449,10 @@
     <script
         type="module"
         src="/static/js/remote-gpu.js?v={{ static_version('js/remote-gpu.js') }}"
+    ></script>
+    <script
+        type="module"
+        src="/static/js/model-sources.js?v={{ static_version('js/model-sources.js') }}"
     ></script>
 </body>
 </html>

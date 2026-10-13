@@ -37,6 +37,51 @@ def _no_real_comfy_desktop(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(desktop, "desktop_data_dir", lambda: missing)
 
 
+class MemorySecretStore:
+    """In-memory stand-in for the system credential store."""
+
+    def __init__(self, *, available: bool = True):
+        self.values: dict[str, str] = {}
+        self.available = available
+
+    def status(self):
+        from app.ai.secrets import SecretStoreStatus
+
+        return SecretStoreStatus(
+            available=self.available,
+            backend="tests.MemorySecretStore" if self.available else None,
+            message="Test credential store",
+        )
+
+    def _check(self) -> None:
+        if not self.available:
+            from app.ai.secrets import SecretStoreError
+
+            raise SecretStoreError("Test credential store is unavailable")
+
+    def get(self, key: str) -> str | None:
+        self._check()
+        return self.values.get(key)
+
+    def set(self, key: str, value: str) -> None:
+        self._check()
+        self.values[key] = value
+
+    def delete(self, key: str) -> None:
+        self._check()
+        self.values.pop(key, None)
+
+
+@pytest.fixture(autouse=True)
+def model_source_secrets(monkeypatch):
+    """Tests never read or write the developer's own Civitai token in the system store."""
+    from app.model_sources import tokens
+
+    secrets = MemorySecretStore()
+    monkeypatch.setattr(tokens, "secret_store", lambda: secrets)
+    return secrets
+
+
 @pytest.fixture(autouse=True)
 def _warn_on_leaked_threads():
     before = _live_workers()

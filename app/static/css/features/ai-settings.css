@@ -1650,6 +1650,11 @@ html {
     accent-color: var(--accent);
 }
 
+/* Integrations › Model sources */
+.source-token {
+    margin-top: 12px;
+}
+
 @media (max-width: 900px) {
     .remote-login-row {
         flex-direction: column;

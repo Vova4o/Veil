@@ -10,6 +10,7 @@ from .ai.profiles import AIProfileStore
 from .ai.secrets import SecretStore
 from .config_store import ConfigStore, ConfigStoreError
 from .indexing import index_source_directory
+from .model_sources.tokens import clear_civitai_token
 from .paths import PathValidationError, RuntimePaths, normalize_existing_directory
 from .worker import stop_worker
 
@@ -112,6 +113,7 @@ def reset_application_index(
             AIProfileStore(
                 paths.config, secret_store=secret_store
             ).delete_all_secrets()
+            clear_civitai_token(store)
         if not stop_worker(wait=True, timeout=10.0):
             raise ResetOperationError(["Background index worker did not stop"])
 

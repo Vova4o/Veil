@@ -49,6 +49,7 @@ from .media import (
     probe_video,
     temporary_media_file,
 )
+from .model_sources import model_sources_blueprint
 from .paths import (
     PathValidationError,
     RuntimePaths,
@@ -97,6 +98,7 @@ app.register_blueprint(simple_blueprint)
 app.register_blueprint(social_blueprint)
 app.register_blueprint(studio_blueprint)
 app.register_blueprint(remote_blueprint)
+app.register_blueprint(model_sources_blueprint)
 
 app.jinja_env.auto_reload = True
 

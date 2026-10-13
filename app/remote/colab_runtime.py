@@ -30,6 +30,7 @@ from typing import Any
 
 from app.comfyui.progress_monitor import ProgressMonitor
 from app.config_store import ConfigStore
+from app.model_sources.tokens import civitai_token
 
 from .colab_cli import ColabCLI, ColabCLIError
 from .colab_worker import ATTACH_END_PREFIX, EVENT_PREFIX
@@ -145,7 +146,7 @@ def signed_civitai_url(url: str, token: str, *, opener: Any = None) -> str:
             return location
         if exc.code in {401, 403}:
             raise ColabCLIError(
-                "Civitai needs your API token for this model. Add it in Create's ComfyUI settings.",
+                "Civitai needs your API key for this model. Add it in Integrations › Model sources.",
                 code="civitai_token_required",
             ) from exc
         raise ColabCLIError(f"Civitai answered HTTP {exc.code} for {parsed.path}.", code="civitai_failed") from exc
@@ -487,7 +488,7 @@ class ColabRuntime:
 
     def _resolved(self, resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Models the runtime lacks get a link it can use: Civitai links are signed here."""
-        token = str(self.store.comfyui_settings().get("civitai_api_token") or "").strip()
+        token = civitai_token(self.store)
         resolved = []
         for item in resources:
             url = item["url"]

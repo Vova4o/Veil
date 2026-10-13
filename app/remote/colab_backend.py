@@ -18,6 +18,7 @@ from app.comfyui.simple_profiles import (
     check_profile_health,
 )
 from app.config_store import ConfigStore
+from app.model_sources.tokens import civitai_token
 
 from . import wsl
 from .colab_cli import ColabCLI, ColabCLIError
@@ -30,9 +31,9 @@ NOT_READY = {
     "suggestion": "Open Integrations › Remote GPU, install the Colab CLI and sign in, or switch Create back to this computer.",
 }
 NO_CIVITAI_TOKEN = {
-    "error": "Colab downloads this model from Civitai, which needs your Civitai API token.",
+    "error": "Colab downloads this model from Civitai, which needs your Civitai API key.",
     "code": "civitai_token_required",
-    "suggestion": "Add the token in Create's ComfyUI settings (gear icon); it stays on this computer.",
+    "suggestion": "Add your Civitai API key in Integrations › Model sources or in Create's ComfyUI settings (gear icon); it stays on this computer.",
 }
 
 
@@ -141,7 +142,7 @@ class ColabBackend:
             dep for item in profiles for dep in item.required_resources
             if _civitai(dep.download_url) and dep.filename not in self.runtime.vm_files
         ]
-        return not needed or bool(str(self.runtime.store.comfyui_settings().get("civitai_api_token") or "").strip())
+        return not needed or bool(civitai_token(self.runtime.store))
 
     def ensure_ready(self, timeout: float) -> bool:
         """Runs are queued at once; they wait here while the runtime starts (about 1-2 minutes)."""
