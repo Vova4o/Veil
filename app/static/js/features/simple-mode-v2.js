@@ -816,9 +816,7 @@ function paintAgentMenu() {
         const picked = choice?.agentKind === 'opencode' ? (opencode.models || []).find(model => model.id === choice.model) : null;
         let reasoning = '';
         if (picked?.variants?.length) {
-            reasoning = opencode.variants
-                ? `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...picked.variants].map(variant => `<button type="button" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-agent-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>`
-                : '<p class="agent-menu-note">OpenCode CLI 1.x runs models at their default reasoning level.</p>';
+            reasoning = `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...picked.variants].map(variant => `<button type="button" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-agent-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>`;
         }
         parts.push(`<section class="agent-group"><header><strong>OpenCode</strong><small>${esc(opencode.label || '')}</small></header>${tabs}`
             + (opencode.error ? `<p class="agent-menu-note is-error">${esc(opencode.error)}</p>` : '')

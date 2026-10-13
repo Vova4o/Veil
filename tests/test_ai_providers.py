@@ -365,28 +365,34 @@ class CLIDetectionTest(unittest.TestCase):
         self.assertEqual([line.strip() for line in err], ["to err"])
 
     def test_opencode_models_can_be_filtered_by_provider(self):
+        payload = {"data": [
+            {"id": "deepseek-chat", "providerID": "deepseek", "name": "DeepSeek Chat",
+             "capabilities": {"input": ["text"]}},
+            {"id": "deepseek-reasoner", "providerID": "deepseek", "name": "DeepSeek Reasoner",
+             "capabilities": {"input": ["text"]}},
+            {"id": "gpt-4o", "providerID": "openai", "name": "GPT-4o",
+             "capabilities": {"input": ["text"]}},
+        ]}
         command_result = CommandResult(
             returncode=0,
-            stdout=(
-                "deepseek/deepseek-chat\n"
-                "deepseek/deepseek-reasoner\n"
-            ),
+            stdout=json.dumps(payload),
             stderr="",
             elapsed_ms=5,
         )
         with (
-            patch("app.ai.opencode_host.resolve_executable", return_value="C:/tools/opencode.cmd"),
-            patch("app.ai.opencode_host.read_version", return_value="1.18.34"),
+            patch("app.ai.opencode_host.resolve_executable", return_value="C:/OpenCode/opencode-cli.exe"),
+            patch("app.ai.opencode_host.read_version", return_value="2.0.27"),
             patch("app.ai.cli.run_command", return_value=command_result) as command,
         ):
             result = list_cli_models("opencode", provider="deepseek")
         args = command.call_args_list[0].args[0]
-        self.assertEqual(args, ["C:/tools/opencode.cmd", "models", "deepseek", "--verbose"])
-        self.assertIn("XDG_CONFIG_HOME", command.call_args_list[0].kwargs["env_overrides"])
+        self.assertEqual(args[0], "C:/OpenCode/opencode-cli.exe")
+        self.assertEqual(args[1:4], ["api", "GET", "/api/model"])
+        self.assertTrue(args[-1].startswith("location[directory]="))
         self.assertEqual(result["providers"], ["deepseek"])
         self.assertEqual(result["requested_provider"], "deepseek")
         self.assertEqual(len(result["models"]), 2)
-        self.assertEqual(result["generation"], 1)
+        self.assertEqual(result["generation"], 2)
 
     def test_opencode_verbose_models_carry_vision_and_free_flags(self):
         output = (
@@ -444,21 +450,14 @@ class CLIDetectionTest(unittest.TestCase):
 
     def test_opencode_run_commands_follow_each_dialect(self):
         files = [Path("C:/w/cmv-task.md"), Path("C:/w/input.jpg")]
-        classic = build_opencode_run_command(
-            "opencode.cmd", generation=1, model="opencode/m", agent="plan",
-            title="t", message="go", files=files,
-        )
-        self.assertEqual(classic[:2], ["opencode.cmd", "--pure"])
-        self.assertLess(classic.index("go"), classic.index(f"--file={files[0]}"))
-        self.assertNotIn("--file", classic)
-        desktop = build_opencode_run_command(
+        cmd = build_opencode_run_command(
             "opencode-cli.exe", generation=2, model="opencode/m", agent="plan",
             title="t", message="go", files=files,
         )
-        self.assertEqual(desktop[:3], ["opencode-cli.exe", "run", "--standalone"])
-        self.assertNotIn("--pure", desktop)
-        self.assertEqual(desktop[-1], "go")
-        self.assertEqual(desktop[desktop.index("--file") + 1], str(files[0]))
+        self.assertEqual(cmd[:3], ["opencode-cli.exe", "run", "--standalone"])
+        self.assertNotIn("--pure", cmd)
+        self.assertEqual(cmd[-1], "go")
+        self.assertEqual(cmd[cmd.index("--file") + 1], str(files[0]))
         self.assertTrue(uses_stock_agent("opencode/muse-spark-1.3-contributor-free"))
         self.assertFalse(uses_stock_agent("deepseek/deepseek-chat"))
 
@@ -626,7 +625,7 @@ class CLIDetectionTest(unittest.TestCase):
     def test_opencode_multimodal_test_attaches_bundled_image_as_one_argument(self):
         profile = {
             "cli_type": "opencode",
-            "executable": "C:/tools/opencode.cmd",
+            "executable": "C:/OpenCode/opencode-cli.exe",
             "model": "provider/model",
             "timeout_seconds": 20,
         }
@@ -636,23 +635,24 @@ class CLIDetectionTest(unittest.TestCase):
         def fake_run(args, **kwargs):
             captured["args"] = list(args)
             captured["kwargs"] = kwargs
-            image = next(arg for arg in args if arg.startswith("--file=")).split("=", 1)[1]
+            file_idx = args.index("--file")
+            image = args[file_idx + 1]
             captured["image_copied"] = Path(image).is_file()
             return CommandResult(returncode=0, stdout=output, stderr="", elapsed_ms=15)
 
         with (
             patch("app.ai.opencode_host.resolve_executable", return_value=profile["executable"]),
-            patch("app.ai.opencode_host.read_version", return_value="1.18.34"),
+            patch("app.ai.opencode_host.read_version", return_value="2.0.27"),
             patch("app.ai.cli.run_command", side_effect=fake_run),
         ):
             result = run_cli_test(profile, multimodal=True)
 
         args = captured["args"]
-        file_args = [arg for arg in args if arg.startswith("--file=")]
-        self.assertEqual(len(file_args), 1)
-        self.assertTrue(file_args[0].endswith("input.jpg"))
+        self.assertIn("--standalone", args)
+        self.assertIn("--file", args)
+        file_idx = args.index("--file")
+        self.assertTrue(args[file_idx + 1].endswith("input.jpg"))
         self.assertTrue(captured["image_copied"])
-        self.assertNotIn("--file", args)
         self.assertEqual(args[args.index("--agent") + 1], "plan")
         self.assertIn("XDG_CONFIG_HOME", captured["kwargs"]["env_overrides"])
         self.assertTrue(VISION_TEST_IMAGE.is_file())

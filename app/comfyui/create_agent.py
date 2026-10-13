@@ -350,8 +350,7 @@ def opencode_models(executable: str, *, refresh: bool = False) -> list[opencode_
 def chosen_opencode_profile(model_id: str, variant: str | None = None) -> dict[str, Any]:
     """The agent for an OpenCode model picked in Create; its card says whether it sees photos.
 
-    The model must be one the newest installation lists, and the variant one of its card.
-    OpenCode 1.x takes no variant, so the model runs at its default level there.
+    The model must be one OpenCode 2 lists, and the variant one of its card.
     """
     installations = opencode_host.find_installations()
     if not installations:
@@ -370,7 +369,7 @@ def chosen_opencode_profile(model_id: str, variant: str | None = None) -> dict[s
         raise CreateAgentError(
             f"{model.name} has no reasoning level '{variant}'.", code="variant_unavailable", status=400
         )
-    use_variant = bool(variant) and installation.generation >= 2
+    use_variant = bool(variant)
     run_model = f"{model.id}{opencode_host.VARIANT_SEPARATOR}{variant}" if use_variant else model.id
     return {
         "id": f"opencode:{run_model}",

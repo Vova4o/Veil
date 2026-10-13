@@ -1,13 +1,8 @@
 """OpenCode installations and the command dialect each one speaks.
 
-Two installations can live side by side:
-
-- the npm CLI (``opencode`` / ``opencode.cmd``), generation 1: ``--pure``,
-  ``run [message..] --file=X`` and ``models [provider] --verbose``;
-- the OpenCode desktop app, which bundles a generation 2 CLI
-  (``resources/opencode-cli.exe``): no ``--pure``, ``run`` talks to a background
-  service unless ``--standalone`` is given, and models come from
-  ``api GET /api/model``.
+CMV exclusively supports OpenCode generation 2 (bundled with OpenCode desktop,
+e.g. ``resources/opencode-cli.exe``). Generation 1 (npm CLI) is deprecated and
+unsupported due to heavy startup latency, lack of reasoning variants, and slow CLI execution.
 
 OpenCode Zen free models answer only the stock OpenCode agent with its stock tools:
 a custom agent or a tool-restricted one gets ``FreeTierError`` ("free tier can only
@@ -162,17 +157,20 @@ def _version_key(installation: OpenCodeInstallation) -> tuple[int, ...]:
 
 
 def find_installations() -> list[OpenCodeInstallation]:
-    """Every OpenCode CLI found on this machine, newest version first."""
+    """Every OpenCode 2+ desktop CLI found on this machine, newest version first."""
     found: list[tuple[InstallationKind, str]] = []
-    npm_cli = cli.find_executable("opencode")
-    if npm_cli:
-        found.append((installation_kind(npm_cli), npm_cli))
     for candidate in desktop_cli_candidates():
         try:
             if candidate.is_file():
                 found.append(("desktop", str(candidate.resolve())))
         except OSError:
             continue
+    # If the user explicitly has an opencode binary in PATH or desktop link, check if it's generation 2
+    npm_cli = cli.find_executable("opencode")
+    if npm_cli:
+        v = read_version(npm_cli)
+        if generation_for(npm_cli, v) >= 2:
+            found.append((installation_kind(npm_cli), npm_cli))
     installations: list[OpenCodeInstallation] = []
     seen: set[str] = set()
     for kind, executable in found:
@@ -180,11 +178,14 @@ def find_installations() -> list[OpenCodeInstallation]:
             continue
         seen.add(executable.casefold())
         version = read_version(executable)
+        gen = generation_for(executable, version)
+        if gen < 2:
+            continue
         installations.append(OpenCodeInstallation(
             kind=kind,
             executable=executable,
             version=version,
-            generation=generation_for(executable, version),
+            generation=gen,
         ))
     installations.sort(key=_version_key, reverse=True)
     return installations
@@ -216,32 +217,23 @@ def isolated_env(config_home: Path) -> dict[str, str | None]:
 def build_run_command(
     executable: str,
     *,
-    generation: int,
+    generation: int = 2,
     model: str,
     agent: str,
     title: str,
     message: str,
     files: list[Path] | tuple[Path, ...] = (),
 ) -> list[str]:
-    if generation >= 2:
-        # --standalone: a private server that sees the isolated environment; the
-        # background service has the user's global config already loaded.
-        args = [
-            executable, "run", "--standalone",
-            "--model", model, "--format", "json", "--agent", agent, "--title", title,
-        ]
-        for path in files:
-            args.extend(["--file", str(path)])
-        args.append(message)
-        return args
-    # Generation 1: ``--file`` is an array option, so the message goes before it
-    # and every file uses the ``--file=`` form.
-    return [
-        executable, "--pure", "--print-logs", "--log-level", "ERROR", "run",
+    # Generation 2+: --standalone: a private server that sees the isolated environment; the
+    # background service has the user's global config already loaded.
+    args = [
+        executable, "run", "--standalone",
         "--model", model, "--format", "json", "--agent", agent, "--title", title,
-        message,
-        *(f"--file={path}" for path in files),
     ]
+    for path in files:
+        args.extend(["--file", str(path)])
+    args.append(message)
+    return args
 
 
 def event_texts(output: str) -> list[str]:
@@ -408,11 +400,8 @@ def list_models(
     provider: str | None = None,
 ) -> list[OpenCodeModel]:
     """Models this installation can run, with vision and free flags when known."""
-    generation = generation or generation_for(executable)
-    if generation >= 2:
-        models = _list_api_models(executable)
-        return [model for model in models if not provider or model.provider == provider]
-    return _list_cli_models(executable, provider)
+    models = _list_api_models(executable)
+    return [model for model in models if not provider or model.provider == provider]
 
 
 def _list_api_models(executable: str) -> list[OpenCodeModel]:
@@ -433,23 +422,6 @@ def _list_api_models(executable: str) -> list[OpenCodeModel]:
             # A location that has just booted can answer with an empty list once.
             time.sleep(1.5)
     return []
-
-
-def _list_cli_models(executable: str, provider: str | None) -> list[OpenCodeModel]:
-    base = [executable, "models", *([provider] if provider else [])]
-    with tempfile.TemporaryDirectory(prefix="cmv-opencode-models-", ignore_cleanup_errors=True) as config_home:
-        env = isolated_env(Path(config_home))
-        result = cli.run_command(
-            [*base, "--verbose"], timeout=60, env_overrides=env, output_limit=MODEL_LIST_OUTPUT_LIMIT
-        )
-        if result.returncode == 0:
-            models = parse_verbose_models(result.stdout)
-            if models:
-                return models
-        result = cli.run_command(base, timeout=60, env_overrides=env, output_limit=MODEL_LIST_OUTPUT_LIMIT)
-    if result.returncode != 0:
-        raise _listing_error(result)
-    return parse_plain_models(f"{result.stdout}\n{result.stderr}")
 
 
 __all__ = [

@@ -674,11 +674,6 @@ def test_a_picked_opencode_model_runs_with_its_card_and_reasoning_level(opencode
     with pytest.raises(create_agent.CreateAgentError) as level:
         create_agent.chosen_opencode_profile("opencode/exo-free", "turbo")
     assert level.value.code == "variant_unavailable"
-    # OpenCode 1.x takes no variant: the model runs at its default level.
-    old = opencode_host.OpenCodeInstallation("cli", "C:/npm/opencode.cmd", "1.18.34", 1)
-    monkeypatch.setattr(opencode_host, "find_installations", lambda: [old])
-    create_agent._models_cache.clear()
-    assert create_agent.chosen_opencode_profile("opencode/exo-free", "high")["model"] == "opencode/exo-free"
 
 
 def test_the_agent_call_uses_the_model_picked_in_create(opencode_cards, monkeypatch):

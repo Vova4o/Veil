@@ -128,14 +128,8 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
             captured["task"] = (workspace / "cmv-task.md").read_text(
                 encoding="utf-8"
             )
-            task_arg = next(
-                arg
-                for arg in args
-                if arg.startswith("--file=") and arg.endswith("cmv-task.md")
-            )
-            captured["task_arg_exists"] = Path(
-                task_arg.split("=", 1)[1]
-            ).is_file()
+            file_idx = args.index("--file")
+            captured["task_arg_exists"] = Path(args[file_idx + 1]).is_file()
             return CommandResult(
                 returncode=0,
                 stdout=event_output,
@@ -146,7 +140,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         with (
             patch(
                 "app.ai.execution.opencode.find_executable",
-                return_value="C:/tools/opencode.cmd",
+                return_value="C:/OpenCode/resources/opencode-cli.exe",
             ),
             patch(
                 "app.ai.execution.opencode.run_command",
@@ -177,7 +171,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         self.assertIn("INSTRUCTION PRECEDENCE", captured["task"])
         self.assertIn("USER TASK INPUT", captured["task"])
         self.assertIn("Create a calm studio portrait.", captured["task"])
-        self.assertIn("--pure", captured["args"])
+        self.assertIn("--standalone", captured["args"])
         self.assertIn("cmv-prompt-smoke", captured["args"])
         self.assertIn("provider/model", captured["args"])
         self.assertEqual(captured["timeout"], 300)
