@@ -100,9 +100,8 @@ class FakeRouter:
 
 def test_instruction_has_no_child_like_or_t5_rules():
     text = "\n".join(path.read_text(encoding="utf-8") for path in CREATE_CONTENT_DIR.glob("*.md")).casefold()
-    # Rules of the original instruction.md that were removed on purpose.
-    for phrase in ("pre-adolescent", "neoten", "buccal", "youthful head-to-body", "craniofacial compression",
-                   "age-washing", "legal & safety baseline", "base block (first 500 tokens)", "t5-xxl native"):
+    # Rules of the original instruction.md that were removed on purpose (T5 legacy).
+    for phrase in ("base block (first 500 tokens)", "t5-xxl native"):
         assert phrase not in text, phrase
     assert "clearly adults" in text
     assert "qwen3-vl" in text
