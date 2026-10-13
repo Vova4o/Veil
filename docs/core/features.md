@@ -74,35 +74,21 @@ The Workflow tab renders parsed ComfyUI nodes as an SVG graph and groups known n
 
 ---
 
-## Create Workspace and Workflow Templates
+## Create Workspace
 
-**Main files:** `app/comfyui/workflow_*.py`, `app/templates/workflow_editor.html`, `app/static/js/features/workflow-editor.js`
+**Main files:** `app/comfyui/simple_routes.py`, `app/comfyui/create_tasks.py`, `app/templates/create.html`, `app/static/js/features/simple-mode-v2.js`
 
-`/editor` is the generation workspace. It uses the same dark application shell as Viewer and
-Library, with contextual controls on the left and queue/results on the right. ComfyUI connection,
-process control, health, hardware, and logs live in an integrated drawer instead of a separate
-settings surface; the legacy `/settings/comfyui` URL opens this workspace for compatibility.
+`/create` and `/editor` open the same Create workspace. Moody Krea2 is the single image model, with From text, From photo, Variation, and Edit photo modes. An edit accepts an optional second reference photo. The agent model and reasoning level come from Integrations, and execution uses this computer's ComfyUI Desktop or the configured Colab backend.
 
-The built-in registry covers text-to-image, reference/img2img, native video, and explicit
-two-stage refinement. Each template stores an API workflow separately from a validated manifest.
-The manifest declares fields, required node types, semantic model slots, bindings, result media
-type, and output nodes. JSON bundles and ZIP archives can add user templates without frontend
-changes.
+- Viewer Remix opens the original image as a Variation; attaching it starts no inference.
+- Runtime setup, model downloads, and ComfyUI settings remain available in Create.
+- Tasks, prepared prompts, drafts, runs, errors, and output references survive navigation/reload.
+- Generated images land in ComfyUI's output folder and are indexed into the Library.
+- Original embedded metadata stays separate from user edits and AI annotations.
 
-Key behavior:
+The old manifest-driven editor, its template registry/import/compiler, Civitai browser, and model scanner were removed on 2026-10-14. Existing database records and user template files are preserved.
 
-- The default path asks only for the creation type, a natural-language description, required input, and local model; dependency preflight runs automatically when the user presses Create.
-- Negative prompts, dimensions, seed, sampling, optional adapters, template selection, and raw graph preview live in a separate More settings dialog.
-- Form controls are generated from the selected manifest; advanced and irrelevant fields stay out of the primary workflow.
-- Model options come from the connected ComfyUI API, with a filesystem inventory fallback while offline.
-- Standard checkpoint bindings and multi-LoRA graph chains are compiled generically.
-- Preflight reports missing node types and missing model resources separately and rechecks compatibility before every run.
-- Drafts, runs, errors, queue state, output references, and imported asset IDs persist in SQLite.
-- Result cards are reconciled with the Library, so deleting an asset also removes it from Create while preserving the historical run record.
-- Completed image/video output is downloaded from ComfyUI, returned to the local Library, and stored with executed workflow/provenance metadata.
-- Remix copies a source asset prompt into a supported draft, uploads a reference when possible, records lineage, opens Create, and waits for manual generation.
-
-### Node Categories
+## Workflow Node Categories
 
 | Category | Examples |
 |----------|----------|

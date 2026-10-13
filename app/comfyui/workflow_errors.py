@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .workflow_models import WorkflowTemplate
-
 MODEL_INPUT_NAMES = {
     "ckpt_name",
     "unet_name",
@@ -16,13 +14,8 @@ MODEL_INPUT_NAMES = {
 }
 
 
-def normalize_comfyui_error(
-    raw: Any,
-    *,
-    template: WorkflowTemplate | None = None,
-    status: str = "failed",
-) -> dict[str, Any]:
-    """Turn ComfyUI job/validation failures into an editor-facing diagnostic."""
+def normalize_comfyui_error(raw: Any, *, status: str = "failed") -> dict[str, Any]:
+    """Turn ComfyUI job/validation failures into a user-facing diagnostic."""
     original = raw if isinstance(raw, dict) else {"message": str(raw or "")}
     detail = _error_detail(original)
     extra = detail.get("extra_info") if isinstance(detail.get("extra_info"), dict) else {}
@@ -40,16 +33,9 @@ def normalize_comfyui_error(
         message=technical_message,
         input_name=input_name,
     )
-    targets = _editor_targets(
-        template,
-        node_id=node_id,
-        input_name=input_name,
-        category=category,
-    )
-    target_label = targets[0]["label"] if targets else input_name
     message, action = _guidance(
         category,
-        target_label=target_label,
+        target_label=input_name,
         technical_message=technical_message,
     )
     return {
@@ -62,7 +48,6 @@ def normalize_comfyui_error(
         "expected_type": expected_type,
         "received_type": received_type,
         "technical_message": technical_message,
-        "editor_targets": targets,
         "raw": original,
     }
 
@@ -174,72 +159,6 @@ def _category(
     return "execution_failure"
 
 
-def _editor_targets(
-    template: WorkflowTemplate | None,
-    *,
-    node_id: str | None,
-    input_name: str | None,
-    category: str,
-) -> list[dict[str, Any]]:
-    if template is None:
-        return []
-    fields = template.manifest.fields
-    if category == "out_of_memory":
-        order = ("batch_size", "width", "height")
-        by_id = {field.id: field for field in fields}
-        return [
-            _field_target(by_id[field_id])
-            for field_id in order
-            if field_id in by_id
-        ]
-
-    targets: list[dict[str, Any]] = []
-    for field in fields:
-        if any(
-            binding.node_id == node_id
-            and (input_name is None or binding.input == input_name)
-            for binding in field.bindings
-        ):
-            targets.append(_field_target(field))
-    for slot_id, slot in template.manifest.resource_slots.items():
-        binding = slot.binding
-        if (
-            binding.kind == "node_input"
-            and binding.node_id == node_id
-            and (input_name is None or binding.input == input_name)
-        ):
-            targets.append({
-                "kind": "resource",
-                "id": slot_id,
-                "label": slot.label,
-                "advanced": not slot.required,
-            })
-    if input_name is None and len(targets) != 1:
-        return []
-    return _unique_targets(targets)
-
-
-def _field_target(field: Any) -> dict[str, Any]:
-    return {
-        "kind": "field",
-        "id": field.id,
-        "label": field.label,
-        "advanced": bool(field.advanced),
-    }
-
-
-def _unique_targets(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    output: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for target in targets:
-        key = (str(target["kind"]), str(target["id"]))
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(target)
-    return output
-
-
 def _guidance(
     category: str,
     *,
@@ -257,17 +176,17 @@ def _guidance(
     if category == "missing_resource":
         return (
             f"ComfyUI cannot find the selected resource{target}.",
-            "Select an available local model file and run the dependency check again.",
+            "Install the missing model files, then retry.",
         )
     if category == "invalid_input":
         return (
             f"ComfyUI rejected the value for{target or ' a workflow input'}.",
-            "Review the highlighted setting and retry without changing unrelated fields.",
+            "Check the value named in the technical details, then retry.",
         )
     if category == "workflow_incompatible":
         return (
-            "The selected model components are incompatible with this workflow.",
-            "Review the highlighted model or choose a template from the same model family.",
+            "The model components are incompatible with this workflow.",
+            "Check the model files named in the technical details, then retry.",
         )
     concise = technical_message.splitlines()[0].strip()
     if len(concise) > 220:

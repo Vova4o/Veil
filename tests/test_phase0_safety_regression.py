@@ -5,8 +5,6 @@ import pytest
 from PIL import Image
 
 from app import database as db
-from app.ai.remix import RemixPromptSource, RemixRequest, RemixService
-from app.comfyui.workflow_store import WorkflowStore
 from app.indexing import index_source_directory
 from app.paths import build_runtime_paths
 from app.reset_service import reset_application_index
@@ -95,32 +93,3 @@ def test_virtual_album_deletion_does_not_delete_physical_assets(temp_environment
 
     # Physical file on disk MUST still exist
     assert temp_environment["img_file"].exists()
-
-
-def test_remix_creates_draft_without_triggering_execution(temp_environment):
-    conn = db.get_conn()
-    try:
-        img_row = conn.execute("SELECT id FROM images LIMIT 1").fetchone()
-        assert img_row is not None
-        asset_id = img_row["id"]
-    finally:
-        conn.close()
-
-    remix_service = RemixService()
-    sources = remix_service.list_prompt_sources(asset_id)
-    assert len(sources) > 0
-
-    request = RemixRequest(
-        asset_id=asset_id,
-        prompt_source=RemixPromptSource.USER_EDITED,
-        override_positive_prompt="a majestic mountain sunset",
-        workflow_template_id="core-reference",
-    )
-    draft_outcome = remix_service.create_remix_draft(request=request)
-    assert draft_outcome is not None
-    assert draft_outcome.draft.id > 0
-
-    # Confirm no workflow runs were created automatically in ComfyUI
-    store = WorkflowStore()
-    runs = store.list_runs(limit=10)
-    assert len(runs) == 0

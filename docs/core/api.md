@@ -6,9 +6,9 @@ Base URL: `http://localhost:7860`
 
 The API is intentionally local-first and single-user oriented. Responses are JSON unless an endpoint explicitly returns media bytes.
 
-`site/api/openapi.json` is the machine-readable public contract rendered by the Scalar portal. It contains every supported non-legacy `/api/*` route. This document is the detailed human reference with behavior, examples, compatibility notes, and retained legacy implementation notes. Public Flask routes and OpenAPI are kept synchronized by `tests/test_openapi_contract.py`.
+`site/api/openapi.json` is the machine-readable public contract rendered by the Scalar portal. It contains every supported non-legacy `/api/*` route. This document is the detailed human reference with behavior, examples, and compatibility notes. Public Flask routes and OpenAPI are kept synchronized by `tests/test_openapi_contract.py`.
 
-The pre-Simple-Mode `/api/editor/*` workflow-editor surface is intentionally **legacy/internal**. It remains documented below for implementation history and possible future Advanced Mode reuse, but it is not part of the public OpenAPI contract or its coverage gate.
+The old workflow editor and its `/api/editor/*` endpoints were removed on 2026-10-14. `/editor/legacy`, `/settings/comfyui`, and `/api/ai/remix` are unavailable. Viewer Remix opens `/create?photo=<asset_id>&mode=variation`, attaches the original image, and waits for the user to start Create.
 
 ---
 
@@ -23,7 +23,7 @@ The pre-Simple-Mode `/api/editor/*` workflow-editor surface is intentionally **l
 - [AI Providers](#ai-providers)
 - [AI Prompt Drafts](#ai-prompt-drafts)
 - [AI Prompt Operations](#ai-prompt-operations)
-- [ComfyUI Runtime and Legacy Workflow Editor](#comfyui-runtime-and-legacy-workflow-editor)
+- [ComfyUI Runtime](#comfyui-runtime)
 - [Remote GPU (Google Colab)](#remote-gpu-google-colab)
 - [Create (Simple) API](#create-simple-api)
 - [Social API](#social-api)
@@ -895,13 +895,6 @@ operation is `reconstruct` accepts edits.
 { "scene_spec": { "…": "valid SceneSpec" } }
 ```
 
-### `POST /api/ai/remix`
-
-Creates a remix draft from `asset_id` and a chosen `prompt_source`, using direct or CLI execution.
-Additional `execution_backend`, `provider_profile_id`, and `model_id` fields select the runtime. The
-created draft links to its parent asset for provenance. The legacy workflow editor exposes a separate
-`POST /api/editor/remix` route; that legacy route is not part of the public OpenAPI contract.
-
 ### `GET /api/ai/resources`
 
 Lists model resources from the catalog, optionally filtered by `resource_type` and `architecture`.
@@ -938,11 +931,9 @@ Deletes the stored AI rating and any manual override for the asset.
 
 ---
 
-## ComfyUI Runtime and Legacy Workflow Editor
+## ComfyUI Runtime
 
-`GET /create` and `GET /editor` now open the Simple Mode Create workspace. The pre-Simple-Mode workflow editor is retained at `GET /editor/legacy`; `GET /settings/comfyui` also renders that legacy workflow tooling while exposing runtime configuration.
-
-The `/api/comfyui/*` runtime routes below are part of the supported public OpenAPI contract. The `/api/editor/*` endpoints in the legacy subsections are intentionally excluded from `site/api/openapi.json` and from the public route/OpenAPI coverage gate. They remain here for implementation history and possible future Advanced Mode reuse. Runtime configuration is stored outside SQLite; legacy workflow drafts and runs are durable SQLite records.
+`GET /create` and `GET /editor` open Create. Runtime configuration and controls are available in Create's ComfyUI dialog and through the public `/api/comfyui/*` routes. Create retains durable SQLite drafts/runs and shared output import, error diagnostics, inventory, and local/Colab backends. Removing the old editor does not drop database tables or delete saved user templates.
 
 ### Runtime control
 
@@ -958,64 +949,6 @@ The `/api/comfyui/*` runtime routes below are part of the supported public OpenA
 | `POST` | `/api/comfyui/interrupt` | Interrupt active ComfyUI execution |
 | `GET` | `/api/comfyui/logs` | Return captured managed-process output |
 | `POST` | `/api/comfyui/launcher` | Generate a platform-specific launcher script |
-
-### Legacy templates and drafts
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/editor/bootstrap` | Return all manifests, defaults, local resource options, and runtime inventory |
-| `GET` | `/api/editor/templates` | Refresh templates and resource inventory |
-| `GET` | `/api/editor/templates/{template_id}` | Return one manifest-driven template |
-| `PATCH/DELETE` | `/api/editor/templates/{template_id}` | Edit metadata or delete an imported template; built-ins are read-only |
-| `POST` | `/api/editor/templates/{template_id}/duplicate` | Create an independent imported copy, choosing a unique ID when none is supplied |
-| `GET` | `/api/editor/templates/{template_id}/export` | Download an importable ZIP containing the manifest, API graph, and optional preview |
-| `POST` | `/api/editor/templates/import` | Import a multipart JSON bundle or ZIP archive |
-| `POST` | `/api/editor/templates/import/analyze` | Analyze an upload and return inferred semantic mappings without saving it |
-| `GET` | `/api/editor/workflows` | List built-in and imported templates with persisted validation status |
-| `POST` | `/api/editor/workflows/revalidate` | Revalidate every registered template against current ComfyUI inventory |
-| `POST` | `/api/editor/workflows/{template_id}/revalidate` | Revalidate one registered template |
-| `GET/POST/PUT` | `/api/editor/workflows/{template_id}/mapping` | Read, preview, or save imported-template mapping changes |
-| `POST` | `/api/editor/drafts` | Create an editing draft from a template |
-| `GET/PATCH` | `/api/editor/drafts/{draft_id}` | Read or update declared values and resource selections |
-| `POST` | `/api/editor/drafts/{draft_id}/preview` | Compile the API graph and return dependency preflight data |
-| `POST` | `/api/editor/inputs` | Upload a reference image to ComfyUI input storage |
-
-Preview responses keep node and resource failures separate:
-
-```json
-{
-  "workflow": { "1": { "class_type": "CheckpointLoaderSimple", "inputs": {} } },
-  "dependencies": {
-    "runtime_online": true,
-    "missing_nodes": [],
-    "missing_resources": [],
-    "compatibility_issues": [],
-    "ready": true
-  }
-}
-```
-
-### Legacy runs, output, and Remix
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/editor/drafts/{draft_id}/run` | Revalidate and queue the compiled graph; returns `409` when dependencies are unresolved |
-| `GET` | `/api/editor/runs` | List recent durable runs |
-| `GET` | `/api/editor/runs/{run_id}` | Refresh remote state and import completed outputs |
-| `POST` | `/api/editor/runs/{run_id}/cancel` | Cancel a pending/running prompt |
-| `POST` | `/api/editor/remix` | Create a manual draft from `asset_id`; does not queue it |
-| `GET` | `/api/editor/assets/{asset_id}/workflow` | Compare an embedded API/UI workflow with installed node types |
-
-Imported output metadata records the template/draft/run/prompt identity and the executed API
-workflow. If a draft originated from Remix, the new asset also references its source asset.
-
-### Legacy model scanner
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/editor/models/rescan` | Trigger a background model rescan; returns `started` or `already_running` |
-| `GET` | `/api/editor/models/scan_status` | Return the current scan status snapshot (counts, current file, scanning flag) |
-| `GET` | `/api/editor/models/scan_stream` | SSE stream of progress updates for an active rescan |
 
 ---
 

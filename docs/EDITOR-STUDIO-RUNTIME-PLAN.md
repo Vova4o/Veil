@@ -6,6 +6,8 @@
 >
 > **Create v1 (2026-10-10):** the user chose three explicit modes (reference, edit, text) with calibrated Moody Krea2 graphs. The concrete implementation plan and stage status live in [CREATE-KREA2-PLAN.md](CREATE-KREA2-PLAN.md); this document remains the long-term direction.
 
+> **Legacy retirement (2026-10-14):** the old workflow editor and its registry, importer/compiler, model scanner and Civitai browser were removed. References below to that implementation are historical context for future Studio work. The current Create and Colab implementation remains in place; user template files and database history are preserved.
+
 ## 1. Product direction
 
 CMV should stop growing as a universal front end for many unrelated image models.

@@ -306,11 +306,9 @@ class ComfyUIRoutesTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_settings_page_route(self) -> None:
+    def test_legacy_settings_page_is_removed(self) -> None:
         resp = self.client.get("/settings/comfyui")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn(b"Workflow editor workspace", resp.data)
-        self.assertIn(b"Connect ComfyUI", resp.data)
+        self.assertEqual(resp.status_code, 404)
 
     def test_config_api(self) -> None:
         resp = self.client.get("/api/comfyui/config")

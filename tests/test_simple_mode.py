@@ -54,3 +54,16 @@ def test_simple_mode_routes(monkeypatch):
 def test_legacy_assistant_chat_is_gone():
     client = app.test_client()
     assert client.post("/api/simple/assistant/chat", json={"message": "x"}).status_code in {404, 405}
+
+
+def test_legacy_workflow_editor_routes_and_assets_are_removed():
+    client = app.test_client()
+    assert not any(rule.rule.startswith('/api/editor/') for rule in app.url_map.iter_rules())
+    assert client.get('/editor/legacy').status_code == 404
+    assert client.post('/api/ai/remix', json={}).status_code == 404
+    for asset in ('js/features/workflow-editor.js', 'css/features/workflow-editor.css',
+                  'js/features/civitai-downloader.js', 'css/features/remix.css'):
+        assert client.get('/static/' + asset).status_code == 404
+    viewer = client.get('/').get_data(as_text=True)
+    assert 'id="lb-remix"' in viewer
+    assert 'remix-dialog' not in viewer

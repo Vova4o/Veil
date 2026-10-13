@@ -6,6 +6,8 @@
 >
 > Scope: extend the Studio Free / Agent Lab path with Civitai discovery and controlled local resource installation. Civitai cloud generation and orchestration are intentionally out of scope.
 
+> **Legacy retirement (2026-10-14):** the old workflow editor and its registry, importer/compiler, model scanner and Civitai browser were removed. References below to that implementation are historical context for future Studio work. The current Create and Colab implementation remains in place; user template files and database history are preserved.
+
 ## 1. Why this is a companion plan
 
 The main Studio runtime remains intentionally small and stable:

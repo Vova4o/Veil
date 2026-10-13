@@ -694,3 +694,30 @@ API позже двух минут. До исправления первые д�
 
 Полный финальный `lint.ps1`: 839 pytest + 92 subtests, 69 Node, ESLint, Ruff,
 Pyrefly, Pydantic и OpenAPI. Журнал: `reports/desktop-startup-root-cause-gate-20261014.log`.
+
+## 17. Удаление старого редактора (2026-10-14)
+
+Старый workflow editor, его `/api/editor/*`, `/editor/legacy`,
+`/settings/comfyui` и `/api/ai/remix` удалены вместе с реестром и встроенными
+шаблонами, импортом/компилятором, сканером моделей и старым Civitai browser.
+Общая инфраструктура Create сохранена: runtime inventory, SQLite drafts/runs,
+нормализация ошибок, импорт результатов, оценка AI, локальные загрузки моделей
+и Colab. Таблицы БД и сохранённые пользовательские файлы не удалялись;
+импорт старой библиотеки по-прежнему переносит пользовательские шаблоны.
+
+Viewer Remix открывает `/create?photo=<id>&mode=variation` с оригиналом фото.
+Передача фото происходит после восстановления текущей задачи, чтобы поздний
+ответ восстановления не перезаписывал референс. Сам переход не запускает AI
+или генерацию; существующая задача продолжает работать без дублирования.
+
+Проверки общих функций из удалённого файла тестов редактора перенесены в
+`tests/test_workflow_execution.py`; проверки AI job/draft API сохранены без
+устаревшего перехода в редактор. Полный `lint.ps1`: 779 pytest + 96 subtests,
+75 Node, ESLint, Ruff, Pyrefly, Pydantic и OpenAPI. Edge smoke:
+`scripts/viewer_create_smoke.cjs` и `scripts/create_edit_modes_smoke.cjs`;
+также прошёл `npm run desktop:compile`. Для HTTP-тестов loopback исключён из
+системного прокси через `NO_PROXY`; код Colab для этого не менялся.
+
+Это проверка исходников, API и браузерного поведения с изолированным backend.
+Новая генерация на GPU и сборка установщика Electron не выполнялись.
+Сводка: `reports/legacy-editor-cleanup-20261014.json`.

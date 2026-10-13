@@ -201,8 +201,7 @@ function init() {
     syncBatch();
     resizePrompt();
     $('prompt-clear').hidden = !$('prompt').value.trim();
-    if (savedCreateTask()) restoreCreateTask();
-    else restoreLastResult();
+    const restored = savedCreateTask() ? restoreCreateTask() : restoreLastResult();
     paintSession();
     paintHealth({ status: 'checking' });
     loadHealth();
@@ -212,6 +211,28 @@ function init() {
     watchAmbientSources();
     loadRuntimeSummary();
     loadBackend();
+    Promise.resolve(restored).then(openPhotoFromLink);
+}
+
+/** Remix from the Viewer: /create?photo=<asset id>&mode=variation attaches that image. */
+async function openPhotoFromLink() {
+    const params = new URLSearchParams(window.location.search);
+    const assetId = Number(params.get('photo'));
+    if (!Number.isInteger(assetId) || assetId <= 0) return;
+    const mode = params.get('mode');
+    params.delete('photo');
+    params.delete('mode');
+    const query = params.toString();
+    history.replaceState(history.state, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+    setMode(['reference', 'variation', 'edit'].includes(mode) ? mode : 'variation');
+    try {
+        const response = await fetch(`/api/original/${assetId}`);
+        if (!response.ok) throw new Error(`The image is unavailable (HTTP ${response.status}).`);
+        const blob = await response.blob();
+        await setPhoto('main', new File([blob], `asset-${assetId}`, { type: blob.type || 'image/png' }));
+    } catch (err) {
+        error('Could not open the photo', err.message);
+    }
 }
 
 // --- modes ---------------------------------------------------------------------------

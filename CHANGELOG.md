@@ -121,6 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retired the old workflow editor, its template registry/import/compiler, Civitai browser and model scanner. Viewer Remix now attaches the original image in Create's Variation mode without starting inference. Shared Create/Colab execution, downloads, runtime inventory, database history and saved user templates remain intact (2026-10-14).
 - Streamlined sidebar navigation: removed redundant secondary media strip
   (`#image-list`, `#panel-images`) and its thumbnail observer, reducing DOM
   overhead and memory consumption (`app/templates/index.html`, `app/static/js/features/sidebar.js`).

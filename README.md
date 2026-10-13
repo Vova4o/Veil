@@ -52,9 +52,9 @@ a queueable workflow - everything runs locally with no cloud dependency.
 - **Media Library** - virtual albums, favorites, ratings, tags, notes, and bulk selection without moving source files
 - **Unified image and video assets** - shared sources, albums, favorites, previews, and technical metadata
 - **Unified media browsing** - folders, albums, the central gallery, and the Media sidebar can show images and videos together or filter either type independently
-- **Create workspace** - manifest-driven image, reference, video, and two-stage workflow templates with dynamic local model selection *(partial - see [Feature Status](#feature-status))*
+- **Create workspace** - Moody Krea2 with From text, From photo, Variation, and Edit photo modes on local ComfyUI Desktop or Colab
 - **ComfyUI execution** - integrated runtime setup, dependency preflight, queue state, cancellation, result import, and workflow provenance
-- **Remix drafts** - carry an asset prompt and lineage into a supported reference workflow without starting generation automatically *(scaffold - see [Feature Status](#feature-status))*
+- **Remix** - open a Viewer image in Create as a Variation without starting generation automatically
 - **Providers and models** - local AI tools (OpenCode, Claude Code, Codex, Antigravity) and API providers from the models.dev catalog or any OpenAI-compatible endpoint, with OS-keyring or environment-variable keys; choose which models the pickers show and a default model
 - **Model-aware prompt compiler** - layered family, operation, scenario, modifier, and output-contract instructions with strict structured results
 - **Keyboard-first** workflow with 14 shortcuts
@@ -68,8 +68,7 @@ a queueable workflow - everything runs locally with no cloud dependency.
   desktop-synced cloud folders can be watched continuously without duplicating data
   on disk.
 - **Provenance as data** - the original ComfyUI workflow graph is preserved per asset,
-  rendered as an interactive color-coded node graph, and available for re-import into
-  the workflow editor.
+  rendered as an interactive color-coded node graph, and retained in its original metadata.
 - **Local & private** - runs on `localhost` with no cloud dependency; AI provider
   credentials are stored masked in the OS keyring or environment variables, and
   authenticated local CLIs (OpenCode, Claude Code, Antigravity) are discovered
@@ -104,20 +103,11 @@ separates what works end-to-end today from what is laid out as infrastructure
   compiler, intent/quality benchmarks, and smoke runners are functional via CLI.
 - **ComfyUI runtime** - auto-detection/auto-start, queue, cancellation, result
   import, and workflow provenance.
-- **Create - generation** - model download and workflow execution work for
-  **5 of 8** bundled models (model_01-03, 07, 08).
+- **Create - generation** - one Moody Krea2 model with text, photo description, Variation and instruction editing; model setup, durable tasks and local/Colab execution.
+- **Remix** - the Viewer lightbox attaches the original image in Create as a Variation; generation remains a separate user action.
 
 **Scaffold / partial** - laid out, but not working end-to-end from the UI:
 
-- **Create - model_04 / 05 / 06** - shown as selectable in the UI, but still
-  calibration placeholders: resources can be downloaded, generation is blocked
-  (no `workflow.json` / `bindings.json` yet).
-- **Remix** - the lightbox action creates a draft and jumps to the Create page,
-  but Create does not read `draft_id` from the URL, so the handoff is a dead end.
-- **Advanced Workflow Editor + AI operations** (generate / translate / adapt /
-  reconstruct / enhance) - the backend is real, but the editor page is only
-  reachable at `/settings/comfyui` or `/editor/legacy` and is unlinked from the
-  main navigation.
 - **Social publishing** (VK / Telegram / Instagram) - provider cards render on
   the Integrations page, but publishing is unimplemented for all providers, and
   VK OAuth works only over port 80.
@@ -290,8 +280,8 @@ The launcher opens the desktop window. Browser mode (`start.bat --web` or
 5. **Search** - Ctrl+F to fuzzy search across all metadata
 6. **Cutout** - Select an image and generate a transparent PNG
 7. **Configure AI** - open the AI page, add an endpoint or import a detected local CLI, choose exact model IDs, and test text or image support
-8. **Create** - choose Image, Reference, Video, or High detail; describe the result, select a local model, and press Create. Dependency checks run automatically, while technical controls stay under More settings (model_04-06 are still calibration placeholders and cannot generate)
-9. **Remix** - available from the lightbox, but the draft->Create handoff is not wired yet; see [Feature Status](#feature-status)
+8. **Create** - choose From text, From photo, Variation, or Edit photo; add the needed photos, choose an agent model, and press Create. Moody Krea2 runs locally or on Colab.
+9. **Remix** - open an image from the lightbox in Create's Variation mode, then start generation when ready.
 
 ---
 
@@ -329,7 +319,7 @@ The launcher opens the desktop window. Browser mode (`start.bat --web` or
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/core/architecture.md) | System overview, data flow, database schema |
-| [API Reference](docs/core/api.md) | Detailed REST endpoints, behavior, examples, and legacy editor notes |
+| [API Reference](docs/core/api.md) | Detailed supported REST endpoints, behavior and examples |
 | [Interactive API](https://lotargo.github.io/ComfyUI-Meta-Viewer/api/) | Scalar portal backed directly by the public OpenAPI 3.1 contract |
 | [Features](docs/core/features.md) | Detailed feature descriptions |
 | [Configuration](docs/core/configuration.md) | Environment variables, paths, CLI flags |
@@ -339,7 +329,7 @@ The launcher opens the desktop window. Browser mode (`start.bat --web` or
 | [Prompt intent benchmarks](docs/ai/intent-benchmark.md) | Targeted raw-intent generation and model-judge evaluation |
 | [OpenCode smoke testing](docs/ai/opencode-smoke-testing.md) | Managed CLI execution, profiles, scenarios, and reports |
 | [AI prompt architecture](docs/ai/prompt-architecture.md) | Canonical profiles, compilation, execution routing, persistence, and skill export |
-| [Legacy workflow editor notes](docs/core/api.md#comfyui-runtime-and-legacy-workflow-editor) | Retained `/api/editor/*` implementation reference, intentionally outside the public OpenAPI contract |
+| [ComfyUI runtime](docs/core/api.md#comfyui-runtime) | Runtime configuration and lifecycle; the old workflow editor has been removed |
 | [Roadmap](ROADMAP.md) | AI prompt compiler status, benchmark targets, and planned work |
 
 ---
@@ -348,7 +338,7 @@ The launcher opens the desktop window. Browser mode (`start.bat --web` or
 
 CMV exposes a local REST API at `http://localhost:7860`. The machine-readable public contract is [`site/api/openapi.json`](site/api/openapi.json) and the interactive Scalar portal is available at [lotargo.github.io/ComfyUI-Meta-Viewer/api/](https://lotargo.github.io/ComfyUI-Meta-Viewer/api/).
 
-The public contract covers every supported non-legacy `/api/*` route. The retained `/api/editor/*` workflow-editor surface is legacy/internal and is documented separately in `docs/core/api.md` rather than advertised as part of the public contract.
+The public contract covers every supported `/api/*` route. The old workflow editor, `/api/editor/*`, `/editor/legacy`, `/settings/comfyui`, and `/api/ai/remix` were removed on 2026-10-14. Shared Create execution, local/Colab downloads, saved history, and user template files are preserved.
 
 ### Representative public endpoints
 
@@ -427,7 +417,7 @@ See [Development Guide](docs/dev/development.md) for setup instructions and code
 5. Add/update a frontend wrapper only when the browser UI consumes the endpoint.
 6. Run `poetry run python -m pytest tests -q`; `tests/test_openapi_contract.py` rejects public Flask/OpenAPI drift.
 
-`app/comfyui/editor_routes.py` is the retained pre-Simple-Mode legacy editor and is intentionally outside the public OpenAPI coverage gate unless it is explicitly promoted back into the supported API.
+The pre-Simple-Mode editor and its `/api/editor/*` routes have been removed. Create uses `app/comfyui/simple_routes.py` and retains shared runtime inventory, durable tasks/runs, output import and local/Colab downloads.
 
 ### Adding a new frontend feature
 

@@ -61,10 +61,9 @@ ComfyUI-Meta-Viewer/
 │   ├── source_monitor.py         # Watchers, debounce, reconnect, reconciliation
 │   ├── ai/                       # AI prompt compiler, provider adapters, durable jobs
 │   │   └── routes.py             # Public AI REST routes
-│   ├── comfyui/                  # ComfyUI runtime, Simple Mode, legacy editor
+│   ├── comfyui/                  # ComfyUI runtime, Create and shared execution
 │   │   ├── routes.py             # Public ComfyUI runtime routes
-│   │   ├── simple_routes.py      # Public Simple Mode routes
-│   │   └── editor_routes.py      # Legacy/internal workflow-editor routes
+│   │   └── simple_routes.py      # Public Create routes
 │   ├── integrations/social/      # Social status/auth/publishing contract
 │   ├── static/
 │   │   ├── css/                  # Modular CSS
@@ -118,7 +117,7 @@ The supported public route modules are:
 - `app/comfyui/simple_routes.py` - Simple Mode model setup, generation, and run tracking;
 - `app/integrations/social/routes.py` - social capability/authentication/publishing contract.
 
-`app/comfyui/editor_routes.py` belongs to the pre-Simple-Mode workflow editor. Its `/api/editor/*` routes are intentionally legacy/internal and are excluded from the public OpenAPI coverage gate unless that product decision changes explicitly.
+The pre-Simple-Mode workflow editor and its `/api/editor/*` routes were removed on 2026-10-14. Shared inventory, SQLite drafts/runs, output import, and error normalization remain because Create uses them.
 
 ### 1. Add the route to the owning public module
 
@@ -167,7 +166,7 @@ Keep the distinction clear:
 
 - `site/api/openapi.json` - supported public machine contract;
 - `docs/core/api.md` - detailed human reference and implementation notes;
-- `/api/editor/*` - legacy/internal unless explicitly promoted back into the public API.
+- `/api/editor/*` - removed; add new Create capabilities to `/api/simple/*`.
 
 ### 5. Add a frontend wrapper when the web UI consumes it
 

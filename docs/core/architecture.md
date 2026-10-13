@@ -63,8 +63,8 @@ comfy-meta-viewer/
 │   ├── database.py               # SQLite CRUD and persistence helpers
 │   ├── library.py                # Albums, favorites, tags, filters, bulk actions
 │   ├── config_store.py           # Atomic source configuration outside SQLite
-│   ├── ai/                       # BYOK profiles, prompt compilation, resources, Remix
-│   ├── comfyui/                  # Runtime, template registry/compiler, drafts, execution
+│   ├── ai/                       # Providers/models, prompt compilation, resources and ratings
+│   ├── comfyui/                  # Create, runtime inventory, durable drafts/runs and execution
 │   ├── indexing.py               # Reusable source indexing service
 │   ├── source_monitor.py         # Native events + periodic reconciliation
 │   ├── reset_service.py          # Physical index/cache reset orchestration
@@ -83,7 +83,7 @@ comfy-meta-viewer/
 │   │       ├── app.js            # Viewer entry point
 │   │       ├── library.js        # Standalone Library page
 │   │       ├── ai-settings.js    # Provider and local CLI settings page
-│   │       ├── features/workflow-editor.js # Create workspace controller
+│   │       ├── features/simple-mode-v2.js # Create workspace controller
 │   │       ├── state.js          # Reactive store
 │   │       ├── preferences.js    # Versioned preference schema and validation
 │   │       ├── api.js            # HTTP client
@@ -100,7 +100,7 @@ comfy-meta-viewer/
 │       ├── index.html            # Viewer entry template
 │       ├── library.html          # Media Library entry template
 │       ├── ai_settings.html      # AI connection management
-│       └── workflow_editor.html  # Manifest-driven Create workspace
+│       └── create.html           # Create workspace
 ├── cache/
 │   ├── thumbnails/               # JPEG thumbnails (*.jpg)
 │   ├── previews/                 # Bounded JPEG/WebP lightbox previews
@@ -212,26 +212,19 @@ Original embedded metadata is stored independently from relational user metadata
 ### ComfyUI workflow creation and execution
 
 ```text
-Create page
-  -> template registry (manifest + API workflow)
-  -> dynamic fields and runtime model inventory
-  -> durable workflow_drafts row
-  -> compiler applies field bindings and generic LoRA graph transforms
-  -> dependency validator checks nodes, resource presence, and catalog compatibility
-  -> ComfyUI /prompt
-  -> workflow_runs polling through jobs/history/queue APIs
-  -> /view output download
-  -> uploaded Library asset + executed graph/provenance + optional Remix lineage
+Create page (text / reference / variation / edit)
+  -> durable create_tasks row with the request and references
+  -> selected agent returns a structured prompt plan
+  -> pinned Moody Krea2 graph + bindings, runtime inventory and profile health
+  -> durable workflow_drafts and workflow_runs rows
+  -> local ComfyUI or the Colab relay
+  -> shared run state/error normalization and output import
+  -> ComfyUI output folder + Library index + workflow/provenance metadata
 ```
 
-`workflow_registry.py` owns built-in and imported templates. `workflow_compiler.py` is deliberately
-UI-independent: the manifest is the declarative contract for graph inputs and semantic resources.
-`workflow_inventory.py` bridges ComfyUI's live model folders into the task-07 resource catalog,
-while `workflow_execution.py` owns remote state normalization and output import. The editor route
-never starts Remix automatically; it persists the draft and leaves execution as a separate user action.
+`simple_profiles.py` owns the approved profile and graphs. `create_tasks.py` keeps the agent and generation task running across navigation/reload. `workflow_inventory.py`, `workflow_store.py`, `workflow_execution.py`, and `workflow_errors.py` remain shared Create infrastructure. The old editor, generic template registry/compiler/importer, model scanner, and Civitai browser were retired on 2026-10-14. Database history and user template files are preserved.
 
-The runtime connection drawer uses the task-08 detector/manager/client. Managed processes can be
-started and stopped by CMV; an externally running ComfyUI is health-checked but never terminated.
+Viewer Remix passes `photo=<asset_id>&mode=variation` to Create and attaches the original image without starting inference. Runtime settings use the ComfyUI Desktop manager/client; externally running ComfyUI processes remain connect-only.
 
 ### AI provider configuration
 
@@ -432,7 +425,7 @@ api.js
 |--------|------|-------------|
 | Sidebar | `features/sidebar.js` | Resizable sidebar, media list, folder browser |
 | Workflow Graph | `features/workflow-graph.js` | SVG visualization of ComfyUI node graphs |
-| Create Workspace | `features/workflow-editor.js` | Manifest controls, runtime drawer, preflight, runs, results |
+| Create Workspace | `features/simple-mode-v2.js` | Create modes, references, agent selection, runtime setup, tasks and results |
 | Keyboard | `features/keyboard.js` | 14 shortcuts + Help Center |
 | Cutout | `features/cutout.js` | Background-removal panel |
 | Gallery | `gallery.js` | Mixed-media masonry layout + lazy loading |

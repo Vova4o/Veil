@@ -7,47 +7,18 @@ from app.comfyui.resource_taxonomy import (
     classify_inventory_resource,
     inventory_resource_matches,
 )
-from app.comfyui.workflow_models import WorkflowTemplateManifest
 
 
 class ResourceTaxonomyTest(unittest.TestCase):
-    def test_legacy_manifest_aliases_normalize_to_canonical_types(self) -> None:
-        manifest = WorkflowTemplateManifest.model_validate({
-            "id": "legacy-aliases",
-            "name": "Legacy aliases",
-            "version": "1.0.0",
-            "category": "simple",
-            "media_type": "image",
-            "supported_ecosystems": ["other"],
-            "loader_family": "gguf",
-            "component_policy": {"clip": "required", "vae": "not_applicable"},
-            "resource_slots": {
-                "model": {
-                    "label": "Model",
-                    "accepts": ["unet", "unet_gguf", "clip", "clip_gguf"],
-                },
-            },
-            "output_nodes": ["1"],
-        })
-
-        self.assertEqual(
-            manifest.resource_slots["model"].accepts,
-            [
-                ResourceType.DIFFUSION_MODEL,
-                ResourceType.DIFFUSION_MODEL_GGUF,
-                ResourceType.TEXT_ENCODER,
-                ResourceType.TEXT_ENCODER_GGUF,
-            ],
-        )
-        self.assertEqual(
-            manifest.model_dump(mode="json")["resource_slots"]["model"]["accepts"],
-            [
-                "diffusion_model",
-                "diffusion_model_gguf",
-                "text_encoder",
-                "text_encoder_gguf",
-            ],
-        )
+    def test_legacy_resource_aliases_normalize_to_canonical_types(self) -> None:
+        for alias, expected in {
+            "unet": ResourceType.DIFFUSION_MODEL,
+            "unet_gguf": ResourceType.DIFFUSION_MODEL_GGUF,
+            "clip": ResourceType.TEXT_ENCODER,
+            "clip_gguf": ResourceType.TEXT_ENCODER_GGUF,
+        }.items():
+            with self.subTest(alias=alias):
+                self.assertIs(ResourceType(alias), expected)
 
     def test_gguf_is_classified_within_shared_comfyui_folders(self) -> None:
         self.assertEqual(

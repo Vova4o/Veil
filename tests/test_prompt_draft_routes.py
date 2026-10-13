@@ -217,26 +217,12 @@ class PromptDraftRoutesTest(unittest.TestCase):
         self.assertEqual(captured["api_key"], "resolved-server-side-secret")
         self.assertNotIn("resolved-server-side-secret", generated.get_data(as_text=True))
 
-        prompt_draft_id = generated_payload["prompt_draft"]["id"]
-        workflow = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "ai_prompt_draft_id": prompt_draft_id,
-            },
-        )
-        self.assertEqual(workflow.status_code, 201)
-        workflow_draft = workflow.get_json()["draft"]
-        self.assertEqual(workflow_draft["status"], "editing")
-        self.assertEqual(workflow_draft["ai_prompt_draft_id"], prompt_draft_id)
-        self.assertEqual(
-            workflow_draft["values"]["positive_prompt"],
-            "A quiet glass house at blue hour",
-        )
-        self.assertEqual(
-            workflow_draft["values"]["negative_prompt"],
-            "blurry, flat light",
-        )
+        reloaded = self.client.get(f"/api/ai/jobs/{generated_payload['job']['id']}")
+        self.assertEqual(reloaded.status_code, 200)
+        draft = reloaded.get_json()["drafts"][-1]
+        self.assertEqual(draft["id"], generated_payload["prompt_draft"]["id"])
+        self.assertEqual(draft["draft"]["positive_prompt"], "A quiet glass house at blue hour")
+        self.assertEqual(draft["draft"]["negative_prompt"], "blurry, flat light")
 
         conn = database.get_conn()
         try:
@@ -245,82 +231,6 @@ class PromptDraftRoutesTest(unittest.TestCase):
             conn.close()
         self.assertEqual(run_count, 0)
 
-    def test_empty_ai_negative_preserves_workflow_negative_value_when_supported(self) -> None:
-        job = self.store.create(
-            task=PromptTask(
-                family=PromptFamily.SDXL,
-                operation=PromptOperation.GENERATE,
-                scenario=PromptScenario.ARCHITECTURE_INTERIOR,
-            ),
-            execution_backend="openai_compatible",
-            provider_profile_id="editor-profile",
-            model_id="editor-model",
-            user_input="quiet reading nook",
-        )
-        prompt_draft = self.store.save_draft(
-            job.id,
-            PromptDraft(
-                positive_prompt="A quiet reading nook beside a rainy window",
-                negative_prompt="",
-                source_kind=PromptDraftSource.USER_TEXT,
-                source_payload={"user_input": "quiet reading nook"},
-                versions={"family": "1", "operation": "1"},
-            ),
-        )
-
-        default_negative = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "ai_prompt_draft_id": prompt_draft.id,
-            },
-        )
-        self.assertEqual(default_negative.status_code, 201)
-        self.assertEqual(
-            default_negative.get_json()["draft"]["values"]["negative_prompt"],
-            "low quality, blurry, artifacts",
-        )
-
-        existing_negative = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "values": {"negative_prompt": "watermark, duplicated furniture"},
-                "ai_prompt_draft_id": prompt_draft.id,
-            },
-        )
-        self.assertEqual(existing_negative.status_code, 201)
-        self.assertEqual(
-            existing_negative.get_json()["draft"]["values"]["negative_prompt"],
-            "watermark, duplicated furniture",
-        )
-
-        explicitly_disabled = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "values": {"negative_prompt": ""},
-                "ai_prompt_draft_id": prompt_draft.id,
-            },
-        )
-        self.assertEqual(explicitly_disabled.status_code, 201)
-        self.assertEqual(
-            explicitly_disabled.get_json()["draft"]["values"]["negative_prompt"],
-            "",
-        )
-
-        unsupported = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-flux",
-                "ai_prompt_draft_id": prompt_draft.id,
-            },
-        )
-        self.assertEqual(unsupported.status_code, 201)
-        self.assertNotIn(
-            "negative_prompt",
-            unsupported.get_json()["draft"]["values"],
-        )
 
     def test_prompt_capabilities_exclude_unsupported_scenarios(self) -> None:
         response = self.client.get("/api/ai/prompt-capabilities")
@@ -331,7 +241,7 @@ class PromptDraftRoutesTest(unittest.TestCase):
         self.assertEqual(pony["multi_character"], "supported")
         self.assertEqual(pony["product_object"], "limited")
 
-    def test_translate_creates_new_editor_draft_and_preserves_source(self) -> None:
+    def test_translate_creates_saved_prompt_draft_and_preserves_source(self) -> None:
         captured = {}
         profile = {
             "id": "saved-translator",
@@ -432,35 +342,14 @@ class PromptDraftRoutesTest(unittest.TestCase):
         self.assertEqual(captured["api_key"], "server-side-translation-secret")
         self.assertNotIn("server-side-translation-secret", response.get_data(as_text=True))
 
-        prompt_draft_id = payload["prompt_draft"]["id"]
-        workflow = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "ai_prompt_draft_id": prompt_draft_id,
-            },
-        )
-        self.assertEqual(workflow.status_code, 201)
-        workflow_payload = workflow.get_json()
-        workflow_draft = workflow_payload["draft"]
-        self.assertEqual(workflow_draft["status"], "editing")
-        self.assertEqual(workflow_payload["ai_prompt_context"]["operation"], "translate")
-        self.assertEqual(
-            workflow_payload["ai_prompt_translation"]["source"]["positive_prompt"],
-            "тихий стеклянный дом в северном лесу",
-        )
-        self.assertEqual(
-            workflow_draft["values"]["positive_prompt"],
-            "a quiet glass house in the northern forest",
-        )
-        self.assertEqual(workflow_draft["values"]["negative_prompt"], "text, watermark")
-
-        reloaded = self.client.get(f"/api/editor/drafts/{workflow_draft['id']}")
+        reloaded = self.client.get(f"/api/ai/jobs/{payload['job']['id']}")
         self.assertEqual(reloaded.status_code, 200)
-        self.assertEqual(
-            reloaded.get_json()["ai_prompt_context"]["operation"],
-            "translate",
-        )
+        draft = reloaded.get_json()["drafts"][-1]
+        self.assertEqual(draft["id"], payload["prompt_draft"]["id"])
+        self.assertEqual(draft["draft"]["positive_prompt"], "a quiet glass house in the northern forest")
+        self.assertEqual(draft["draft"]["negative_prompt"], "text, watermark")
+        self.assertEqual(draft["draft"]["source_kind"], "translation")
+
         stored_translation = PromptTranslationStore().get(payload["job"]["id"])
         self.assertEqual(stored_translation.source_language, "ru")
         self.assertEqual(stored_translation.target_language, "en")
@@ -472,7 +361,7 @@ class PromptDraftRoutesTest(unittest.TestCase):
             conn.close()
         self.assertEqual(run_count, 0)
 
-    def test_adapt_creates_family_aware_editor_draft_and_preserves_source(self) -> None:
+    def test_adapt_creates_family_aware_prompt_draft_and_preserves_source(self) -> None:
         captured = {}
         profile = {
             "id": "saved-adapter",
@@ -589,36 +478,16 @@ class PromptDraftRoutesTest(unittest.TestCase):
         self.assertEqual(captured["checkpoint_resource"], checkpoint)
         self.assertNotIn("server-side-adaptation-secret", response.get_data(as_text=True))
 
-        workflow = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "ai_prompt_draft_id": payload["prompt_draft"]["id"],
-            },
-        )
-        self.assertEqual(workflow.status_code, 201)
-        workflow_payload = workflow.get_json()
-        workflow_draft = workflow_payload["draft"]
-        self.assertEqual(workflow_payload["ai_prompt_context"]["operation"], "adapt")
-        self.assertEqual(
-            workflow_payload["ai_prompt_adaptation"]["checkpoint_profile"],
-            "pony-photo-v1",
-        )
-        self.assertEqual(
-            workflow_payload["ai_prompt_adaptation"]["source"]["positive_prompt"],
-            "cinematic forest portrait",
-        )
-        self.assertEqual(
-            workflow_draft["values"]["positive_prompt"],
-            "score_9, score_8_up, cinematic forest portrait",
-        )
-
-        reloaded = self.client.get(f"/api/editor/drafts/{workflow_draft['id']}")
+        reloaded = self.client.get(f"/api/ai/jobs/{payload['job']['id']}")
         self.assertEqual(reloaded.status_code, 200)
-        self.assertEqual(
-            reloaded.get_json()["ai_prompt_adaptation"]["target_family"],
-            "pony",
-        )
+        draft = reloaded.get_json()["drafts"][-1]
+        self.assertEqual(draft["id"], payload["prompt_draft"]["id"])
+        self.assertEqual(draft["draft"]["positive_prompt"], "score_9, score_8_up, cinematic forest portrait")
+        self.assertEqual(draft["draft"]["source_kind"], "adaptation")
+        stored_adaptation = PromptAdaptationStore().get(payload["job"]["id"])
+        self.assertEqual(stored_adaptation.target_family.value, "pony")
+        self.assertEqual(stored_adaptation.checkpoint_profile, "pony-photo-v1")
+        self.assertEqual(stored_adaptation.source.positive_prompt, "cinematic forest portrait")
 
         conn = database.get_conn()
         try:
@@ -778,34 +647,13 @@ class PromptDraftRoutesTest(unittest.TestCase):
         )
         self.assertEqual(captured["render"]["api_key"], "secret-for-saved-renderer")
 
-        workflow = self.client.post(
-            "/api/editor/drafts",
-            json={
-                "template_id": "core-image",
-                "source_asset_id": asset_id,
-                "ai_prompt_draft_id": rendered_payload["prompt_draft"]["id"],
-            },
-        )
-        self.assertEqual(workflow.status_code, 201)
-        workflow_payload = workflow.get_json()
-        self.assertEqual(workflow_payload["ai_prompt_context"]["operation"], "reconstruct")
-        self.assertEqual(
-            workflow_payload["ai_scene_spec"]["composition"]["background"],
-            "cool grey seamless paper",
-        )
-        self.assertEqual(workflow_payload["draft"]["source_asset_id"], asset_id)
-        self.assertEqual(
-            workflow_payload["draft"]["values"]["positive_prompt"],
-            "centered glass bottle on cool grey seamless paper",
-        )
-        reloaded = self.client.get(
-            f"/api/editor/drafts/{workflow_payload['draft']['id']}"
-        )
+        reloaded = self.client.get(f"/api/ai/jobs/{rendered_payload['job']['id']}")
         self.assertEqual(reloaded.status_code, 200)
-        self.assertEqual(
-            reloaded.get_json()["ai_scene_spec"]["uncertain_details"],
-            [],
-        )
+        snapshot = reloaded.get_json()
+        self.assertEqual(snapshot["drafts"][-1]["id"], rendered_payload["prompt_draft"]["id"])
+        self.assertEqual(snapshot["drafts"][-1]["draft"]["positive_prompt"], "centered glass bottle on cool grey seamless paper")
+        self.assertEqual(snapshot["scene_spec"]["composition"]["background"], "cool grey seamless paper")
+        self.assertEqual(snapshot["scene_spec"]["uncertain_details"], [])
 
         with (
             patch("app.ai.routes._store", return_value=StubProviderStore()),
@@ -836,20 +684,6 @@ class PromptDraftRoutesTest(unittest.TestCase):
             conn.close()
         self.assertEqual(run_count, 0)
 
-    def test_editor_exposes_ai_prompt_draft_controls(self) -> None:
-        response = self.client.get("/editor/legacy")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b'id="ai-prompt-open"', response.data)
-        self.assertIn(b'id="ai-prompt-dialog"', response.data)
-        self.assertIn(b'id="translate-prompt-open"', response.data)
-        self.assertIn(b'id="translate-prompt-dialog"', response.data)
-        self.assertIn(b'id="adapt-prompt-open"', response.data)
-        self.assertIn(b'id="adapt-prompt-dialog"', response.data)
-        self.assertIn(b'id="reconstruct-prompt-open"', response.data)
-        self.assertIn(b'id="reconstruct-prompt-dialog"', response.data)
-        self.assertIn(b'id="prompt-provenance-dialog"', response.data)
-        self.assertIn(b'Generation stays manual', response.data)
 
 
 if __name__ == "__main__":

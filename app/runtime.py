@@ -10,10 +10,9 @@ from .paths import RuntimePaths
 
 @contextmanager
 def application_runtime(paths: RuntimePaths | None = None) -> Iterator[RuntimePaths]:
-    from .comfyui.civitai_downloader import start_download_worker, stop_download_worker
     from .comfyui.manager import comfy_manager
     from .job_worker import start_job_worker, stop_job_worker
-    from .main import app, configure_runtime
+    from .main import configure_runtime
     from .source_monitor import start_source_monitor, stop_source_monitor
     from .worker import start_worker, stop_worker
 
@@ -24,8 +23,6 @@ def application_runtime(paths: RuntimePaths | None = None) -> Iterator[RuntimePa
         start_worker(runtime_paths.thumbnails)
         lifetime.callback(stop_job_worker, wait=True)
         start_job_worker()
-        lifetime.callback(stop_download_worker, wait=True)
-        start_download_worker(app.config.get("CONFIG_STORE"))
         lifetime.callback(stop_source_monitor)
         start_source_monitor(runtime_paths)
         yield runtime_paths

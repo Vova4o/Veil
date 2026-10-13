@@ -8,9 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OPENAPI_PATH = ROOT / "site" / "api" / "openapi.json"
 
-# These modules define the supported public HTTP contract. The pre-Simple-Mode
-# app/comfyui/editor_routes.py surface is intentionally legacy/internal and is
-# therefore not part of the public OpenAPI coverage gate.
+# These modules define the supported public HTTP contract.
 PUBLIC_ROUTE_FILES = (
     ROOT / "app" / "main.py",
     ROOT / "app" / "ai" / "routes.py",

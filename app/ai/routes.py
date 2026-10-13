@@ -51,7 +51,6 @@ from .reconstruction import (
     PromptReconstructionService,
     SceneAnalysisService,
 )
-from .remix import RemixError, RemixRequest, RemixService
 from .resources import (
     CapabilityResolver,
     ModelEcosystem,
@@ -186,12 +185,6 @@ def cli_error(error: CLIIntegrationError):
 def ai_job_error(error: AIJobStoreError):
     status = 404 if "does not exist" in str(error) else 422
     return jsonify({"error": str(error), "code": "ai_job_store_error"}), status
-
-
-@ai_blueprint.errorhandler(RemixError)
-def ai_remix_error(error: RemixError):
-    status = 404 if error.code == "asset_not_found" else 422
-    return jsonify({"error": str(error), "code": error.code}), status
 
 
 @ai_blueprint.errorhandler(PromptTranslationError)
@@ -811,24 +804,6 @@ def ai_scene_spec_update(job_id: int):
         "job": store.get(job_id).job.model_dump(mode="json"),
         "scene_spec": scene_spec.model_dump(mode="json"),
     })
-
-
-@ai_blueprint.route("/api/ai/remix", methods=["POST"])
-def ai_remix():
-    payload = _json_object()
-    request_data = RemixRequest.model_validate({
-        key: value
-        for key, value in payload.items()
-        if key in RemixRequest.model_fields
-    })
-    service = RemixService()
-    outcome = service.create_remix_draft(
-        request=request_data,
-        execution_backend=payload.get("execution_backend", "direct"),
-        provider_profile_id=payload.get("provider_profile_id"),
-        model_id=payload.get("model_id"),
-    )
-    return jsonify(outcome.model_dump(mode="json")), 201
 
 
 @ai_blueprint.route("/api/ai/resources", methods=["GET", "POST"])

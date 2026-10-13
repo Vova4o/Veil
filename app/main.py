@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 import threading
@@ -25,7 +24,7 @@ from . import database as db
 from . import file_actions
 from . import library as media_library
 from .ai import ai_blueprint
-from .comfyui import comfyui_blueprint, editor_blueprint, simple_blueprint
+from .comfyui import comfyui_blueprint, simple_blueprint
 from .config_store import ConfigStore, ConfigStoreError
 from .cutout import clear_cutout, get_cutout_path, make_cutout_png
 from .desktop_cache import legacy_thumbnail
@@ -93,7 +92,6 @@ app.config.update(build_runtime_paths().flask_config())
 app.config["CONFIG_STORE"] = ConfigStore(Path(app.config["CONFIG_FILE"]))
 app.register_blueprint(ai_blueprint)
 app.register_blueprint(comfyui_blueprint)
-app.register_blueprint(editor_blueprint)
 app.register_blueprint(simple_blueprint)
 app.register_blueprint(social_blueprint)
 app.register_blueprint(studio_blueprint)
@@ -101,13 +99,6 @@ app.register_blueprint(remote_blueprint)
 app.register_blueprint(model_sources_blueprint)
 
 app.jinja_env.auto_reload = True
-
-try:
-    from app.comfyui.model_scanner import get_model_scanner
-    get_model_scanner(app.config["CONFIG_STORE"]).trigger_rescan()
-except Exception as exc:
-    logging.getLogger(__name__).debug(f"Failed to start initial model scan: {exc}")
-
 
 def static_version(filename: str) -> str:
     try:

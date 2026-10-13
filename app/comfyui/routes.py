@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, request
 
 from app.config_store import ConfigStore
 from app.model_sources.tokens import ModelSourceError, civitai_token, save_civitai_token
@@ -52,11 +52,6 @@ def _public_settings(store: ConfigStore) -> dict:
     settings["install_path"] = launch.get("install_path")
     settings["desktop_installation_id"] = launch.get("desktop_installation_id")
     return settings
-
-
-@comfyui_blueprint.route("/settings/comfyui")
-def comfyui_settings_page():
-    return render_template("workflow_editor.html")
 
 
 @comfyui_blueprint.route("/api/comfyui/config", methods=["GET", "POST"])
