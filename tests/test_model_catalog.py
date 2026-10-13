@@ -3,7 +3,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from app.ai import model_catalog
+from app.ai import catalog_cache, model_catalog
 from app.ai.cli import CLIIntegrationError
 from app.ai.execution.claude_code import build_claude_command
 from app.ai.execution.codex import build_codex_command
@@ -91,6 +91,87 @@ def test_catalog_cache_refresh_and_missing_installation(monkeypatch):
     monkeypatch.setattr(model_catalog, "find_executable", lambda host: None)
     assert model_catalog.native_cli_models("codex") == (None, [])
     model_catalog._cache.clear()
+
+
+def test_catalog_survives_process_cache_reset(tmp_path, monkeypatch):
+    calls = []
+    executable = tmp_path / "codex.exe"
+    executable.write_bytes(b"version-one")
+    monkeypatch.setattr(model_catalog, "find_executable", lambda host: str(executable))
+    cards = [{"id": "m", "vision": None, "variants": ["low", "high"]}]
+    monkeypatch.setattr(model_catalog, "_codex_models", lambda exe: calls.append(exe) or cards)
+    model_catalog.native_cli_models("codex")
+    model_catalog._cache.clear()  # a fresh server process, with the same profile
+    assert model_catalog.native_cli_models("codex")[1] == cards
+    assert len(calls) == 1
+
+
+def test_catalog_invalidates_after_cli_replacement(tmp_path, monkeypatch):
+    executable = tmp_path / "claude.exe"
+    executable.write_bytes(b"one")
+    monkeypatch.setattr(model_catalog, "find_executable", lambda host: str(executable))
+    cards = [[{"id": "sonnet", "vision": True}], [{"id": "opus", "vision": True}]]
+    monkeypatch.setattr(model_catalog, "_claude_models", lambda exe: cards.pop(0))
+    assert model_catalog.native_cli_models("claude")[1][0]["id"] == "sonnet"
+    executable.write_bytes(b"version-two")
+    assert model_catalog.native_cli_models("claude")[1][0]["id"] == "opus"
+
+
+def test_incomplete_opencode_cache_is_ignored(monkeypatch):
+    from app.ai import opencode_host
+    from app.comfyui import create_agent
+
+    catalog_cache.save("opencode", "opencode.exe", [{"id": "broken"}])
+    catalog_cache.memory.clear()
+    card = opencode_host.OpenCodeModel("opencode/test", "opencode", "Test", True, True, ())
+    monkeypatch.setattr(opencode_host, "list_models", lambda exe: [card])
+    assert create_agent.opencode_models("opencode.exe") == [card]
+
+
+def test_expired_catalog_and_failed_refresh_do_not_destroy_last_good_file(monkeypatch):
+    calls = []
+    clock = [1000.0]
+    monkeypatch.setattr(catalog_cache.time, "time", lambda: clock[0])
+    monkeypatch.setattr(model_catalog, "find_executable", lambda host: "codex")
+    monkeypatch.setattr(model_catalog, "_codex_models", lambda exe: calls.append(exe) or [{"id": "first"}])
+    model_catalog.native_cli_models("codex")
+    original = next(catalog_cache.cache_directory().glob("*.json")).read_text()
+    def offline(executable):
+        raise CLIIntegrationError("offline")
+    monkeypatch.setattr(model_catalog, "_codex_models", offline)
+    with pytest.raises(CLIIntegrationError):
+        model_catalog.native_cli_models("codex", refresh=True)
+    assert next(catalog_cache.cache_directory().glob("*.json")).read_text() == original
+    model_catalog._cache.clear()
+    assert model_catalog.native_cli_models("codex")[1][0]["id"] == "first"
+    clock[0] += 601
+    monkeypatch.setattr(model_catalog, "_codex_models", lambda exe: calls.append(exe) or [{"id": "second"}])
+    assert model_catalog.native_cli_models("codex")[1][0]["id"] == "second"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("host", ["opencode", "antigravity"])
+def test_create_host_catalogs_are_reused_after_restart(host, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.ai import cli, opencode_host
+    from app.comfyui import create_agent
+
+    calls = []
+    if host == "opencode":
+        card = opencode_host.OpenCodeModel("opencode/test", "opencode", "Test", None, True, ("high",))
+        monkeypatch.setattr(opencode_host, "list_models", lambda exe: calls.append(exe) or [card])
+        read = lambda: create_agent.opencode_models("opencode.exe")
+        assert read() == [card]
+    else:
+        monkeypatch.setattr(cli, "find_executable", lambda host: "agy.exe")
+        monkeypatch.setattr(cli, "run_command", lambda *args, **kwargs: calls.append(args) or SimpleNamespace(
+            returncode=0, stdout="gemini-3-pro-high\tGemini 3 Pro (High)\ngemini-3-pro-low\tGemini 3 Pro (Low)", stderr=""))
+        read = lambda: create_agent.antigravity_models()[1]
+        assert read()
+    catalog_cache.memory.clear()
+    assert read()
+    assert len(calls) == 1
 
 
 def test_catalog_process_timeout_is_bounded_and_process_is_stopped():

@@ -62,3 +62,39 @@ test('refresh updates a saved Antigravity level and keeps unknown vision distinc
     assert.equal(choice.vision, null);
     assert.match(h.elements.get('agent-menu-body').innerHTML, /Photos unknown/);
 });
+
+test('after a page restart cached models show before a slow discovery finishes', async () => {
+    const h = harness();
+    const payload = { codex: { label: 'Codex', models: [{ id: 'saved', name: 'Saved model', vision: null }] }, agents: [] };
+    h.saved.set('cmv_create_agent_catalog_v1', JSON.stringify({ version: 1, savedAt: Date.now(), payload }));
+    h.run('restoreAgentCatalog(); json = () => new Promise(resolve => { globalThis.finishDiscovery = resolve; });');
+    const pending = h.run('loadAgents()');
+    assert.match(h.elements.get('agent-menu-body').innerHTML, /Saved model/);
+    assert.doesNotMatch(h.elements.get('agent-menu-body').innerHTML, /Asking the installed/);
+    h.run('finishDiscovery({ codex: { label: "Codex", models: [{ id: "new", name: "New model", vision: true }] }, agents: [] });');
+    await pending;
+    assert.match(h.elements.get('agent-menu-body').innerHTML, /New model/);
+    assert.match(h.saved.get('cmv_create_agent_catalog_v1'), /New model/);
+});
+
+test('a discovery failure preserves the last catalog and its capabilities', async () => {
+    const h = harness();
+    h.run('state.agents = { claude: { label: "Claude Code", models: [{ id: "sonnet", name: "Sonnet", vision: null }] }, agents: [] }; json = async () => { throw new Error("Offline"); };');
+    await h.run('loadAgents(true)');
+    assert.match(h.elements.get('agent-menu-body').innerHTML, /Sonnet/);
+    assert.match(h.elements.get('agent-menu-body').innerHTML, /Photos unknown/);
+    assert.match(h.elements.get('agent-menu-body').innerHTML, /Offline/);
+});
+
+test('one unavailable host keeps its saved cards while other hosts refresh', async () => {
+    const h = harness();
+    h.run(`state.agents = { codex: { label: 'Codex', models: [{ id: 'saved', name: 'Saved', vision: null }] } };
+        json = async () => ({ codex: { label: 'Codex', models: [], error: 'Codex offline' },
+            claude: { label: 'Claude Code', models: [{ id: 'new', name: 'New Claude', vision: true }] }, agents: [] });`);
+    await h.run('loadAgents(true)');
+    const menu = h.elements.get('agent-menu-body').innerHTML;
+    assert.match(menu, /Saved/);
+    assert.match(menu, /Photos unknown/);
+    assert.match(menu, /Codex offline/);
+    assert.match(menu, /New Claude/);
+});

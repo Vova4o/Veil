@@ -16,6 +16,7 @@ from app.media import (
 
 from .backends import ComfyUIJobClient
 from .client import ComfyUIClientError
+from .create_outputs import index_output_image
 from .workflow_errors import normalize_comfyui_error
 from .workflow_models import WorkflowDraft, WorkflowRun, WorkflowTemplate
 from .workflow_registry import WorkflowTemplateError, WorkflowTemplateRegistry
@@ -329,17 +330,19 @@ class WorkflowExecutionService:
                         embedded["prompt_parameters"] = generated_params
             width = extracted.size[0] if extracted.size else 0
             height = extracted.size[1] if extracted.size else 0
-            asset_id, _ = database.insert_upload_asset(
-                filename,
-                data,
-                media_type="image",
-                has_generation_metadata=True,
-                format_name=extracted.format,
-                width=width,
-                height=height,
-                mode=extracted.mode,
-                embedded_metadata=embedded,
-            )
+            asset_id = index_output_image(output, data, embedded, extracted)
+            if asset_id is None:
+                asset_id, _ = database.insert_upload_asset(
+                    filename,
+                    data,
+                    media_type="image",
+                    has_generation_metadata=True,
+                    format_name=extracted.format,
+                    width=width,
+                    height=height,
+                    mode=extracted.mode,
+                    embedded_metadata=embedded,
+                )
         else:
             width = height = 0
             duration = frame_rate = None

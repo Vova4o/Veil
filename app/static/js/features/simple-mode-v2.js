@@ -79,6 +79,8 @@ const VISION_MODES = new Set(['reference', 'variation']);
 const AGENT_HOSTS = { opencode: 'OpenCode', codex: 'Codex', claude: 'Claude Code', antigravity: 'Antigravity' };
 // Integrations › Local AI tools › Display settings: which OpenCode providers and models to list.
 const MODEL_CATALOG_KEY = 'cmv_ai_model_catalog_v1';
+const AGENT_CATALOG_KEY = 'cmv_create_agent_catalog_v1';
+const AGENT_CATALOG_TTL = 10 * 60 * 1000;
 const DEFAULT_MODEL_CATALOG = { opencode: [], 'opencode-go': [] };
 const OPENCODE_PROVIDER_NAMES = { opencode: 'Zen', 'opencode-go': 'Go' };
 
@@ -202,6 +204,7 @@ function init() {
     state.models = catalog();
     state.modelId = document.body.dataset.defaultModelId || state.models[0]?.id || '';
     restore();
+    restoreAgentCatalog();
     applyVisualSettings();
     hydrateAmbient();
     wire();
@@ -210,7 +213,8 @@ function init() {
     syncBatch();
     resizePrompt();
     $('prompt-clear').hidden = !$('prompt').value.trim();
-    restoreLastResult();
+    if (savedCreateTask()) restoreCreateTask();
+    else restoreLastResult();
     paintSession();
     paintHealth({ status: 'checking' });
     loadHealth();
@@ -403,7 +407,7 @@ async function setPhoto(slot, file) {
     try {
         const photo = await readPhoto(file);
         const key = slot === 'subject' ? 'subject' : 'photo';
-        if (state[key]?.objectUrl) URL.revokeObjectURL(state[key].objectUrl);
+        if (state[key]?.objectUrl?.startsWith('blob:')) URL.revokeObjectURL(state[key].objectUrl);
         state[key] = photo;
     } catch (err) {
         error('Could not add the photo', err.message);
@@ -417,7 +421,7 @@ async function setPhoto(slot, file) {
 
 function clearPhoto(slot) {
     const key = slot === 'subject' ? 'subject' : 'photo';
-    if (state[key]?.objectUrl) URL.revokeObjectURL(state[key].objectUrl);
+    if (state[key]?.objectUrl?.startsWith('blob:')) URL.revokeObjectURL(state[key].objectUrl);
     state[key] = null;
     const input = slot === 'subject' ? $('subject-input') : $('photo-input');
     if (input) input.value = '';
@@ -437,7 +441,7 @@ function paintRefBlock(slot, photo, copy) {
     block.querySelector('.ref-tools').hidden = !photo;
     const preview = block.querySelector('.ref-preview');
     preview.hidden = !photo;
-    if (photo) preview.querySelector('img').src = photo.objectUrl;
+    if (photo) preview.querySelector('img').src = photo.objectUrl || photo.dataUrl;
 }
 
 /** The left panel: one block for the reference mode, two for edits (scene and donor). */
@@ -708,13 +712,54 @@ function saveAgentChoice() {
     paintAgentLine();
 }
 
-async function loadAgents(refresh = false) {
-    $('agent-menu-body').innerHTML = '<p class="agent-menu-note" role="status">Asking the installed agents for their models…</p>';
+function restoreAgentCatalog() {
     try {
-        state.agents = await json(`/api/simple/agents${refresh ? '?refresh=1' : ''}`);
+        const saved = JSON.parse(localStorage.getItem(AGENT_CATALOG_KEY) || 'null');
+        if (saved?.version !== 1 || !saved.payload || typeof saved.payload !== 'object') return;
+        const hosts = ['opencode', 'antigravity', 'codex', 'claude'];
+        if (hosts.some(host => saved.payload[host] && !Array.isArray(saved.payload[host].models))) return;
+        if (!Array.isArray(saved.payload.agents)) return;
+        state.agents = saved.payload;
+        state.agentsSavedAt = Number(saved.savedAt) || 0;
+    } catch {}
+}
+
+function saveAgentCatalog(payload) {
+    const savedAt = Date.now();
+    try { localStorage.setItem(AGENT_CATALOG_KEY, JSON.stringify({ version: 1, savedAt, payload })); } catch {}
+    state.agentsSavedAt = savedAt;
+}
+
+function mergeAgentCatalog(previous, next) {
+    const merged = { ...next };
+    for (const host of ['opencode', 'antigravity', 'codex', 'claude']) {
+        // Discovery errors retain the last good cards, with their original capabilities.
+        if (next[host]?.error && previous?.[host]?.models?.length) {
+            merged[host] = { ...next[host], models: previous[host].models };
+        }
+    }
+    return merged;
+}
+
+async function loadAgents(refresh = false) {
+    if (state.agentsLoading) return;
+    state.agentsLoading = true;
+    state.agentsError = '';
+    $('agent-refresh').disabled = true;
+    if (state.agents) paintAgentMenu();
+    else $('agent-menu-body').innerHTML = '<p class="agent-menu-note" role="status">Asking the installed agents for their models…</p>';
+    try {
+        const next = await json(`/api/simple/agents${refresh ? '?refresh=1' : ''}`);
+        state.agents = mergeAgentCatalog(state.agents, next);
+        saveAgentCatalog(state.agents);
     } catch (err) {
-        $('agent-menu-body').innerHTML = `<p class="agent-menu-note is-error">${esc(err.message)}</p>`;
+        state.agentsError = err.message;
+        if (state.agents) paintAgentMenu();
+        else $('agent-menu-body').innerHTML = `<p class="agent-menu-note is-error">${esc(err.message)}</p>`;
         return;
+    } finally {
+        state.agentsLoading = false;
+        $('agent-refresh').disabled = false;
     }
     // A picked model keeps its card up to date (vision, name, reasoning levels).
     const choice = state.agentChoice;
@@ -724,7 +769,6 @@ async function loadAgents(refresh = false) {
             Object.assign(choice, { name: model.name, vision: model.vision, variants: model.variants || [] });
             if (choice.variant && !choice.variants.includes(choice.variant)) choice.variant = null;
             saveAgentChoice();
-            return;
         }
     }
     if (choice?.agentKind === 'antigravity') {
@@ -774,6 +818,7 @@ function paintAgentMenu() {
     const choice = state.agentChoice;
     const needsVision = VISION_MODES.has(state.mode);
     const parts = [];
+    if (state.agentsError) parts.push(`<p class="agent-menu-note is-error">${esc(state.agentsError)} · Showing the saved model list.</p>`);
     const opencode = state.agents.opencode;
     if (opencode) {
         const models = visibleOpenCodeModels(opencode.models || []);
@@ -884,8 +929,10 @@ function openAgentMenu() {
     $('agent-line').setAttribute('aria-expanded', 'true');
     placeAgentMenu();
     $('agent-refresh').focus({ preventScroll: true });
-    if (state.agents) paintAgentMenu();
-    else loadAgents();
+    if (state.agents) {
+        paintAgentMenu();
+        if (Date.now() - (state.agentsSavedAt || 0) >= AGENT_CATALOG_TTL) loadAgents();
+    } else loadAgents();
 }
 
 function closeAgentMenu() {
@@ -988,8 +1035,7 @@ const AGENT_PHASES = {
 };
 const AGENT_LOG_LINES = 6;
 
-function startAgentTimer() {
-    const started = Date.now();
+function startAgentTimer(started = Date.now()) {
     clearInterval(state.agentTimer);
     state.agentPhase = 'started';
     state.agentName = currentAgent()?.label || 'Agent';
@@ -1169,134 +1215,235 @@ async function create() {
         subject && { label: copy.subject[0], src: subject.dataUrl },
     ].filter(Boolean);
     const ratio = currentRatio();
-    let plan;
-    resetAgentStream();
-    if (useAgent) {
-        startAgentTimer();
-        job.controller = new AbortController();
-        try {
-            plan = await streamJson('/api/simple/agent?stream=1', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: job.controller.signal,
-                body: JSON.stringify({
-                    profile_id: state.modelId,
-                    mode,
-                    request,
-                    previous_prompt: state.refineFrom?.mode === mode ? state.refineFrom.prompt : null,
-                    ...agentRequestFields(),
-                    aspect_ratio: ratio,
-                    reference_image: photo?.dataUrl || null,
-                    subject_image: subject?.dataUrl || null,
-                }),
-            }, event => {
-                if (state.job === job && !job.cancelled) paintAgentProgress(event);
-            });
-        } catch (err) {
-            stopAgentTimer();
-            if (state.job !== job || job.cancelled) return;
-            abortJob();
-            return error('The agent could not write the prompt', err.message, err.data?.technical_error);
-        }
-        stopAgentTimer();
-    } else {
-        plan = {
-            positive_prompt: request,
-            negative_prompt: '',
-            edit_profile: null,
-            note: 'No agent is configured, so your text went to the model as is. Set up an agent in Integrations for better results.',
-            agent: null,
-        };
-    }
-    if (state.job !== job || job.cancelled) return;
-    await runGeneration({
-        mode,
-        prompt: plan.positive_prompt,
-        negative: plan.negative_prompt || '',
-        editProfile: plan.edit_profile || null,
-        editProfileLabel: plan.edit_profile_label || '',
-        seconds: plan.seconds_per_image || null,
-        agentName: plan.agent?.name || null,
-        userRequest: request,
-        note: plan.note || '',
-        photo,
-        subject,
-        ratio,
+    await submitCreateTask({
+        use_agent: useAgent, profile_id: state.modelId, mode, request,
+        previous_prompt: state.refineFrom?.mode === mode ? state.refineFrom.prompt : null,
+        ...agentRequestFields(), aspect_ratio: ratio, batch_size: state.batch,
+        reference_image: photo?.dataUrl || null, subject_image: subject?.dataUrl || null,
+        photo_name: photo?.name || null, subject_name: subject?.name || null,
         denoise: mode === 'variation' ? state.denoise : null,
-    }, job);
+    }, { mode, photo, subject, ratio, userRequest: request, denoise: state.denoise }, job);
 }
 
+/** Reruns use the same background pipeline, with the prompt already prepared. */
 async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
+    await submitCreateTask({
+        use_agent: false, profile_id: state.modelId, mode: plan.mode,
+        request: plan.userRequest || '', prompt: plan.prompt,
+        negative_prompt: plan.mode === 'edit' ? plan.negative || '' : null,
+        edit_profile: plan.mode === 'edit' ? plan.editProfile || null : null,
+        denoise: plan.mode === 'variation' ? (plan.denoise ?? DENOISE_DEFAULT) : null,
+        reference_image: plan.photo?.dataUrl || null, subject_image: plan.subject?.dataUrl || null,
+        photo_name: plan.photo?.name || null, subject_name: plan.subject?.name || null,
+        aspect_ratio: plan.ratio, batch_size: state.batch, agent_name: plan.agentName,
+    }, plan, job);
+}
+
+const CREATE_TASK_KEY = 'cmv_create_task';
+
+function savedCreateTask() {
+    try { return localStorage.getItem(CREATE_TASK_KEY); } catch { return null; }
+}
+
+async function submitCreateTask(payload, plan, job) {
     state.job = job;
-    paintRuntimeAction();
-    job.phase = 'queue';
+    job.taskId = crypto.randomUUID();
+    job.plan = plan;
+    job.startedAt = Date.now();
+    job.phase = payload.use_agent ? 'agent' : 'queue';
+    save(CREATE_TASK_KEY, job.taskId);
     canvas('generating');
     $('generation-stop').hidden = false;
-    // An offline ComfyUI is started by the generate request itself; say so instead of "sending".
-    const colabCold = state.backend === 'colab' && state.colab?.state !== 'ready';
-    const coldStart = state.backend !== 'colab' && state.health?.comfyui_online === false;
-    // The start itself shows in the launch toast; the canvas only says the image waits for it.
-    job.launch = colabCold ? 'colab' : coldStart ? 'local' : null;
-    job.launchStartedAt = Date.now();
-    if (job.launch) setGenerating('Queued', launchWaitText(job.launch));
-    else setGenerating(state.backend === 'colab' ? 'Sending to Colab…' : 'Sending to ComfyUI…',
-        plan.agentName ? `Prompt by ${plan.agentName}` : '');
-    paintLaunch();
-    createButton(true, 8, 'Queueing…');
-    if (plan.note) showNote(plan.note);
-    let data;
+    resetAgentStream();
+    if (payload.use_agent) startAgentTimer(job.startedAt);
+    else paintTaskQueue(job);
     try {
-        data = await json('/api/simple/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                profile_id: state.modelId,
-                mode: plan.mode,
-                prompt: plan.prompt,
-                user_request: plan.userRequest || '',
-                negative_prompt: plan.mode === 'edit' ? plan.negative || '' : null,
-                edit_profile: plan.mode === 'edit' ? plan.editProfile || null : null,
-                denoise: plan.mode === 'variation' ? (plan.denoise ?? DENOISE_DEFAULT) : undefined,
-                reference_image: plan.mode === 'text' ? null : plan.photo?.dataUrl || null,
-                subject_image: plan.mode === 'edit' ? plan.subject?.dataUrl || null : null,
-                aspect_ratio: plan.ratio,
-                batch_size: state.batch,
-                agent_name: plan.agentName,
-            }),
+        const data = await json('/api/simple/tasks', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, task_id: job.taskId }),
         });
+        if (state.job !== job) return;
+        await applyTaskSnapshot(job, data);
+        if (state.job === job) pollRuns(job);
     } catch (err) {
         if (state.job !== job) return;
-        abortJob();
-        handleGenerateError(err);
-        return;
+        if (err.status) {
+            try { localStorage.removeItem(CREATE_TASK_KEY); } catch {}
+            abortJob();
+            handleGenerateError(err);
+        } else {
+            showNote('Reconnecting to the task…');
+            pollRuns(job);
+        }
     }
-    if (state.job !== job) return;
-    if (coldStart) {
-        loadHealth(true);
-        loadRuntimeSummary();
-    }
-    if (state.backend === 'colab') loadColabRuntime();
-    plan.editProfile = data.edit_profile || plan.editProfile;
-    plan.seconds = data.seconds_per_image || plan.seconds || TXT2IMG_SECONDS;
-    plan.width = data.width;
-    plan.height = data.height;
-    Object.assign(job, {
-        phase: 'running',
-        plan,
-        runIds: data.run_ids || [data.run_id],
-        done: new Set(),
-        outputs: new Map(),
-        failed: [],
-        live: new Map(),
-        remote: new Map(),
-        startedAt: Date.now(),
+}
+
+function paintTaskQueue(job) {
+    stopAgentTimer();
+    const kind = job.backend || state.backend;
+    job.launch = kind === 'colab' ? 'colab' : state.health?.comfyui_online === false ? 'local' : null;
+    job.launchStartedAt ||= job.startedAt;
+    canvas('generating');
+    setGenerating('Queued', launchWaitText(job.launch || kind));
+    createButton(true, 8, 'Queueing…');
+    paintLaunch();
+    paintRuntimeAction();
+}
+
+async function taskPhoto(dataUrl, name) {
+    if (!dataUrl) return null;
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+        image.src = dataUrl;
     });
-    job.total = job.runIds.length;
-    state.lastRun = { ...plan, runIds: job.runIds, time: Date.now() };
-    persistLastRun();
-    addSessionEntry(state.lastRun);
-    clearRefine();
-    pollRuns(job);
+    return { dataUrl, objectUrl: dataUrl, name: name || 'photo', width: image.naturalWidth, height: image.naturalHeight };
+}
+
+async function restoreCreateTask() {
+    const taskId = savedCreateTask();
+    if (!taskId || state.job) return;
+    const job = { taskId, phase: 'restoring', cancelled: false, plan: {}, startedAt: Date.now() };
+    state.job = job;
+    state.resultRequest += 1;
+    canvas('generating');
+    setGenerating('Restoring the task…');
+    createButton(true, 2, 'Reconnecting…');
+    $('generation-stop').hidden = false;
+    try {
+        const data = await json('/api/simple/tasks/' + encodeURIComponent(taskId) + '?include_request=1');
+        if (state.job !== job) return;
+        const req = data.request;
+        const [photo, subject] = await Promise.all([
+            taskPhoto(req.reference_image, req.photo_name), taskPhoto(req.subject_image, req.subject_name),
+        ]);
+        if (state.job !== job) return;
+        state.photo = photo;
+        state.subject = subject;
+        state.batch = req.batch_size;
+        state.denoise = req.denoise ?? state.denoise;
+        if (req.mode === 'text') state.ratio = req.aspect_ratio;
+        else state.photoRatio = req.aspect_ratio;
+        $('prompt').value = req.request || '';
+        $('prompt').dispatchEvent(new Event('input'));
+        setMode(req.mode);
+        if (req.mode === 'edit') setEditKind(subject ? 'reference' : 'text');
+        syncBatch();
+        paintDenoise();
+        job.plan = { mode: req.mode, photo, subject, ratio: req.aspect_ratio,
+            userRequest: req.request, denoise: req.denoise };
+        const copy = refCopy(req.mode);
+        state.resultRefs = [
+            photo && { label: copy.main[0], src: photo.dataUrl },
+            subject && { label: copy.subject[0], src: subject.dataUrl },
+        ].filter(Boolean);
+        job.startedAt = Date.parse(data.created_at.replace(' ', 'T') + 'Z') || Date.now();
+        await applyTaskSnapshot(job, data);
+        if (state.job === job) pollRuns(job);
+    } catch (err) {
+        if (state.job !== job) return;
+        if (err.status === 404) {
+            try { localStorage.removeItem(CREATE_TASK_KEY); } catch {}
+            abortJob();
+            error('Task not found', 'The saved task is no longer available in this app.');
+        } else {
+            state.poll = setTimeout(() => {
+                if (state.job !== job) return;
+                state.job = null;
+                restoreCreateTask();
+            }, 1500);
+            showNote('Reconnecting to the task…');
+        }
+    }
+}
+
+async function applyTaskSnapshot(job, data) {
+    if (state.job !== job) return;
+    job.backend = data.backend;
+    const previousPhase = job.phase;
+    job.phase = data.phase;
+    if (data.plan) {
+        const prepared = data.plan;
+        const queued = data.queue_result || {};
+        Object.assign(job.plan, {
+            prompt: prepared.positive_prompt, negative: prepared.negative_prompt || '',
+            editProfile: queued.edit_profile || prepared.edit_profile || null,
+            editProfileLabel: prepared.edit_profile_label || '',
+            agentName: prepared.agent?.name || null, note: prepared.note || '',
+            seconds: queued.seconds_per_image || prepared.seconds_per_image || TXT2IMG_SECONDS,
+            width: queued.width || prepared.width, height: queued.height || prepared.height,
+        });
+        if (job.plan.note && job.shownNote !== job.plan.note) {
+            job.shownNote = job.plan.note;
+            showNote(job.plan.note);
+        }
+    }
+    if (job.phase === 'agent' && !data.is_complete) {
+        if (!state.agentTimer) startAgentTimer(job.startedAt);
+        const progress = data.agent_progress;
+        const signature = JSON.stringify(progress);
+        if (progress && signature !== job.agentSignature) {
+            job.agentSignature = signature;
+            resetAgentStream();
+            for (const log of progress.logs || []) paintAgentProgress({ log });
+            paintAgentProgress({ ...progress, log: null });
+        }
+    } else if (job.phase === 'queue' && !data.is_complete) {
+        paintTaskQueue(job);
+    }
+    if (job.phase === 'running' || data.run_ids?.length) {
+        stopAgentTimer();
+        job.runIds = data.run_ids;
+        job.total = job.runIds.length;
+        job.done = new Set();
+        job.outputs = new Map();
+        job.failed = [];
+        job.live = new Map();
+        job.remote = new Map();
+        for (const snapshot of data.runs || []) {
+            const id = snapshot.run.id;
+            if (snapshot.live) job.live.set(id, snapshot.live);
+            if (snapshot.remote) job.remote.set(id, snapshot.remote);
+            if (snapshot.outputs?.length) job.outputs.set(id, snapshot.outputs);
+            if (snapshot.is_complete) {
+                job.done.add(id);
+                if (snapshot.status !== 'completed') job.failed.push(snapshot);
+            }
+        }
+        if (data.queue_result || job.phase === 'running') {
+            state.lastRun = { ...job.plan, runIds: job.runIds, time: job.startedAt, taskId: job.taskId };
+            persistLastRun();
+            if (!state.session.some(entry => entry.key === job.runIds.join(','))) addSessionEntry(state.lastRun);
+            clearRefine();
+        }
+        const outputs = data.outputs || [];
+        const signature = outputs.map(output => output.id).join(',');
+        if (outputs.length && signature !== job.outputSignature) {
+            job.outputSignature = signature;
+            await renderResult(outputs, false);
+            if (state.job !== job) return;
+        } else if (!outputs.length && previousPhase !== 'running') canvas('generating');
+        if (data.is_complete) {
+            if (data.status === 'cancelled') job.cancelled = true;
+            finishRuns(job, outputs);
+            return;
+        }
+        const finished = job.done.size;
+        const total = job.total;
+        const current = Math.min(total, finished + 1);
+        const progress = runProgress(job);
+        createButton(true, progress.percent, total > 1 ? finished + ' of ' + total + ' ready' : progress.percent + '%');
+        const detail = [job.plan.editProfileLabel, progress.stage, progress.elapsed, progress.eta].filter(Boolean).join(' · ');
+        if (!outputs.length && progress.waiting) setGenerating('Queued', launchWaitText('colab'));
+        else if (!outputs.length) setGenerating(total > 1 ? 'Creating image ' + current + ' of ' + total + '…' : 'Creating the image…', detail);
+        paintLaunch();
+        paintResultProgress(['Image ' + current + ' of ' + total, progress.stage, progress.eta].filter(Boolean).join(' · '));
+    } else if (data.is_complete) {
+        abortJob();
+        if (data.status === 'cancelled') showNote('Generation was stopped.');
+        else handleGenerateError({ data: data.error, status: data.error?.status, message: data.error?.error || 'The task failed.' });
+    }
 }
 
 const LIVE_STAGES = {
@@ -1371,35 +1518,21 @@ function runProgress(job) {
 
 function pollRuns(job) {
     clearInterval(state.poll);
+    let polling = false;
     const tick = async () => {
-        if (state.job !== job || job.phase !== 'running') return;
-        const pending = job.runIds.filter(id => !job.done.has(id));
-        await Promise.all(pending.map(async id => {
-            try {
-                const data = await json(`/api/simple/runs/${id}`);
-                if (data.live) job.live.set(id, data.live);
-                if (data.remote) job.remote.set(id, data.remote);
-                if (Array.isArray(data.outputs) && data.outputs.length) job.outputs.set(id, data.outputs);
-                if (data.is_complete) {
-                    job.done.add(id);
-                    if (data.status !== 'completed') job.failed.push(data);
-                }
-            } catch {}
-        }));
-        if (state.job !== job) return;
-        const outputs = job.runIds.flatMap(id => job.outputs.get(id) || []);
-        if (outputs.length && outputs.length !== state.lastOutputs.length) await renderResult(outputs, false);
-        const finished = job.done.size;
-        const total = job.total;
-        const current = Math.min(total, finished + 1);
-        const progress = runProgress(job);
-        createButton(true, progress.percent, total > 1 ? `${Math.min(finished, total)} of ${total} ready` : `${progress.percent}%`);
-        const detail = [job.plan.editProfileLabel, progress.stage, progress.elapsed, progress.eta].filter(Boolean).join(' · ');
-        if (!outputs.length && progress.waiting) setGenerating('Queued', launchWaitText('colab'));
-        else if (!outputs.length) setGenerating(total > 1 ? `Creating image ${current} of ${total}…` : 'Creating the image…', detail);
-        paintLaunch();
-        paintResultProgress(finished < total ? [`Image ${current} of ${total}`, progress.stage, progress.eta].filter(Boolean).join(' · ') : '');
-        if (finished >= total) finishRuns(job, outputs);
+        if (state.job !== job || polling) return;
+        polling = true;
+        try {
+            const data = await json('/api/simple/tasks/' + encodeURIComponent(job.taskId));
+            await applyTaskSnapshot(job, data);
+        } catch (err) {
+            if (state.job === job && err.status === 404) {
+                abortJob();
+                error('Task not found', 'The saved task is no longer available in this app.');
+            }
+        } finally {
+            polling = false;
+        }
     };
     state.poll = setInterval(tick, 1000);
     tick();
@@ -1445,19 +1578,17 @@ function runErrorText(data) {
 
 async function stopGeneration() {
     const job = state.job;
-    if (!job) return;
-    job.cancelled = true;
-    if (job.phase === 'agent' || job.phase === 'queue') {
-        job.controller?.abort();
-        stopAgentTimer();
-        abortJob();
-        showNote('Stopped. The agent may still finish in the background; its answer is ignored.');
-        return;
-    }
+    if (!job?.taskId) return;
     $('generation-stop').disabled = true;
-    const pending = (job.runIds || []).filter(id => !job.done.has(id));
-    await Promise.allSettled(pending.map(id => json(`/api/simple/runs/${id}/cancel`, { method: 'POST' })));
-    $('generation-stop').disabled = false;
+    try {
+        const data = await json('/api/simple/tasks/' + encodeURIComponent(job.taskId) + '/cancel', { method: 'POST' });
+        job.cancelled = data.status === 'cancelled';
+        await applyTaskSnapshot(job, data);
+    } catch (err) {
+        error('Could not stop the task', err.message);
+    } finally {
+        $('generation-stop').disabled = false;
+    }
 }
 
 function abortJob() {
@@ -1819,6 +1950,7 @@ function runLabel(run) {
 function sessionRecord(run) {
     return {
         key: (run.runIds || []).join(','),
+        taskId: run.taskId || null,
         time: run.time || Date.now(),
         mode: run.mode,
         userRequest: run.userRequest || '',
@@ -2328,56 +2460,6 @@ function esc(value) {
     const div = document.createElement('div');
     div.textContent = String(value ?? '');
     return div.innerHTML;
-}
-
-/**
- * POST that answers with server-sent events: ``progress`` events go to ``onProgress``,
- * the ``result`` event resolves and an ``error`` event rejects like ``json()`` does.
- * A plain JSON answer (a validation error before the stream starts) is handled too.
- */
-async function streamJson(url, options, onProgress) {
-    const response = await fetch(url, options);
-    const type = response.headers.get('Content-Type') || '';
-    if (!type.includes('text/event-stream')) {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw Object.assign(new Error(data.error || `${response.status} ${response.statusText}`), { data, status: response.status });
-        }
-        return data;
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    for (;;) {
-        // eslint-disable-next-line no-await-in-loop, no-restricted-syntax -- stream chunks arrive in order, one at a time
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let boundary = buffer.indexOf('\n\n');
-        while (boundary >= 0) {
-            const block = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            boundary = buffer.indexOf('\n\n');
-            const payload = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
-            if (!payload) continue;
-            let event;
-            try {
-                event = JSON.parse(payload);
-            } catch {
-                continue;
-            }
-            if (event.event === 'progress') {
-                onProgress?.(event);
-            } else if (event.event === 'result') {
-                reader.cancel().catch(() => {});
-                return event;
-            } else if (event.event === 'error') {
-                reader.cancel().catch(() => {});
-                throw Object.assign(new Error(event.error || 'The agent failed.'), { data: event, status: event.status || 500 });
-            }
-        }
-    }
-    throw new Error('The agent stream ended without an answer.');
 }
 
 async function json(url, options) {

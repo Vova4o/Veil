@@ -13,6 +13,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Any
 
+from . import catalog_cache
 from .cli import (
     CLIIntegrationError,
     _subprocess_options,
@@ -23,8 +24,7 @@ from .cli import (
 
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9/_.:-]{0,199}")
 _LEVEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}")
-_TTL = 600
-_cache: dict[tuple[str, str], tuple[float, list[dict[str, Any]]]] = {}
+_cache = catalog_cache.memory
 _locks = {host: threading.Lock() for host in ("codex", "claude")}
 
 
@@ -217,12 +217,11 @@ def native_cli_models(host: str, *, refresh: bool = False) -> tuple[str | None, 
     if executable is None:
         return None, []
     with _locks[host]:
-        key = (host, executable)
-        cached = _cache.get(key)
-        if cached and not refresh and time.monotonic() - cached[0] < _TTL:
-            return executable, cached[1]
+        cached = catalog_cache.load(host, executable) if not refresh else None
+        if cached:
+            return executable, cached
         models = _codex_models(executable) if host == "codex" else _claude_models(executable)
         if not models:
             raise CLIIntegrationError(f"{host} returned no readable model catalog.")
-        _cache[key] = (time.monotonic(), models)
+        catalog_cache.save(host, executable, models)
         return executable, models

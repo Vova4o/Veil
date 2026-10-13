@@ -297,10 +297,10 @@ class _LocalBackend:
         return None
 
 
-def _backend() -> InferenceBackend:
+def _backend(kind: BackendKind | None = None) -> InferenceBackend:
     """Where Create runs its graphs: the local ComfyUI, or a Colab GPU when chosen."""
     store = _config_store()
-    if store.remote_settings()["backend"] == "colab":
+    if (kind or store.remote_settings()["backend"]) == "colab":
         from app.remote.colab_backend import colab_backend
 
         return colab_backend(store)
@@ -689,6 +689,67 @@ class SimpleAgentRequest(BaseModel):
     agent_host: Literal["opencode", "antigravity", "codex", "claude"] | None = None
 
 
+class SimpleCreateRequest(SimpleAgentRequest):
+    task_id: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    use_agent: bool = True
+    batch_size: int = Field(default=1, ge=1, le=4)
+    denoise: float | None = Field(default=None, ge=0, le=1)
+    prompt: str | None = None
+    negative_prompt: str | None = None
+    edit_profile: str | None = None
+    agent_name: str | None = None
+    seed: int = -1
+    photo_name: str | None = None
+    subject_name: str | None = None
+
+
+def _create_task_service():
+    from .create_tasks import CreateTaskService
+    # Route dispatch is serialized only while creating the shared coordinator.
+    with CREATE_TASK_LOCK:
+        if "CREATE_TASK_SERVICE" not in current_app.config:
+            current_app.config["CREATE_TASK_SERVICE"] = CreateTaskService(current_app._get_current_object())
+        return current_app.config["CREATE_TASK_SERVICE"]
+
+
+CREATE_TASK_LOCK = threading.Lock()
+
+
+@simple_blueprint.route("/api/simple/tasks", methods=["POST"])
+def simple_create_task():
+    try:
+        req = SimpleCreateRequest.model_validate(request.get_json(silent=True) or {})
+        if req.mode != "edit" and req.subject_image:
+            raise CreateAgentError("A second photo is only used in edit mode.", code="edit_only", status=400)
+        _prepare_agent_request(req)
+        if not req.use_agent and not (req.prompt or req.request).strip():
+            raise CreateAgentError("The prompt is empty.", code="prompt_required", status=400)
+    except CreateAgentError as exc:
+        return jsonify(_agent_error_payload(exc)), exc.status
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        return jsonify(_create_task_service().start(req.task_id, req.model_dump(mode="json"))), 202
+    except ValueError as exc:
+        return jsonify({"error": str(exc), "code": "task_id_conflict"}), 409
+
+
+@simple_blueprint.route("/api/simple/tasks/<task_id>", methods=["GET"])
+def simple_get_task(task_id: str):
+    try:
+        return jsonify(_create_task_service().snapshot(task_id, include_request=request.args.get("include_request") == "1"))
+    except KeyError:
+        return jsonify({"error": "Create task was not found.", "code": "task_not_found"}), 404
+
+
+@simple_blueprint.route("/api/simple/tasks/<task_id>/cancel", methods=["POST"])
+def simple_cancel_task(task_id: str):
+    try:
+        return jsonify(_create_task_service().cancel(task_id))
+    except KeyError:
+        return jsonify({"error": "Create task was not found.", "code": "task_not_found"}), 404
+
+
 MAX_SOURCE_IMAGE_BYTES = 40 * 1024 * 1024
 PHOTO_MODES = {"reference", "variation", "edit"}
 
@@ -794,8 +855,10 @@ def _upload_input_image(client: ComfyUIJobClient, prefix: str, data: bytes) -> s
     return f"{subfolder}/{uploaded['name']}" if subfolder else str(uploaded["name"])
 
 
-def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
+def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, backend=None, on_queued=None, cancelled=None):
     """Queue a fixed-recipe profile run: one ComfyUI prompt per image with consecutive seeds."""
+    if cancelled and cancelled():
+        return jsonify({"error": "Generation was stopped.", "code": "cancelled"}), 409
     if req.mode not in profile.modes:
         return jsonify({"error": f"Mode '{req.mode}' is not supported by {profile.name}.", "code": "mode_unsupported"}), 400
 
@@ -827,10 +890,12 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     else:
         width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
 
-    backend = _backend()
+    backend = backend or _backend()
     # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
     if not backend.ensure_ready(timeout=120.0):
         return _backend_not_ready_response(backend)
+    if cancelled and cancelled():
+        return jsonify({"error": "Generation was stopped.", "code": "cancelled"}), 409
 
     health = backend.profile_health(profile)
     if health["status"] == "not_installed":
@@ -895,6 +960,8 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     client_id = monitor.client_id if monitor is not None else str(uuid.uuid4())
     runs: list[dict[str, Any]] = []
     for index, seed in enumerate(seeds):
+        if cancelled and cancelled():
+            break
         try:
             if req.mode == "edit":
                 workflow = compile_edit_workflow(
@@ -968,6 +1035,11 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
             monitor.track(prompt_id, workflow)
         run = wf_store.create_run(draft_id=draft.id, prompt_id=prompt_id, client_id=client_id)
         runs.append({"run_id": run.id, "prompt_id": prompt_id, "seed": seed})
+        if on_queued:
+            on_queued(runs[-1])
+
+    if not runs:
+        return jsonify({"error": "Generation was stopped.", "code": "cancelled"}), 409
 
     return jsonify({
         "ok": True,
@@ -995,21 +1067,35 @@ def simple_agent():
         req = SimpleAgentRequest.model_validate(request.get_json(silent=True) or {})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
+    try:
+        run_kwargs, finish = _prepare_agent_request(req)
+    except CreateAgentError as exc:
+        return jsonify(_agent_error_payload(exc)), exc.status
+    if request.args.get("stream") == "1":
+        return _stream_agent_run(run_kwargs, finish)
+    try:
+        result = run_create_agent(**run_kwargs)
+    except CreateAgentError as exc:
+        return jsonify(_agent_error_payload(exc)), exc.status
+    return jsonify(finish(result))
+
+
+def _prepare_agent_request(req: SimpleAgentRequest):
     profile = APPROVED_PROFILES.get(req.profile_id or _default_profile_id())
     if not profile:
-        return jsonify({"error": "Create has no model profile.", "code": "profile_missing"}), 500
+        raise CreateAgentError("Create has no model profile.", code="profile_missing", status=500)
     if req.mode not in profile.modes:
-        return jsonify({"error": f"Mode '{req.mode}' is not supported.", "code": "mode_unsupported"}), 400
+        raise CreateAgentError(f"Mode '{req.mode}' is not supported.", code="mode_unsupported", status=400)
 
     image = subject = None
     if req.mode in PHOTO_MODES:
         image = _decode_image_data_url(req.reference_image)
         if image is None:
-            return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
+            raise CreateAgentError("Attach a valid image for this mode.", code="image_required", status=400)
     if req.mode == "edit" and req.subject_image:
         subject = _decode_image_data_url(req.subject_image)
         if subject is None:
-            return jsonify({"error": "The second photo is not a valid image.", "code": "subject_invalid"}), 400
+            raise CreateAgentError("The second photo is not a valid image.", code="subject_invalid", status=400)
     if req.mode == "variation" and image:
         dimensions = variation_dimensions(image[1])
     else:
@@ -1040,13 +1126,7 @@ def simple_agent():
                 payload["seconds_per_image"] = chosen.seconds
         return payload
 
-    if request.args.get("stream") == "1":
-        return _stream_agent_run(run_kwargs, finish)
-    try:
-        result = run_create_agent(**run_kwargs)
-    except CreateAgentError as exc:
-        return jsonify(_agent_error_payload(exc)), exc.status
-    return jsonify(finish(result))
+    return run_kwargs, finish
 
 
 def _agent_error_payload(exc: CreateAgentError) -> dict[str, Any]:

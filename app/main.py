@@ -450,6 +450,9 @@ def api_folders_events():
                 if state != last_state:
                     yield f"data: {json.dumps(state)}\n\n"
                     last_state = state
+                else:
+                    # WSGI detects departed clients only when the stream writes again.
+                    yield ": keep-alive\n\n"
                 has_processing = any(
                     f.status == "processing"
                     or f.source_status in ("reconnecting", "unavailable")
@@ -1197,6 +1200,10 @@ def configure_runtime(paths: RuntimePaths | None = None) -> RuntimePaths:
     from .source_monitor import sync_configured_sources
 
     sync_configured_sources(store)
+    # SaveImage writes into CMV/Create: include its subfolders and backfill old results.
+    from .comfyui.create_outputs import ensure_output_source
+    with app.app_context():
+        ensure_output_source(store)
     return runtime_paths
 
 

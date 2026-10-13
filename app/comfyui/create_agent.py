@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from app.ai import opencode_host
+from app.ai import catalog_cache, opencode_host
 from app.ai.cli import CLIIntegrationError
 from app.ai.execution import ExecutionRouter, ExecutionRouterError
 from app.ai.model_catalog import family_vision, native_cli_models
@@ -280,7 +280,12 @@ def default_free_model(executable: str) -> opencode_host.OpenCodeModel | None:
     if cached and time.monotonic() - cached[0] < _FREE_MODEL_TTL_SECONDS:
         return cached[1]
     try:
-        models = opencode_host.list_models(executable, provider=opencode_host.ZEN_PROVIDER)
+        cards = catalog_cache.load("opencode", executable) or catalog_cache.load("opencode-zen", executable)
+        if cards:
+            models = [_opencode_card(card) for card in cards if card.get("provider") == opencode_host.ZEN_PROVIDER]
+        else:
+            models = opencode_host.list_models(executable, provider=opencode_host.ZEN_PROVIDER)
+            catalog_cache.save("opencode-zen", executable, [model.to_dict() for model in models])
     except CLIIntegrationError as exc:
         logger.info("OpenCode model list failed for %s: %s", executable, exc)
         models = []
@@ -299,17 +304,23 @@ def default_free_model(executable: str) -> opencode_host.OpenCodeModel | None:
     return chosen
 
 
-_MODELS_TTL_SECONDS = 10 * 60
-_models_cache: dict[str, tuple[float, list[opencode_host.OpenCodeModel]]] = {}
+_models_cache = catalog_cache.memory
+
+
+def _opencode_card(card: dict[str, Any]) -> opencode_host.OpenCodeModel:
+    return opencode_host.OpenCodeModel(
+        id=card["id"], provider=card["provider"], name=card["name"], vision=card.get("vision"),
+        free=card.get("free"), variants=tuple(card.get("variants") or ()),
+    )
 
 
 def opencode_models(executable: str, *, refresh: bool = False) -> list[opencode_host.OpenCodeModel]:
     """Every model one installation can run, with its card (vision, free, variants); cached."""
-    cached = _models_cache.get(executable)
-    if cached and not refresh and time.monotonic() - cached[0] < _MODELS_TTL_SECONDS:
-        return cached[1]
+    cached = catalog_cache.load("opencode", executable) if not refresh else None
+    if cached:
+        return [_opencode_card(card) for card in cached]
     models = opencode_host.list_models(executable)
-    _models_cache[executable] = (time.monotonic(), models)
+    catalog_cache.save("opencode", executable, [model.to_dict() for model in models])
     return models
 
 
@@ -355,7 +366,7 @@ def chosen_opencode_profile(model_id: str, variant: str | None = None) -> dict[s
 _AGY_LEVEL = re.compile(r"^(?P<base>.+?)-(?P<level>minimal|low|medium|high|xhigh|max)$")
 _AGY_NAME_LEVEL = re.compile(r"^(?P<name>.+?)\s*\((?P<level>[^()]+)\)$")
 _AGY_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,80}")
-_agy_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_agy_cache = catalog_cache.memory
 
 
 def parse_antigravity_models(output: str) -> list[dict[str, Any]]:
@@ -394,16 +405,16 @@ def antigravity_models(*, refresh: bool = False) -> tuple[str | None, list[dict[
     executable = find_executable("antigravity")
     if executable is None:
         return None, []
-    cached = _agy_cache.get(executable)
-    if cached and not refresh and time.monotonic() - cached[0] < _MODELS_TTL_SECONDS:
-        return executable, cached[1]
+    cached = catalog_cache.load("antigravity", executable) if not refresh else None
+    if cached:
+        return executable, cached
     result = run_command([executable, "models"], timeout=30, max_timeout=30)
     if result.returncode != 0:
         raise CLIIntegrationError(result.stderr or result.stdout or "Antigravity could not list its models.")
     models = parse_antigravity_models(result.stdout)
     if not models:
         raise CLIIntegrationError("Antigravity returned no readable model catalog.")
-    _agy_cache[executable] = (time.monotonic(), models)
+    catalog_cache.save("antigravity", executable, models)
     return executable, models
 
 

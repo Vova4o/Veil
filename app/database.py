@@ -520,6 +520,9 @@ _INITIAL_SCHEMA_SQL = """
     CREATE INDEX IF NOT EXISTS idx_model_downloads_status ON model_downloads(status);
     CREATE INDEX IF NOT EXISTS idx_workflow_drafts_template ON workflow_drafts(template_id, id);
     CREATE INDEX IF NOT EXISTS idx_workflow_drafts_source ON workflow_drafts(source_asset_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_create_task_id
+        ON workflow_drafts(json_extract(resource_selections_json, '$.create_task_id'))
+        WHERE template_id = 'create-task';
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_draft ON workflow_runs(draft_id, id);
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
     CREATE INDEX IF NOT EXISTS idx_ai_ratings_image ON ai_ratings(image_id);

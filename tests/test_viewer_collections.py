@@ -9,6 +9,15 @@ from app.schemas import FolderInfo
 
 
 class ViewerSourceEventsTest(unittest.TestCase):
+    def test_unchanged_sources_emit_heartbeats_to_release_departed_clients(self) -> None:
+        with patch("app.main.db.get_folders", return_value=[]), patch("app.main.time.sleep"):
+            response = app.test_client().get("/api/folders/events", buffered=False)
+            try:
+                self.assertTrue(next(response.response).startswith(b"data: "))
+                self.assertEqual(next(response.response), b": keep-alive\n\n")
+            finally:
+                response.close()
+
     def test_source_events_include_mixed_media_totals_and_progress(self) -> None:
         folder = FolderInfo(
             id=1, path="F:/fixtures/media", name="Mixed source",

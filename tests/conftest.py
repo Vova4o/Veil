@@ -19,6 +19,12 @@ import pytest
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_model_catalog_cache(tmp_path, monkeypatch):
+    from app.ai import catalog_cache
+    monkeypatch.setattr(catalog_cache, "cache_directory", lambda: tmp_path / "model-catalogs")
+
+
 def _live_workers() -> dict[int, str]:
     return {
         thread.ident: f"{thread.name} (daemon={thread.daemon})"
