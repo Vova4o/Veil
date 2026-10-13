@@ -45,10 +45,12 @@ Strictly identify the visual medium of the reference. The agent MUST NOT default
 
 Never render skin as a flat, airbrushed, textureless surface:
 
-1. Micro-texture: fine visible pores, subtle skin grain, natural micro-relief across shoulders, chest and thighs.
-2. Areolas: dimensional detail — "textured areola surface with fine Montgomery gland bumps, natural radial creasing and a slightly raised contour blending into the surrounding breast skin"; never flat featureless circles.
-3. Nipples: natural projection, subtle surface texture, realistic color gradation from the areola edge to the tip.
-4. Realism anchors (at least two): fine vellus hair catching the backlight, visible pores, warm-to-cool undertone variation, soft skin creases at joints, temporary marks from waistbands or underbands, scattered beauty marks or faint freckles.
+1. Micro-texture: fine visible pores, subtle skin grain, natural micro-relief across shoulders, chest and thighs, with organic subsurface scattering.
+2. Areola & Nipple Morphology (Body-Proportional Fidelity):
+   - **Default (Slender, Petite, Athletic, & Aesthetic Figures):** Intimate features MUST match the subject's delicacy and build. Describe areolas and nipples as neat, compact, and delicate: `"neat, compact rosy-pink areolas with a soft natural gradient contour blending seamlessly into the surrounding breast skin, delicate small nipples with subtle natural projection, and smooth taut breast contours"`. FORBIDDEN to generate sprawling, oversized areolas, prominent bumps, radial wrinkling/creases, or swollen puffy nipples by default.
+   - **Voluptuous & Curvy Figures:** Maintain neat, proportional areolas scaled naturally to bust volume with realistic soft-tissue weight and gravitational drape. Realism comes from organic drape and cleavage softness, never from enlarged or distorted areolas.
+   - **Trigger-Only Tier (Macromastia / Vascularity / Heavy Fetish):** Prominent Montgomery tubercles, visible delicate blue veins, expanded areolas, and heavily projected/turgid nipples are STRICTLY restricted to explicit user prompts (e.g., `macromastia`, `макромастия`, `veiny breasts`, `вены`, `puffy areolas`, `large areolas`, `набухшие соски`, `engorged`). Never add them unprompted.
+3. Realism anchors (at least two): fine vellus hair catching the backlight, visible skin pores, subtle warm-to-cool undertone variation, soft skin creases at joints, temporary marks from waistbands or underbands, scattered beauty marks or faint freckles.
 
 ## PHASE 3B — MANUAL CONTACT PROTOCOL (no devices)
 

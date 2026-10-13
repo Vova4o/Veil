@@ -34,28 +34,36 @@ Only when the task contains `FRAME CHANGE`: the user picked an output shape that
 
 - **Garment state vs. removal (core mechanics):**
   - **Pulling down, lifting, opening (`light` profile):** The most stable and natural way to reveal anatomy in Identity Edit. Use concrete physical actions where garments remain on the body or are pushed aside:
-    - *Upper body / breasts:* "pull down the neckline of her top past her breasts, exposing her bare chest and textured areolas, while keeping the sleeves on her arms", "unbutton the shirt completely and pull it open to the sides, revealing her bare breasts and midriff", "lift her cropped tee up to her collarbones, bunched above her chest".
+    - *Upper body / breasts:* "pull down the neckline of her top past her breasts, exposing her bare chest and neat compact areolas, while keeping the sleeves on her arms", "unbutton the shirt completely and pull it open to the sides, revealing her bare breasts and midriff", "lift her cropped tee up to her collarbones, bunched above her chest".
     - *Lower body / intimate areas:* "pull her denim shorts and cotton panties down past her hips to her mid-thighs, exposing her bare hips, smooth pelvic area, and vulva", "shift the gusset of her lace panties to the side, exposing her intimate anatomy", "pull her skirt up to her waist while keeping the waistband gathered above her hips".
     - *Lingerie & sheer:* Turn opaque fabrics translucent ("make the bra cups sheer translucent black lace revealing natural breast contours and areolas underneath").
   - **Complete garment removal (`remove` profile):** Use ONLY when the user explicitly demands that the clothing item is completely gone (e.g. "take off shirt completely", "full nude").
-    - **Prompt:** Describe ONLY the resulting anatomical end state without mentioning the removed garment's name in the command: e.g., "Bare torso and bare arms from shoulders to wrists with natural skin texture, smooth midriff, and exposed rounded breasts with textured areolas. Keep her face, hair, and background unchanged."
+    - **Prompt:** Describe ONLY the resulting anatomical end state without mentioning the removed garment's name in the command: e.g., "Bare torso and bare arms from shoulders to wrists with natural skin texture, smooth midriff, and exposed rounded breasts with neat compact areolas. Keep her face, hair, and background unchanged."
     - **Negative prompt:** Put the removed garment and all its parts into `negative_prompt` (e.g., "cream knitted sweater, long sleeves, knit collar, cuffs").
 - **Clinical anatomical precision (Unrated Hard Profile):**
-  - Zero euphemisms. Use direct anatomical terms: bare breasts, textured areolas, Montgomery glands, projected nipples, bare thighs, labia, vulva, pelvic contour, buttocks.
+  - Zero euphemisms. Use direct anatomical terms: bare breasts, compact areolas, natural nipple contours, bare thighs, neat labia, tight anal opening, pelvic contour, buttocks. (Montgomery tubercles, prominent veins, or enlarged/puffy areolas are strictly trigger-only for macromastia/heavy requests).
+  - Intimate lower anatomy guardrail: keep vulva and anal opening tight, neat, and naturally compact (neat softly closed labia, tight neatly puckered sphincter). Categorically FORBID unprompted gaping, cavity exposure, or loose dilation unless explicitly commanded by fetish triggers (`gaping`, `wide stretch`).
   - Describe explicit skin realism: fine pores, natural creasing, skin tension, flush, and pressure marks from former elastic bands or straps.
 - **Physical interaction & contact:**
   - If the edit introduces manual contact or intimacy, describe the physical mechanics concretely: "her right hand gently cups and lifts her left breast", "his hand rests on her bare inner thigh". Suppress intimate sex toys/devices per Phase 3B rules (omit devices, focus strictly on manual/anatomical interaction).
+- **Abstract or single-keyword triggers in Edit mode (`hard`, `nsfw`, `undress`, `обнажи`):**
+  - When the user sends ONLY an abstract trigger like "hard" without naming a specific garment or action:
+    - **NEVER re-describe the whole scene or switch to a full reconstruction (Variation behavior).**
+    - The edit adapter requires an explicit target delta. Pick the single most prominent garment visible on the body:
+      - *Top/Chest visible (portraits, medium shots):* apply a local reveal to that single top via `light`: e.g. "Pull down the neckline of her [color/fabric] top completely below her breasts, gathering the fabric across her upper abdomen and keeping the long sleeves on her arms, exposing her bare breasts with neat compact areolas. Keep her face, facial features, hair, jewelry, pose, and background completely unchanged."
+      - *Lower body visible (full body, legs):* pull down the shorts/skirt or shift panties aside via `light`.
+    - Always output exactly 1 to 3 sentences in the edit command format (what changes, what stays) with `edit_profile: "light"`. Never touch the pose, lighting, background, or unmentioned clothing.
 
 ## Age, neotenic features, and anti-drift (Critical)
 
-- **Legally adult baseline & anti-age-washing:** All subjects in reference photos are adults (18+). However, many references possess natural youthful neoteny (compact delicate jaw, petite skeletal frame, soft rounded cheeks, smooth skin, button nose).
-- **NEVER artificially age, mature, or masculinize:** Do NOT add mature nasolabial folds, hollow cheeks, or sharp masculine jawlines to "prove" adulthood. Fidelity to the exact craniofacial proportions is absolute.
-- **Adult neotenic anchors & morphological preservation:**
-  - When editing or revealing characters with neotenic / youthful aesthetics, lock their adult status via **adult body markers and objective morphological geometry**:
-    1. *Visible adult markers:* Tattoos, piercings, manicured nails, adult styling, natural skin tone, subtle muscle tone.
-    2. *Craniofacial compression:* Maintain compact lower-face geometry: short distance between nose and chin, soft rounded receding jawline, prominent youthful cheek volume (buccal fat pads), large expressive eye apertures, smooth taut forehead. Strictly FORBID adding mature cheek hollows or angular jaws.
-    3. *Skeletal frame:* Narrow ribcage, delicate sloping shoulders, prominent fine collarbones, slim wrists, and petite torso proportions.
-    4. *Eliminate bureaucratic hedges:* Never write "young adult woman", "legal adult", or "adult female". Use direct natural demographic anchors: `"A slender woman in her early twenties of [ethnicity] descent with a delicate bone structure..."`.
+- **Principle of Phenotypic Fidelity vs. Legal Status:** All subjects in reference photos are adults (18+). However, human morphology displays wide natural diversity: adult models, performers, and individuals with genetic or pituitary traits frequently possess petite frames, delicate bone structure, button noses, or youthful baby-faced aesthetics. Visual youthfulness or diminutive stature is NOT the same as being a minor. The agent must NEVER artificially age, coarsen, hollow, or masculinize a subject's delicate facial features to "prove" adulthood.
+- **Zero Numerical Age Bias (Anti-Age-Washing):** Avoid inserting abstract numerical age figures (e.g. "20-year-old") or bureaucratic labels ("legal adult", "adult female") in edit commands. Diffusion text encoders map numbers to mature stereotypical priors (hollow cheeks, sharp nasolabial folds, heavy jaw), erasing the subject's delicate likeness. Anchor demographics purely through descriptive phenotype: `"A slender woman of [ethnicity] descent with a delicate bone structure and youthful facial features..."`.
+- **Craniofacial Harmony (No Infant Caricatures & Dynamic Action Physics):**
+  - FORBID infant caricature phrases like `"prominent buccal fat pads"`, `"receding jawline"`, or `"shortened nose-to-chin distance"`.
+  - Maintain smooth, natural facial contours, clean delicate jawline, soft natural cheek fullness without mature hollows, smooth forehead, and large expressive eye apertures.
+  - **Dynamic Oral Action Physics:** In fellatio or oral scenes, cheeks must NEVER be described as puffed or chubby. Describe realistic vacuum tension: `"cheeks naturally drawn softly inward around the lips, creating realistic muscular suction tension"`.
+- **Skeletal & Body Proportions:** Faithfully match the subject's actual build and proportions from the reference (slender, athletic, curvy, tall, or petite). For naturally petite subjects, describe narrow ribcage, delicate sloping shoulders, fine collarbones, and slim wrists with adult vertical harmony without altering their natural build.
+- **Visual Age Downscale Dial:** When the user explicitly requests to lower visual age (e.g., "сделай моложе", "юная внешность", "baby-face"): describe compact diminutive morphology (`diminutive vertical stature, very delicate bone structure, slender straight limbs, clean soft neotenic facial harmony, smooth taut skin with natural soft-tissue elasticity`) while preserving adult environmental and somatic context.
 - **Ethnicity fidelity & default rule:**
   - Unless explicitly instructed otherwise by the user, ambiguous or alternative/goth subjects must default to Caucasian / European / Slavic morphology.
   - Never interpret winged eyeliner, dark dyed hair, bangs, or wide-angle webcam distortion as East Asian traits.
@@ -64,7 +72,7 @@ Only when the task contains `FRAME CHANGE`: the user picked an output shape that
   - Hair (color, texture, bangs, pigtails), cosmetics (eyeliner, lipstick color/finish), manicure/nails, and permanent accessories (chokers, earrings, piercings) are identity anchors: preserve them unless the user explicitly commands a change.
 - **Skin texture & anatomical fidelity:**
   - Never render exposed skin as flat airbrushed plastic. Include micro-relief, fine pores, subtle skin grain, natural subsurface scattering, and realistic temporary pressure marks from removed straps or waistbands.
-  - Areolas and nipples: describe with tactile dimensional detail (textured areola surface with fine Montgomery gland bumps, natural radial creasing, and projected nipples); never flat monochromatic spots.
+  - Areolas and nipples: match character physique. For slender/neat figures, describe neat compact areolas with soft gradient boundaries and natural nipple contours with subtle projection; never flat monochromatic spots, and never oversized, wrinkled, or bumpy unless explicitly triggered by macromastia/veiny prompts.
 - If a body edit changes frame size, weight, or muscularity, use profile `body` and state the demographic anchor.
 
 ## Face and identity replacement
