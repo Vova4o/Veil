@@ -406,13 +406,15 @@ class CLIDetectionTest(unittest.TestCase):
         )
         models = {item.id: item for item in parse_verbose_models(output)}
         self.assertEqual(set(models), {"opencode/big-pickle", "opencode/claude-opus-5"})
+        self.assertEqual(models["opencode/claude-opus-5"].variants, ())
         self.assertEqual((models["opencode/big-pickle"].vision, models["opencode/big-pickle"].free), (False, True))
         self.assertEqual((models["opencode/claude-opus-5"].vision, models["opencode/claude-opus-5"].free), (True, False))
 
     def test_opencode_desktop_models_come_from_the_service_api(self):
         payload = {"data": [
             {"id": "muse-free", "providerID": "opencode", "name": "Muse Free",
-             "capabilities": {"input": ["text", "image"]}, "cost": [{"input": 0, "output": 0}]},
+             "capabilities": {"input": ["text", "image"]}, "cost": [{"input": 0, "output": 0}],
+             "variants": [{"id": "low", "settings": {}}, {"id": "high", "settings": {}}, {"id": "bad level!"}]},
             {"id": "pickle", "providerID": "opencode", "name": "Pickle",
              "capabilities": {"input": ["text"]}, "cost": [{"input": 0, "output": 0}]},
             {"id": "pro", "providerID": "google", "name": "Pro", "enabled": False,
@@ -428,6 +430,8 @@ class CLIDetectionTest(unittest.TestCase):
             [(item.id, item.vision, item.free) for item in models],
             [("opencode/muse-free", True, True), ("opencode/pickle", False, True)],
         )
+        # Reasoning levels come from the card; malformed names are dropped.
+        self.assertEqual([item.variants for item in models], [("low", "high"), ()])
 
     def test_opencode_installations_report_kind_and_generation(self):
         self.assertEqual(parse_version("opencode v2.0.24"), "2.0.24")

@@ -39,6 +39,13 @@ const REF_COPY = {
 };
 const LAYOUT_EASING = 'cubic-bezier(.16,1,.3,1)';
 
+const VISION_MODES = new Set(['reference', 'variation']);
+const AGENT_HOSTS = { opencode: 'OpenCode', codex: 'Codex', claude: 'Claude Code', antigravity: 'Antigravity' };
+// Integrations › Local AI tools › Display settings: which OpenCode providers and models to list.
+const MODEL_CATALOG_KEY = 'cmv_ai_model_catalog_v1';
+const DEFAULT_MODEL_CATALOG = { opencode: [], 'opencode-go': [] };
+const OPENCODE_PROVIDER_NAMES = { opencode: 'Zen', 'opencode-go': 'Go' };
+
 const state = {
     models: [],
     modelId: '',
@@ -56,6 +63,8 @@ const state = {
     slotFocus: 'main',
     refineFrom: null,
     agentStatus: null,
+    agentChoice: null,
+    agents: null,
     canvasWidth: null,
     ambient: [],
     ambientDeck: [],
@@ -110,6 +119,11 @@ function restore() {
     try {
         const mode = localStorage.getItem('cmv_create_mode');
         if (MODE_COPY[mode]) state.mode = mode;
+        const choice = JSON.parse(localStorage.getItem('cmv_create_agent') || 'null');
+        if (choice?.agentKind === 'opencode' && choice.model) state.agentChoice = choice;
+        if (choice?.agentKind === 'profile' && choice.id) state.agentChoice = choice;
+        if (choice?.agentKind === 'antigravity' && choice.model) state.agentChoice = choice;
+        if (['codex', 'claude'].includes(choice?.agentKind) && choice.model) state.agentChoice = choice;
         const ratio = localStorage.getItem('cmv_simple_ratio');
         if (RATIOS.includes(ratio)) state.ratio = ratio;
         const photoRatio = localStorage.getItem('cmv_create_photo_ratio');
@@ -464,8 +478,35 @@ async function pasteFromClipboard(slot) {
 // --- agent ---------------------------------------------------------------------------
 
 function currentAgent() {
+    const choice = state.agentChoice;
+    if (choice) return { label: agentLabel(choice), sees_images: choice.vision === true, choice };
     if (!state.agentStatus) return null;
-    return state.mode === 'text' ? state.agentStatus.text : state.agentStatus.photo;
+    const agent = state.mode === 'text' ? state.agentStatus.text : state.agentStatus.photo;
+    return agent ? { ...agent, label: agentLabel({ cli_type: agent.cli_type, kind: agent.kind, model: agent.model }) } : null;
+}
+
+function shortModel(model) {
+    const value = String(model || '');
+    return value.includes('/') ? value.slice(value.indexOf('/') + 1) : value;
+}
+
+/** "OpenCode · Exo Free · high", "Codex · gpt-5.5" */
+function agentLabel(choice) {
+    if (choice.agentKind === 'opencode') return ['OpenCode', choice.name || shortModel(choice.model), choice.variant].filter(Boolean).join(' · ');
+    if (choice.agentKind === 'antigravity') return ['Antigravity', choice.name || choice.model, choice.level].filter(Boolean).join(' · ');
+    if (['codex', 'claude'].includes(choice.agentKind)) return [AGENT_HOSTS[choice.agentKind], choice.name || choice.model, choice.variant].filter(Boolean).join(' · ');
+    const host = AGENT_HOSTS[choice.cli_type] || (choice.kind === 'openai_compatible' ? 'API' : 'Agent');
+    return [host, choice.cli_type === 'opencode' ? shortModel(choice.model) : choice.model].filter(Boolean).join(' · ');
+}
+
+/** What the agent call needs to run the picked agent. */
+function agentRequestFields() {
+    const choice = state.agentChoice;
+    if (choice?.agentKind === 'opencode') return { agent_model: choice.model, agent_variant: choice.variant || null };
+    if (choice?.agentKind === 'antigravity') return { agent_host: 'antigravity', agent_model: choice.model };
+    if (['codex', 'claude'].includes(choice?.agentKind)) return { agent_host: choice.agentKind, agent_model: choice.model, agent_variant: choice.variant || null };
+    if (choice?.agentKind === 'profile') return { agent_profile_id: choice.id };
+    return {};
 }
 
 async function loadAgentStatus() {
@@ -482,27 +523,305 @@ function paintAgentLine() {
     const line = $('agent-line');
     const text = $('agent-text');
     if (!line || !text) return;
-    line.classList.remove('is-missing', 'is-ready');
-    if (!state.agentStatus) {
+    line.classList.remove('is-missing');
+    // An open menu follows the mode: models that cannot see photos dim in photo modes.
+    if (!$('agent-menu').hidden) paintAgentMenu();
+    if (!state.agentStatus && !state.agentChoice) {
         text.textContent = 'Checking the agent…';
         return;
     }
     const agent = currentAgent();
     if (!agent) {
         line.classList.add('is-missing');
-        text.innerHTML = state.mode === 'reference'
-            ? 'No agent configured. <a href="/settings/ai">Set one up in Integrations</a>'
-            : 'No agent: your text goes to the model as is. <a href="/settings/ai">Integrations</a>';
+        text.textContent = VISION_MODES.has(state.mode) ? 'Choose an agent that sees photos' : 'No agent: your text goes to the model as is';
+        line.title = 'Choose an agent';
         return;
     }
-    if (state.mode === 'reference' && !agent.sees_images) {
+    if (VISION_MODES.has(state.mode) && !agent.sees_images) {
         line.classList.add('is-missing');
-        text.innerHTML = `${esc(agent.name)} cannot see photos. <a href="/settings/ai">Choose a vision agent</a>`;
+        text.textContent = `${agent.label} · ${agent.choice && agent.choice.vision == null ? 'photo support unknown' : 'cannot see photos'}`;
+        line.title = 'This mode needs a model that sees photos: choose one here';
         return;
     }
-    line.classList.add('is-ready');
-    const sees = state.mode !== 'text' && agent.sees_images ? ' · sees the photo' : '';
-    text.textContent = `Agent: ${agent.name}${sees}`;
+    text.textContent = agent.label;
+    line.title = state.mode !== 'text' && agent.sees_images ? 'Sees the photo · change the agent' : 'Change the agent';
+}
+
+// --- agent menu --------------------------------------------------------------------------
+
+/** OpenCode models the Integrations display settings list (Zen and Go by default). */
+function visibleOpenCodeModels(models) {
+    let catalog = DEFAULT_MODEL_CATALOG;
+    try {
+        const providers = JSON.parse(localStorage.getItem(MODEL_CATALOG_KEY) || '{}')?.opencode?.providers;
+        if (providers && typeof providers === 'object' && !Array.isArray(providers) && Object.keys(providers).length) catalog = providers;
+    } catch {}
+    return models.filter(model => {
+        const allowed = catalog[model.provider];
+        if (!Array.isArray(allowed)) return false;
+        return !allowed.length || allowed.includes(model.id) || allowed.includes(shortModel(model.id));
+    });
+}
+
+function saveAgentChoice() {
+    try {
+        if (state.agentChoice) localStorage.setItem('cmv_create_agent', JSON.stringify(state.agentChoice));
+        else localStorage.removeItem('cmv_create_agent');
+    } catch {}
+    paintAgentLine();
+}
+
+async function loadAgents(refresh = false) {
+    $('agent-menu-body').innerHTML = '<p class="agent-menu-note" role="status">Asking the installed agents for their models…</p>';
+    try {
+        state.agents = await json(`/api/simple/agents${refresh ? '?refresh=1' : ''}`);
+    } catch (err) {
+        $('agent-menu-body').innerHTML = `<p class="agent-menu-note is-error">${esc(err.message)}</p>`;
+        return;
+    }
+    // A picked model keeps its card up to date (vision, name, reasoning levels).
+    const choice = state.agentChoice;
+    if (choice?.agentKind === 'opencode') {
+        const model = (state.agents.opencode?.models || []).find(item => item.id === choice.model);
+        if (model) {
+            Object.assign(choice, { name: model.name, vision: model.vision, variants: model.variants || [] });
+            if (choice.variant && !choice.variants.includes(choice.variant)) choice.variant = null;
+            saveAgentChoice();
+            return;
+        }
+    }
+    if (choice?.agentKind === 'antigravity') {
+        const model = (state.agents.antigravity?.models || []).find(item => item.id === choice.base);
+        if (model) {
+            Object.assign(choice, antigravityChoice(model, choice.level));
+            saveAgentChoice();
+        }
+    }
+    if (['codex', 'claude'].includes(choice?.agentKind)) {
+        const model = (state.agents[choice.agentKind]?.models || []).find(item => item.id === choice.model);
+        if (model) {
+            Object.assign(choice, { name: model.name, vision: model.vision, variants: model.variants || [] });
+            if (choice.variant && !choice.variants.includes(choice.variant)) choice.variant = null;
+            saveAgentChoice();
+        }
+    }
+    paintAgentMenu();
+}
+
+/** An Antigravity model at a reasoning level: the level's own id, else the model's. */
+function antigravityChoice(model, previousLevel) {
+    const levels = model.levels || [];
+    const level = levels.find(item => item.level === previousLevel)
+        || levels.find(item => item.level === 'medium')
+        || levels[0];
+    return {
+        agentKind: 'antigravity', base: model.id, name: model.name, vision: model.vision,
+        levels, model: level ? level.id : model.model || model.id, level: level ? level.level : null,
+    };
+}
+
+function agentTags(vision, free, source) {
+    const title = source === 'family' ? ' title="Photo support is inferred from the known model family; the CLI does not report image inputs"' : '';
+    return [
+        vision === true ? `<span class="agent-tag is-vision"${title}>Photos${source === 'family' ? '*' : ''}</span>`
+            : vision === false ? `<span class="agent-tag"${title}>Text only</span>` : '<span class="agent-tag">Photos unknown</span>',
+        free ? '<span class="agent-tag">Free</span>' : '',
+    ].join('');
+}
+
+function paintAgentMenu() {
+    const body = $('agent-menu-body');
+    if ($('agent-menu').hidden || !state.agents) return;
+    const focused = document.activeElement;
+    const focusData = focused && body.contains(focused) ? { ...focused.dataset } : null;
+    const choice = state.agentChoice;
+    const needsVision = VISION_MODES.has(state.mode);
+    const parts = [];
+    const opencode = state.agents.opencode;
+    if (opencode) {
+        const models = visibleOpenCodeModels(opencode.models || []);
+        const providers = [...new Set(models.map(model => model.provider))];
+        const preferred = choice?.agentKind === 'opencode' ? choice.provider : null;
+        if (!providers.includes(state.agentProvider)) state.agentProvider = providers.includes(preferred) ? preferred : providers[0] || null;
+        const shown = models
+            .filter(model => model.provider === state.agentProvider)
+            .sort((a, b) => Number(b.vision === true) - Number(a.vision === true) || a.name.localeCompare(b.name));
+        const tabs = providers.length > 1
+            ? `<div class="agent-providers">${providers.map(provider => `<button type="button" class="agent-provider${provider === state.agentProvider ? ' active' : ''}" data-agent-provider="${esc(provider)}">${esc(OPENCODE_PROVIDER_NAMES[provider] || provider)}</button>`).join('')}</div>`
+            : '';
+        const rows = shown.map(model => {
+            const active = choice?.agentKind === 'opencode' && choice.model === model.id;
+            const blocked = needsVision && model.vision !== true;
+            return `<button type="button" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agent-model="${esc(model.id)}" title="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model.vision, model.free)}</button>`;
+        }).join('');
+        const picked = choice?.agentKind === 'opencode' ? (opencode.models || []).find(model => model.id === choice.model) : null;
+        let reasoning = '';
+        if (picked?.variants?.length) {
+            reasoning = opencode.variants
+                ? `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...picked.variants].map(variant => `<button type="button" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-agent-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>`
+                : '<p class="agent-menu-note">OpenCode CLI 1.x runs models at their default reasoning level.</p>';
+        }
+        parts.push(`<section class="agent-group"><header><strong>OpenCode</strong><small>${esc(opencode.label || '')}</small></header>${tabs}`
+            + (opencode.error ? `<p class="agent-menu-note is-error">${esc(opencode.error)}</p>` : '')
+            + (rows ? `<div class="agent-options">${rows}</div>` : '<p class="agent-menu-note">No models are listed. Choose providers in Integrations › Local AI tools.</p>')
+            + reasoning + '</section>');
+    }
+    const antigravity = state.agents.antigravity;
+    if (antigravity) {
+        const rows = (antigravity.models || []).map(model => {
+            const active = choice?.agentKind === 'antigravity' && choice.base === model.id;
+            const blocked = needsVision && model.vision !== true;
+            return `<button type="button" aria-pressed="${active}" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agy-model="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model.vision, false, model.vision_source)}</button>`;
+        }).join('');
+        const picked = choice?.agentKind === 'antigravity' ? (antigravity.models || []).find(model => model.id === choice.base) : null;
+        const levels = picked?.levels?.length
+            ? `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${picked.levels.map(item => `<button type="button" class="agent-variant${choice.model === item.id ? ' active' : ''}" data-agy-level="${esc(item.id)}">${esc(item.level)}</button>`).join('')}</div></div>`
+            : '';
+        parts.push(`<section class="agent-group"><header><strong>Antigravity</strong><small>Photos* inferred from model family</small></header>`
+            + (antigravity.error ? `<p class="agent-menu-note is-error">${esc(antigravity.error)}</p>` : '')
+            + (rows ? `<div class="agent-options">${rows}</div>` : '')
+            + levels + '</section>');
+    }
+    for (const host of ['codex', 'claude']) {
+        const section = state.agents[host];
+        if (!section) continue;
+        const models = section.models || [];
+        const rows = models.map(model => {
+            const active = choice?.agentKind === host && choice.model === model.id;
+            const blocked = needsVision && model.vision !== true;
+            return `<button type="button" aria-pressed="${active}" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-native-host="${host}" data-native-model="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model.vision, false, model.vision_source)}</button>`;
+        }).join('');
+        const picked = choice?.agentKind === host ? models.find(model => model.id === choice.model) : null;
+        const reasoning = picked?.variants?.length
+            ? `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...picked.variants].map(variant => `<button type="button" aria-pressed="${(choice.variant || '') === variant}" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-native-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>` : '';
+        const note = models.some(model => model.vision_source === 'family') ? '<small>Photos* inferred from model family</small>' : '';
+        parts.push(`<section class="agent-group"><header><strong>${esc(section.label || AGENT_HOSTS[host])}</strong>${note}</header>`
+            + (section.error ? `<p class="agent-menu-note is-error">${esc(section.error)}</p>` : '')
+            + (rows ? `<div class="agent-options">${rows}</div>` : '') + reasoning + '</section>');
+    }
+    const others = state.agents.agents || [];
+    if (others.length) {
+        const rows = others.map(agent => {
+            const active = choice?.agentKind === 'profile' && choice.id === agent.id;
+            const blocked = needsVision && !agent.sees_images;
+            return `<button type="button" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agent-profile="${esc(agent.id)}"><span class="agent-option-name">${esc(agentLabel({ cli_type: agent.cli_type, kind: agent.kind, model: agent.model }))}</span>${agentTags(agent.sees_images, false)}</button>`;
+        }).join('');
+        parts.push(`<section class="agent-group"><header><strong>Other agents</strong><small>from Integrations</small></header><div class="agent-options">${rows}</div></section>`);
+    }
+    if (choice) parts.push('<button type="button" class="agent-menu-link agent-reset" data-agent-reset>Use the Integrations defaults</button>');
+    if (!parts.length) parts.push('<p class="agent-menu-note">No agent was found. Install OpenCode or connect an agent in Integrations.</p>');
+    body.innerHTML = parts.join('');
+    if (focusData) {
+        const replacement = [...body.querySelectorAll('button')].find(button =>
+            Object.entries(focusData).every(([key, value]) => button.dataset[key] === value));
+        replacement?.focus({ preventScroll: true });
+    }
+}
+
+function placeAgentMenu() {
+    const menu = $('agent-menu');
+    const anchor = $('prompt-box').getBoundingClientRect();
+    const line = $('agent-line').getBoundingClientRect();
+    const viewTop = Math.max(12, (document.querySelector('.simple-header')?.getBoundingClientRect().bottom || 0) + 8);
+    const lineTop = Math.min(window.innerHeight - 16, Math.max(viewTop, line.top));
+    const lineBottom = Math.min(window.innerHeight - 16, Math.max(viewTop, line.bottom));
+    const width = Math.min(Math.max(anchor.width, 320), window.innerWidth - 24);
+    menu.style.width = `${width}px`;
+    menu.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12))}px`;
+    const below = window.innerHeight - lineBottom - 16;
+    const above = lineTop - viewTop - 8;
+    if (below >= 300 || below >= above) {
+        menu.style.top = `${lineBottom + 8}px`;
+        menu.style.bottom = '';
+        menu.style.maxHeight = `${Math.max(120, below)}px`;
+    } else {
+        menu.style.top = '';
+        menu.style.bottom = `${window.innerHeight - lineTop + 8}px`;
+        menu.style.maxHeight = `${Math.max(120, above)}px`;
+    }
+}
+
+function openAgentMenu() {
+    const menu = $('agent-menu');
+    menu.hidden = false;
+    $('agent-line').setAttribute('aria-expanded', 'true');
+    placeAgentMenu();
+    $('agent-refresh').focus({ preventScroll: true });
+    if (state.agents) paintAgentMenu();
+    else loadAgents();
+}
+
+function closeAgentMenu() {
+    $('agent-menu').hidden = true;
+    $('agent-line').setAttribute('aria-expanded', 'false');
+}
+
+function wireAgentMenu() {
+    $('agent-line').onclick = () => ($('agent-menu').hidden ? openAgentMenu() : closeAgentMenu());
+    $('agent-refresh').onclick = () => loadAgents(true);
+    $('agent-menu-body').addEventListener('click', event => {
+        const target = event.target.closest('button');
+        if (!target) return;
+        if (target.dataset.agentProvider) {
+            state.agentProvider = target.dataset.agentProvider;
+            paintAgentMenu();
+        } else if (target.dataset.agentModel) {
+            const model = (state.agents?.opencode?.models || []).find(item => item.id === target.dataset.agentModel);
+            if (!model) return;
+            const previous = state.agentChoice?.agentKind === 'opencode' ? state.agentChoice.variant : null;
+            state.agentChoice = {
+                agentKind: 'opencode', model: model.id, provider: model.provider, name: model.name,
+                vision: model.vision, variants: model.variants || [],
+                variant: previous && (model.variants || []).includes(previous) ? previous : null,
+            };
+            saveAgentChoice();
+        } else if ('agentVariant' in target.dataset && state.agentChoice?.agentKind === 'opencode') {
+            state.agentChoice.variant = target.dataset.agentVariant || null;
+            saveAgentChoice();
+        } else if (target.dataset.agyModel) {
+            const model = (state.agents?.antigravity?.models || []).find(item => item.id === target.dataset.agyModel);
+            if (!model) return;
+            const previous = state.agentChoice?.agentKind === 'antigravity' ? state.agentChoice.level : null;
+            state.agentChoice = antigravityChoice(model, previous);
+            saveAgentChoice();
+        } else if (target.dataset.agyLevel && state.agentChoice?.agentKind === 'antigravity') {
+            const level = (state.agentChoice.levels || []).find(item => item.id === target.dataset.agyLevel);
+            if (!level) return;
+            Object.assign(state.agentChoice, { model: level.id, level: level.level });
+            saveAgentChoice();
+        } else if (target.dataset.nativeModel) {
+            const host = target.dataset.nativeHost;
+            const model = (state.agents?.[host]?.models || []).find(item => item.id === target.dataset.nativeModel);
+            if (!model) return;
+            const previous = state.agentChoice?.agentKind === host ? state.agentChoice.variant : null;
+            state.agentChoice = { agentKind: host, model: model.id, name: model.name, vision: model.vision,
+                variants: model.variants || [], variant: previous && (model.variants || []).includes(previous) ? previous : null };
+            saveAgentChoice();
+        } else if ('nativeVariant' in target.dataset && ['codex', 'claude'].includes(state.agentChoice?.agentKind)) {
+            state.agentChoice.variant = target.dataset.nativeVariant || null;
+            saveAgentChoice();
+        } else if (target.dataset.agentProfile) {
+            const agent = (state.agents?.agents || []).find(item => item.id === target.dataset.agentProfile);
+            if (!agent) return;
+            state.agentChoice = { agentKind: 'profile', id: agent.id, kind: agent.kind, cli_type: agent.cli_type, model: agent.model, vision: Boolean(agent.sees_images) };
+            saveAgentChoice();
+            closeAgentMenu();
+        } else if ('agentReset' in target.dataset) {
+            state.agentChoice = null;
+            saveAgentChoice();
+        }
+    });
+    document.addEventListener('pointerdown', event => {
+        if ($('agent-menu').hidden || event.target.closest('#agent-menu, #agent-line')) return;
+        closeAgentMenu();
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !$('agent-menu').hidden) {
+            closeAgentMenu();
+            $('agent-line').focus();
+        }
+    });
+    window.addEventListener('resize', () => { if (!$('agent-menu').hidden) placeAgentMenu(); });
 }
 
 function paintInstructionFiles() {
@@ -536,7 +855,7 @@ function startAgentTimer() {
     const started = Date.now();
     clearInterval(state.agentTimer);
     state.agentPhase = 'started';
-    state.agentName = currentAgent()?.name || 'Agent';
+    state.agentName = currentAgent()?.label || 'Agent';
     const tick = () => {
         const seconds = Math.round((Date.now() - started) / 1000);
         setGenerating(AGENT_PHASES[state.agentPhase] || AGENT_PHASES.started, `${state.agentName} · ${seconds} s`);
@@ -689,8 +1008,8 @@ async function create() {
     const why = blocking();
     if (why) return error('Not ready yet', why);
     const agent = currentAgent();
-    const useAgent = Boolean(agent) && !(mode === 'reference' && !agent.sees_images);
-    if (mode === 'reference' && !useAgent) {
+    const useAgent = Boolean(agent) && !(VISION_MODES.has(mode) && !agent.sees_images);
+    if (VISION_MODES.has(mode) && !useAgent) {
         return error('The photo mode needs an agent that sees photos', 'Add a vision agent on the Integrations page, or use "Edit photo".');
     }
     hideError();
@@ -724,6 +1043,7 @@ async function create() {
                     mode,
                     request,
                     previous_prompt: state.refineFrom?.mode === mode ? state.refineFrom.prompt : null,
+                    ...agentRequestFields(),
                     aspect_ratio: ratio,
                     reference_image: photo?.dataUrl || null,
                     subject_image: subject?.dataUrl || null,
@@ -1397,6 +1717,7 @@ function wire() {
         };
     });
     wirePhotoSlots();
+    wireAgentMenu();
 
     $('prompt').oninput = () => {
         resizePrompt();

@@ -74,6 +74,8 @@ class OpenCodeModel:
     name: str
     vision: bool | None
     free: bool | None
+    # Reasoning levels the model offers (``provider/model#variant``), from its card.
+    variants: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,10 +84,13 @@ class OpenCodeModel:
             "name": self.name,
             "vision": self.vision,
             "free": self.free,
+            "variants": list(self.variants),
         }
 
 
 MODEL_LIST_OUTPUT_LIMIT = 4_000_000
+VARIANT_SEPARATOR = "#"
+_VARIANT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}")
 
 
 # --- installations -----------------------------------------------------------------
@@ -304,6 +309,17 @@ def _is_free_cost(cost: Any) -> bool | None:
     return all(not tier.get("input") and not tier.get("output") for tier in tiers)
 
 
+def _variant_ids(variants: Any) -> tuple[str, ...]:
+    """Variant names from a model card: a list of ``{"id": ...}`` or a mapping by name."""
+    if isinstance(variants, dict):
+        names = variants.keys()
+    elif isinstance(variants, list):
+        names = (item.get("id") if isinstance(item, dict) else item for item in variants)
+    else:
+        return ()
+    return tuple(str(name) for name in names if isinstance(name, str) and _VARIANT_RE.fullmatch(name))
+
+
 def _vision_from_capabilities(capabilities: Any) -> bool | None:
     if not isinstance(capabilities, dict):
         return None
@@ -343,6 +359,7 @@ def parse_verbose_models(output: str) -> list[OpenCodeModel]:
             name=str(info.get("name") or model_id.split("/", 1)[1]),
             vision=_vision_from_capabilities(info.get("capabilities")),
             free=_is_free_cost(info.get("cost")),
+            variants=_variant_ids(info.get("variants")),
         ))
     return models
 
@@ -374,6 +391,7 @@ def parse_api_models(payload: Any) -> list[OpenCodeModel]:
             name=str(item.get("name") or model),
             vision=_vision_from_capabilities(item.get("capabilities")),
             free=_is_free_cost(item.get("cost")),
+            variants=_variant_ids(item.get("variants")),
         ))
     return models
 

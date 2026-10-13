@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -77,7 +78,7 @@ def codex_model(profile: dict[str, Any]) -> str | None:
 
 
 def build_codex_command(
-    executable: str, *, model: str | None, image_name: str | None
+    executable: str, *, model: str | None, image_name: str | None, reasoning_effort: str | None = None
 ) -> list[str]:
     """``codex exec`` reading the task package from stdin (the trailing ``-``).
 
@@ -100,6 +101,8 @@ def build_codex_command(
     ])
     if model:
         command.extend(["--model", model])
+    if reasoning_effort:
+        command.extend(["-c", f"model_reasoning_effort={json.dumps(reasoning_effort)}"])
     command.append("-")
     return command
 
@@ -148,7 +151,8 @@ class CodexPromptExecutor:
 
         timeout_sec = int(profile.get("timeout_seconds") or DEFAULT_CODEX_TIMEOUT_SECONDS)
         image_name = image_file_name(validated_image)
-        command = build_codex_command(executable, model=codex_model(profile), image_name=image_name)
+        command = build_codex_command(executable, model=codex_model(profile), image_name=image_name,
+                                      reasoning_effort=profile.get("reasoning_effort"))
         task_package = render_task_package(
             instruction_bundle, cleaned_input, image_name=image_name, image_attached=True
         )

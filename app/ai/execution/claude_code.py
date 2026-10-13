@@ -79,7 +79,7 @@ def is_claude_profile(profile: dict[str, Any]) -> bool:
 
 
 def build_claude_command(
-    executable: str, *, model: str | None, with_image: bool
+    executable: str, *, model: str | None, with_image: bool, reasoning_effort: str | None = None
 ) -> list[str]:
     command = [
         executable,
@@ -98,6 +98,8 @@ def build_claude_command(
         command.extend(["--tools", ""])
     if model:
         command.extend(["--model", model])
+    if reasoning_effort:
+        command.extend(["--effort", reasoning_effort])
     return command
 
 
@@ -200,6 +202,7 @@ class ClaudeCodePromptExecutor:
             executable,
             model=model.strip() if isinstance(model, str) and model.strip() else None,
             with_image=validated_image is not None,
+            reasoning_effort=profile.get("reasoning_effort"),
         )
         task_package = render_task_package(
             instruction_bundle, cleaned_input, image_name=image_file_name(validated_image)

@@ -496,3 +496,167 @@ def test_fetch_image_rejects_bad_links_pages_and_huge_files(monkeypatch):
     monkeypatch.setattr(simple_routes.urllib.request, "urlopen", lambda request, timeout: _FakeResponse(b"x", length=big))
     huge = client.post("/api/simple/fetch-image", json={"url": "https://example.com/big.png"})
     assert huge.status_code == 413 and huge.get_json()["code"] == "image_too_large"
+
+
+# --- agent picked in Create --------------------------------------------------------------
+
+
+def _cards():
+    model = opencode_host.OpenCodeModel
+    return [
+        model("opencode/exo-free", "opencode", "Exo Free", vision=True, free=True, variants=("high",)),
+        model("opencode/ling-3.1-flash-free", "opencode", "Ling 3.1 Flash Free", vision=False, free=True),
+    ]
+
+
+@pytest.fixture
+def opencode_cards(monkeypatch):
+    installation = opencode_host.OpenCodeInstallation("desktop", "C:/OpenCode/opencode-cli.exe", "2.0.27", 2)
+    monkeypatch.setattr(opencode_host, "find_installations", lambda: [installation])
+    monkeypatch.setattr(opencode_host, "list_models", lambda executable, provider=None: _cards())
+    monkeypatch.setattr(simple_routes, "native_cli_models", lambda host, refresh=False: (None, []))
+    create_agent._models_cache.clear()
+    yield installation
+    create_agent._models_cache.clear()
+
+
+def test_a_picked_opencode_model_runs_with_its_card_and_reasoning_level(opencode_cards, monkeypatch):
+    profile = create_agent.chosen_opencode_profile("opencode/exo-free", "high")
+    assert profile["model"] == "opencode/exo-free#high"
+    assert profile["multimodal"] is True and profile["executable"] == opencode_cards.executable
+    assert profile["name"] == "OpenCode · Exo Free · high"
+    assert create_agent.chosen_opencode_profile("opencode/ling-3.1-flash-free")["multimodal"] is False
+    with pytest.raises(create_agent.CreateAgentError) as unknown:
+        create_agent.chosen_opencode_profile("opencode/nope")
+    assert unknown.value.code == "model_unavailable"
+    with pytest.raises(create_agent.CreateAgentError) as level:
+        create_agent.chosen_opencode_profile("opencode/exo-free", "turbo")
+    assert level.value.code == "variant_unavailable"
+    # OpenCode 1.x takes no variant: the model runs at its default level.
+    old = opencode_host.OpenCodeInstallation("cli", "C:/npm/opencode.cmd", "1.18.34", 1)
+    monkeypatch.setattr(opencode_host, "find_installations", lambda: [old])
+    create_agent._models_cache.clear()
+    assert create_agent.chosen_opencode_profile("opencode/exo-free", "high")["model"] == "opencode/exo-free"
+
+
+def test_the_agent_call_uses_the_model_picked_in_create(opencode_cards, monkeypatch):
+    router = FakeRouter(PromptResult(positive_prompt="A rainy cafe."))
+    monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([TEXT]))
+    response = app.test_client().post("/api/simple/agent", json={
+        "mode": "text", "request": "a rainy cafe", "agent_model": "opencode/exo-free", "agent_variant": "high",
+    })
+    assert response.status_code == 200, response.data
+    assert router.calls[0]["profile"]["model"] == "opencode/exo-free#high"
+    # A text-only model cannot describe a photo.
+    blind = app.test_client().post("/api/simple/agent", json={
+        "mode": "reference", "reference_image": _data_url(), "agent_model": "opencode/ling-3.1-flash-free",
+    })
+    assert blind.status_code == 409 and blind.get_json()["code"] == "vision_required"
+
+
+def test_the_agent_menu_lists_opencode_cards_and_the_other_agents(opencode_cards, monkeypatch):
+    agy = {"id": "agy-1", "name": "Antigravity CLI (Text)", "kind": "cli", "cli_type": "antigravity",
+           "model": "gemini-3.8-flash-low", "roles": ["text"], "multimodal": False}
+    twin = {**agy, "id": "agy-2", "name": "Antigravity CLI (Vision)", "roles": ["vision"]}
+    translator = {**agy, "id": "tr", "model": "other", "roles": ["translator"]}
+    opencode_profile = {"id": "oc", "name": "OpenCode (Text)", "kind": "cli", "cli_type": "opencode",
+                        "model": "opencode/exo-free", "roles": ["text"]}
+    codex = {"id": "cx", "name": "Codex CLI", "kind": "cli", "cli_type": "codex", "model": "gpt-5.5", "roles": ["text"]}
+    monkeypatch.setattr(simple_routes, "_ai_profile_store",
+                        lambda: FakeStore([agy, twin, translator, opencode_profile, codex]))
+    agy_models = create_agent.parse_antigravity_models(AGY_MODELS)
+    monkeypatch.setattr(simple_routes, "antigravity_models", lambda refresh=False: ("C:/agy/agy.exe", agy_models))
+    data = app.test_client().get("/api/simple/agents").get_json()
+    assert data["opencode"]["variants"] is True
+    cards = {item["id"]: item for item in data["opencode"]["models"]}
+    assert cards["opencode/exo-free"]["vision"] is True and cards["opencode/exo-free"]["variants"] == ["high"]
+    assert cards["opencode/ling-3.1-flash-free"]["vision"] is False
+    # OpenCode and Antigravity models come from their CLIs; Codex always sees photos.
+    assert [(item["id"], item["sees_images"]) for item in data["agents"]] == [("cx", True)]
+    agy_rows = {item["id"]: item for item in data["antigravity"]["models"]}
+    assert agy_rows["gpt-oss-120b"]["vision"] is False and agy_rows["gemini-3.8-flash"]["vision"] is True
+    assert data["antigravity"]["vision_source"] == "family"
+
+
+AGY_MODELS = (
+    "Fetching available models...\n"
+    "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
+    "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"
+    "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n"
+)
+
+
+def test_antigravity_models_group_their_reasoning_levels_and_know_text_only_families(monkeypatch):
+    models = {item["id"]: item for item in create_agent.parse_antigravity_models(AGY_MODELS)}
+    assert models["gemini-3.8-flash"]["name"] == "Gemini 3.8 Flash"
+    assert [item["level"] for item in models["gemini-3.8-flash"]["levels"]] == ["high", "low"]
+    assert models["gpt-oss-120b"]["vision"] is False
+    monkeypatch.setattr(create_agent, "antigravity_models",
+                        lambda refresh=False: ("C:/agy/agy.exe", list(models.values())))
+    profile = create_agent.chosen_antigravity_profile("gemini-3.8-flash-low")
+    assert (profile["model"], profile["multimodal"], profile["executable"]) == ("gemini-3.8-flash-low", True, "C:/agy/agy.exe")
+    assert profile["name"] == "Antigravity · Gemini 3.8 Flash · low"
+    assert create_agent.sees_images(create_agent.chosen_antigravity_profile("gpt-oss-120b-medium")) is False
+    with pytest.raises(create_agent.CreateAgentError):
+        create_agent.chosen_antigravity_profile("gemini-9")
+    # An Integrations profile with a text-only model does not get the photo either.
+    assert create_agent.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "gpt-oss-120b-medium"}) is False
+    assert create_agent.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "gemini-3.8-flash-low"}) is True
+
+
+def test_antigravity_unknown_family_stays_unknown_and_duplicate_levels_are_removed():
+    models = create_agent.parse_antigravity_models(AGY_MODELS + AGY_MODELS + "future-text-high\tFuture (High)\n")
+    assert len(models[0]["levels"]) == 2
+    assert models[-1]["vision"] is None and models[-1]["vision_source"] == "unknown"
+    assert create_agent.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "future-text-high"}) is False
+
+
+@pytest.mark.parametrize("host", ["codex", "claude"])
+def test_native_picked_model_and_effort_reach_executor_and_text_only_is_blocked(host, monkeypatch):
+    models = [{"id": "m-vision", "name": "Vision", "vision": True, "variants": ["high"]},
+              {"id": "m-text", "name": "Text", "vision": False, "variants": []}]
+    monkeypatch.setattr(create_agent, "native_cli_models", lambda name, refresh=False: (name, models))
+    router = FakeRouter(PromptResult(positive_prompt="A rainy cafe."))
+    monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([TEXT]))
+    response = app.test_client().post("/api/simple/agent", json={
+        "request": "a rainy cafe", "agent_host": host, "agent_model": "m-vision", "agent_variant": "high",
+    })
+    assert response.status_code == 200, response.data
+    profile = router.calls[0]["profile"]
+    assert (profile["cli_type"], profile["model"], profile["reasoning_effort"]) == (host, "m-vision", "high")
+    blind = app.test_client().post("/api/simple/agent", json={
+        "mode": "reference", "reference_image": _data_url(), "agent_host": host, "agent_model": "m-text",
+    })
+    assert blind.status_code == 409 and blind.get_json()["code"] == "vision_required"
+    assert len(router.calls) == 1
+    with pytest.raises(create_agent.CreateAgentError) as missing:
+        create_agent.chosen_native_profile(host, "not-listed")
+    assert missing.value.code == "model_unavailable"
+    with pytest.raises(create_agent.CreateAgentError) as effort:
+        create_agent.chosen_native_profile(host, "m-vision", "not-listed")
+    assert effort.value.code == "variant_unavailable"
+
+
+def test_agent_menu_isolates_host_errors_and_refreshes_every_catalog(opencode_cards, monkeypatch):
+    calls = []
+    def native(host, refresh=False):
+        calls.append((host, refresh))
+        if host == "claude":
+            raise create_agent.CLIIntegrationError("Claude is offline")
+        return host, [{"id": "gpt-5.5", "name": "GPT", "vision": True, "variants": ["high"]}]
+    monkeypatch.setattr(simple_routes, "native_cli_models", native)
+    monkeypatch.setattr(simple_routes, "antigravity_models", lambda refresh=False: (None, []))
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([
+        {"id": "cx", "kind": "cli", "cli_type": "codex", "model": "gpt-5.5"},
+        {"id": "cl", "kind": "cli", "cli_type": "claude", "model": "sonnet"},
+    ]))
+    response = app.test_client().get("/api/simple/agents?refresh=1")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["opencode"]["models"] and data["codex"]["models"]
+    assert data["claude"]["error"] == "Claude is offline"
+    assert sorted(calls) == [("claude", True), ("codex", True)]
+    # The duplicate Codex profile disappears, while the failed host keeps its saved profile.
+    assert [item["id"] for item in data["agents"]] == ["cl"]
