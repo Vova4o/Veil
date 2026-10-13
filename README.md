@@ -55,7 +55,7 @@ a queueable workflow - everything runs locally with no cloud dependency.
 - **Create workspace** - manifest-driven image, reference, video, and two-stage workflow templates with dynamic local model selection *(partial - see [Feature Status](#feature-status))*
 - **ComfyUI execution** - integrated runtime setup, dependency preflight, queue state, cancellation, result import, and workflow provenance
 - **Remix drafts** - carry an asset prompt and lineage into a supported reference workflow without starting generation automatically *(scaffold - see [Feature Status](#feature-status))*
-- **BYOK provider profiles** - OpenAI-compatible endpoints with OS-keyring or environment-variable credentials, plus detected OpenCode, Claude Code, and Antigravity CLI adapters
+- **Providers and models** - local AI tools (OpenCode, Claude Code, Codex, Antigravity) and API providers from the models.dev catalog or any OpenAI-compatible endpoint, with OS-keyring or environment-variable keys; choose which models the pickers show and a default model
 - **Model-aware prompt compiler** - layered family, operation, scenario, modifier, and output-contract instructions with strict structured results
 - **Keyboard-first** workflow with 14 shortcuts
 
@@ -99,7 +99,7 @@ separates what works end-to-end today from what is laid out as infrastructure
   deletion to the system trash.
 - **Unified image/video assets** - shared sources, albums, previews, and
   media-type filters (video previews require FFmpeg).
-- **BYOK AI providers** - provider profiles with keyring/env credentials
+- **BYOK AI providers** - API providers with keyring/env credentials
   and local CLI discovery (OpenCode, Claude Code, Antigravity); the prompt
   compiler, intent/quality benchmarks, and smoke runners are functional via CLI.
 - **ComfyUI runtime** - auto-detection/auto-start, queue, cancellation, result
@@ -363,7 +363,8 @@ The public contract covers every supported non-legacy `/api/*` route. The retain
 | Library | `GET` | `/api/library/assets` | Query the virtual library with filters |
 | Library | `POST` | `/api/library/assets/bulk` | Apply bulk virtual-library operations |
 | Preview | `GET` | `/api/preview/{id}` | Get or generate a bounded display preview |
-| AI | `GET/POST` | `/api/ai/profiles` | Manage sanitized AI provider profiles |
+| AI | `GET/POST` | `/api/ai/providers` | Connect local AI tools and API providers |
+| AI | `GET` | `/api/ai/models` | Models of the connected providers and which ones pickers show |
 | AI | `POST` | `/api/ai/generate` | Generate a durable prompt draft |
 | AI | `POST` | `/api/ai/translate` | Translate prompt text, optionally through SSE |
 | AI | `POST` | `/api/ai/adapt` | Adapt a prompt to a target model family |

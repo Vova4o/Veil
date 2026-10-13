@@ -621,102 +621,81 @@ The management UI is available at `GET /settings/ai`. Provider APIs never return
 values. A `has_credentials` flag reports only whether the selected system entry or environment
 variable is currently available.
 
-### `GET /api/ai/profiles`
+Integrations has two AI tabs modelled on OpenCode desktop's settings. **Providers** connects
+local AI tools (OpenCode, Claude Code, Codex, Antigravity: installed tools are connected unless the
+user disconnects them; nothing is run to list them) and API providers reached through an
+OpenAI-compatible endpoint. Provider templates come from models.dev, the catalog OpenCode uses
+(`app/ai/assets/provider_catalog.json`, rebuilt by `scripts/update_provider_catalog.py`). **Models**
+chooses which models of the connected providers the pickers in Create and the Viewer show, and the
+default model used wherever no model is picked. There are no AI profiles; a model is addressed by
+`{"host", "model", "variant"}` where `host` is a local tool or `api:<provider id>`.
 
-Lists sanitized profiles, default assignments, and the system credential-store status.
+### `GET /api/ai/providers`
 
 ```json
 {
-  "profiles": [
+  "providers": [
     {
-      "id": "3ea89b7d-3bd5-40ed-8486-86aa8e600711",
-      "kind": "openai_compatible",
-      "name": "Local vision",
-      "base_url": "http://127.0.0.1:1234/v1",
-      "model": "local-vision-model",
-      "api_key_source": "none",
-      "api_key_env": null,
-      "timeout_seconds": 90,
-      "multimodal": true,
-      "extra_body": {},
-      "has_credentials": true
+      "id": "openrouter", "template": "openrouter", "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1", "api_key_source": "system", "api_key_env": null,
+      "models": [], "has_credentials": true
     }
   ],
-  "defaults": {
-    "text_profile_id": null,
-    "multimodal_profile_id": "3ea89b7d-3bd5-40ed-8486-86aa8e600711"
-  },
-  "secret_store": {
-    "available": true,
-    "backend": "keyring.backends.Windows.WinVaultKeyring",
-    "message": "API keys are stored in the operating system credential store."
-  }
+  "local_tools": [
+    { "type": "opencode", "label": "OpenCode", "icon": "opencode", "installed": true, "connected": true,
+      "executable": "C:\\…\\opencode-cli.exe", "note": "Free models right after install, no account or key" }
+  ],
+  "templates": [ { "id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1",
+                   "env": ["OPENAI_API_KEY"], "doc": "…", "note": "…", "popular": 1, "local": false, "models": 53 } ],
+  "default_model": { "host": "opencode", "model": "opencode/exo-free", "variant": null },
+  "disconnected_tools": [],
+  "secret_store": { "available": true, "backend": "keyring.backends.Windows.WinVaultKeyring", "message": "…" }
 }
 ```
 
-### `POST /api/ai/profiles`
+### `POST /api/ai/providers`
 
-Creates an OpenAI-compatible or CLI profile. For `api_key_source: "system"`, `api_key` is
-required on creation and is handed directly to the OS keyring. It is not written into the JSON
-configuration.
+Connects a template (`{"template": "openrouter", "api_key": "…"}`; the id defaults to the template
+id) or a custom OpenAI-compatible provider (`id`, `name`, `base_url`, optional `api_key` and
+`models`). With `api_key_source: "system"` the key goes straight to the OS keyring; `environment`
+saves only `api_key_env`; `none` suits local servers such as LM Studio or Ollama. `409`
+`provider_exists` or `missing_credentials`.
 
-```json
-{
-  "kind": "openai_compatible",
-  "name": "Example provider",
-  "base_url": "https://provider.example/v1",
-  "api_key_source": "system",
-  "api_key": "secret value",
-  "model": "exact-model-id",
-  "timeout_seconds": 60,
-  "multimodal": true,
-  "extra_body": { "temperature": 0.2 }
-}
-```
+### `PATCH /api/ai/providers/{provider_id}` · `DELETE /api/ai/providers/{provider_id}`
 
-A local CLI profile delegates authorization to the executable:
+PATCH updates the name, address, key source or manual models; an empty `api_key` keeps the stored
+key. DELETE removes the provider, its keyring entry, its model visibility settings and a default
+model that used it.
 
-```json
-{
-  "kind": "cli",
-  "name": "OpenCode vision",
-  "cli_type": "opencode",
-  "executable": "C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd",
-  "model": "provider/model",
-  "timeout_seconds": 120,
-  "multimodal": true
-}
-```
+### `POST /api/ai/providers/{provider_id}/check`
 
-### `PATCH /api/ai/profiles/{profile_id}`
+Lists the provider's models (`GET {base_url}/models`) to prove the address and key without an
+inference prompt: `{"ok": true, "models": 42}`, or `422` with the provider's error.
 
-Updates supplied fields. Omitting `api_key`, or sending it as an empty string while retaining
-system storage, preserves the current key. Changing away from system storage deletes the old
-keyring entry after the new configuration is saved.
+### `PATCH /api/ai/local-tools/{tool}`
 
-### `DELETE /api/ai/profiles/{profile_id}`
+`{"connected": false}` hides an installed tool and its models from every picker; `true` restores it.
 
-Deletes the profile, clears any default assignment using it, and removes its system-keyring
-entry. It does not modify credentials owned by external CLI tools.
+### `GET /api/ai/models`
 
-### `PATCH /api/ai/defaults`
+Groups per provider (OpenCode lists one group per OpenCode provider) with model cards: `vision`
+(`true`/`false`, or `null` for an API model without a models.dev card), `free` (OpenCode Zen/Go,
+or an explicit `:free` model id), `variants` or Antigravity `levels`, `visible` and
+`default_visible`. Like OpenCode, the default list keeps the newest model of each family released
+in the last six months; OpenCode's own providers and the local tools show every model, media models
+(audio or image output) start hidden. Hosts are listed in parallel, each with its own `error`;
+catalogs are cached for 10 minutes and `?refresh=1` refreshes them. `?visible=1` returns only what
+pickers show.
 
-Assigns default text and multimodal profiles. Either value can be `null`; the multimodal default
-must refer to a profile explicitly marked `multimodal: true`.
+### `PATCH /api/ai/models/visibility`
 
-```json
-{
-  "text_profile_id": "2e62129d-3f6b-4370-8204-e53087229acf",
-  "multimodal_profile_id": "3ea89b7d-3bd5-40ed-8486-86aa8e600711"
-}
-```
+`{"changes": {"opencode|google/gemini-4-argon": true, "claude|sonnet": null}}` shows or hides
+models by key (`host|model`); `null` returns a model to its default.
 
-### `POST /api/ai/profiles/{profile_id}/test`
+### `GET /api/ai/default-model` · `PUT /api/ai/default-model`
 
-Performs a minimal real request using the exact configured model. `{ "multimodal": true }`
-adds a generated one-pixel PNG for OpenAI-compatible and OpenCode profiles. Known failures use
-distinct codes including `authentication_error`, `content_rejected`, `incompatible_format`,
-`network_error`, `timeout`, `cli_authentication`, and `provider_error`.
+`{"model": {"host": "codex", "model": "gpt-6", "variant": "high"}}` is validated against the
+host's catalog (`409` `model_unavailable`); `{"model": null}` lets a free OpenCode model run.
 
 ### `GET /api/ai/cli-integrations`
 
@@ -727,7 +706,7 @@ returns the static catalog instead.
 
 ### `GET /api/ai/cli-integrations/{cli_type}`
 
-Probes one integration (`opencode`, `claude`, `antigravity` or `codex`) and returns its singular `integration`
+Probes one integration (`opencode`, `claude`, `antigravity` or `codex`; Providers › Details) and returns its singular `integration`
 object. Unsupported CLI types answer with `code: cli_unavailable`. For OpenCode the object also lists
 `installations`: every detected npm CLI and OpenCode desktop app (its bundled `opencode-cli`), newest
 first, each with `kind` (`cli` / `desktop`), `executable`, `version`, `generation` (1 = classic CLI,
@@ -850,7 +829,7 @@ running, or review-waiting job.
 
 ## AI Prompt Operations
 
-The operation endpoints parse the profile, task, and source the same way and return a durable
+The operation endpoints parse the model, task, and source the same way and return a durable
 `job`, the latest normalized `prompt_draft`, and a `context` (the full message exchange). Job IDs
 can be followed through [AI Prompt Drafts](#ai-prompt-drafts).
 
@@ -863,12 +842,13 @@ their tested status (`complete`, `partial`, `planned`).
 
 ### `POST /api/ai/generate`
 
-Runs a direct raw `generate` operation. The task dictionary must include a scenario; `family` and
-`model_style` fall back to the selected profile. Returns `201`.
+Runs a direct raw `generate` operation. The task dictionary must include a scenario. Every
+operation takes an optional `agent` (`{"host", "model", "variant"}`); without it the default model
+runs, and `409` `no_ai_model` reports that none is available. Returns `201`.
 
 ```json
 {
-  "profile_id": "…",
+  "agent": { "host": "api:openrouter", "model": "anthropic/claude-sonnet-5" },
   "task": { "family": "flux", "scenario": "portrait" },
   "user_input": "…"
 }
@@ -903,7 +883,7 @@ if both are given at once, `asset_id` must match the asset attached to the saved
 ### `POST /api/ai/reconstruct/analyze`
 
 Runs multimodal vision analysis over an existing asset and returns a `SceneSpec` (the "analyze first"
-step). Requires a multimodal profile: `profile_id` defaults to the multimodal default. `asset_id` is
+step). Requires a model that sees photos (`409` `vision_required`); `agent` defaults to the default model. `asset_id` is
 required; `task` follows the same shape as other operations. Returns `201`.
 
 ### `PATCH /api/ai/jobs/{job_id}/scene-spec`
@@ -937,7 +917,7 @@ Validates a proposed model selection against a checkpoint architecture and retur
 
 ### `POST /api/ai/evaluate`
 
-Runs AI ranking for one asset: requires a multimodal `profile_id`, the target `image_id`, and an
+Runs AI ranking for one asset: a model that sees photos (`agent`, else the default model), the target `image_id`, and an
 optional `prompt_text`. Returns the derived `rating` (never stored back into generator metadata).
 
 ### `GET /api/ai/ratings/{image_id}`
@@ -1108,15 +1088,15 @@ library sources.
 
 ### `GET /api/simple/agent-status`
 
-Which agents Create uses: the default text agent for the text mode and the default vision agent for
-the photo modes (each falls back to any profile with the other role; translator-only profiles are
-never used), plus the instruction files the agent follows.
+Which model Create runs when none is picked in its agent menu: the default model of Integrations ›
+Models; a photo mode with a text-only default prefers a free OpenCode model that sees photos. Also
+lists the instruction files the agent follows.
 
 ```json
 {
   "available": true,
-  "text": { "name": "Codex", "kind": "cli", "cli_type": "codex", "model": "default", "sees_images": false },
-  "photo": { "name": "Claude Code", "kind": "cli", "cli_type": "claude", "model": "sonnet", "sees_images": true },
+  "text": { "name": "Codex · GPT-6", "kind": "cli", "cli_type": "codex", "model": "gpt-6", "sees_images": true },
+  "photo": { "name": "Codex · GPT-6", "kind": "cli", "cli_type": "codex", "model": "gpt-6", "sees_images": true },
   "instruction_files": ["…/app/ai/prompting/content/create/krea2/base.md", "…"]
 }
 ```
@@ -1126,23 +1106,7 @@ never used), plus the instruction files the agent follows.
 One-shot bootstrap for the Create page: `profiles`, `default_profile_id`, `ambient_candidates` and
 `agent_status`.
 
-### `GET /api/simple/agents`
-
-What Create's agent menu offers. `opencode` describes the newest OpenCode installation (`label`,
-`variants`: whether it takes reasoning levels) and every model it can run with its card: `vision`,
-`free`, `variants`. The menu filters its providers through Integrations › Local AI tools › Display settings.
-`antigravity` groups the IDs returned by `agy models` into models and `levels` (each level keeps
-its executable model ID). `codex` reads the paginated native app-server `model/list` catalog;
-`claude` reads the model aliases in the CLI's stream-JSON initialization response. Neither starts
-inference. All catalogs are cached for 10 minutes; `?refresh=1` refreshes every installed host.
-
-`vision` is `true`, `false` or `null` (unknown). Codex uses `inputModalities`; where explicit
-metadata is absent, only known families are classified (`vision_source: "family"`). GPT-OSS is
-text-only; Gemini and Claude families support photos. Unknown families stay unknown, and inferred
-photo support is marked `Photos*` in the menu. `variants` lists native reasoning levels where
-available. Each host has its own `error`; one failed discovery leaves the others usable.
-`agents` retains other Integrations profiles and saved CLI models absent from the native catalog,
-deduplicated by host/model. Models can be selected directly in Create without an Integrations profile.
+Create's agent menu lists `GET /api/ai/models?visible=1`: the models Integrations › Models shows.
 
 ### `POST /api/simple/agent`
 
@@ -1158,12 +1122,14 @@ The noise level is the user's choice and is not sent to the agent.
   "aspect_ratio": "source",
   "reference_image": "data:image/png;base64,…",
   "subject_image": null,
-  "agent_profile_id": null
+  "agent_host": "codex",
+  "agent_model": "gpt-6",
+  "agent_variant": "high"
 }
 ```
 
-`agent_host` (`opencode`, `antigravity`, `codex`, `claude`) and `agent_model` run a model picked
-in Create instead of the Integrations defaults. Omitted `agent_host` means OpenCode for compatibility.
+`agent_host` (`opencode`, `antigravity`, `codex`, `claude` or `api:<provider id>`) and `agent_model`
+run a model picked in Create instead of the default model. Omitted `agent_host` means OpenCode for compatibility.
 `agent_variant` must be a reasoning level from that model's catalog: OpenCode 2.x receives
 `provider/model#variant`, 1.x uses its default; Codex receives `model_reasoning_effort`, Claude
 receives `--effort`. Antigravity's chosen level is already encoded in `agent_model`.
@@ -1171,7 +1137,7 @@ The backend validates model/level and photo support again. Errors: `409` `model_
 `cli_unavailable`; `400` `variant_unavailable`.
 `previous_prompt` marks a refinement (the agent keeps it except what the request changes).
 `subject_image` is the optional second photo of the edit mode; the agent sees both photos side by
-side. `agent_profile_id` replaces the default agent for this call.
+side.
 
 **Response (`200`):**
 
@@ -1190,8 +1156,8 @@ side. `agent_profile_id` replaces the default agent for this call.
 ```
 
 Errors: `400` `image_required`, `instruction_required`, `prompt_required`, `subject_invalid`;
-`409` `no_ai_profile` (no agent configured) and `vision_required` (the reference mode needs an agent
-that sees photos); `404` `profile_not_found`; `502` with the adapter code (`cli_authentication`,
+`409` `no_ai_model` (no model available) and `vision_required` (the reference mode needs a model
+that sees photos); `404` `provider_not_found`; `502` with the adapter code (`cli_authentication`,
 `provider_error`, `contract_violation`, `free_tier_refused`, …) and `technical_error`. With no
 agent configured at all, an installed OpenCode runs a free OpenCode Zen model instead of `409`.
 
