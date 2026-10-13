@@ -13,7 +13,7 @@
   "4": {"class_type": "Krea2EditGroundedEncode", "inputs": {"clip": ["2", 0], "image": ["16", 0], "prompt": "", "grounding_px": 768, "system_prompt": ""}},
   "5": {"class_type": "Krea2EditGroundedEncode", "inputs": {"clip": ["2", 0], "image": ["16", 0], "prompt": "", "grounding_px": 768, "system_prompt": ""}},
   "7": {"class_type": "KSampler", "inputs": {
-    "seed": 0, "steps": 8, "cfg": 1.0, "sampler_name": "dpmpp_2m_sde_gpu", "scheduler": "sgm_uniform", "denoise": 1.0,
+    "seed": 0, "steps": 8, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
     "model": ["18", 0], "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["17", 0]}},
   "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}},
   "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "CMV/Create/krea2_edit", "images": ["8", 0]}}

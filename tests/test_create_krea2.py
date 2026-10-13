@@ -101,6 +101,8 @@ def test_edit_workflow_binds_instruction_source_and_size():
     assert workflow["17"]["inputs"]["width"] == 832
     assert workflow["17"]["inputs"]["height"] == 1216
     assert workflow["7"]["inputs"]["seed"] == 11
+    assert workflow["7"]["inputs"]["sampler_name"] == "euler"
+    assert workflow["7"]["inputs"]["scheduler"] == "simple"
     assert workflow["14"]["inputs"]["lora_name"] == "krea2_identity_edit_v1_2_r64.safetensors"
     assert "30" not in workflow
     assert "source_latent_b" not in workflow["18"]["inputs"]
@@ -180,6 +182,8 @@ def test_edit_with_subject_wires_second_reference():
     assert workflow["4"]["inputs"]["image_b"] == ["31", 0]
     assert workflow["5"]["inputs"]["image_b"] == ["31", 0]
     assert (patch["ref_boost"], patch["ref_boost_a"]) == (2.0, 4.0)
+    assert workflow["7"]["inputs"]["sampler_name"] == "euler"
+    assert workflow["7"]["inputs"]["scheduler"] == "simple"
     # Every link points at a node that exists in the compiled graph.
     for node in workflow.values():
         for value in node["inputs"].values():
@@ -608,8 +612,9 @@ def test_generate_variation_starts_from_the_photo_with_the_chosen_noise(create_e
     assert [item["workflow"]["7"]["inputs"]["seed"] for item in fake_client.queued] == [3, 4]
     assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_denoise"] == 0.4
     assert fake_store.drafts[0]["values"]["denoise"] == 0.4
-    # No SDA LoRA: the photo, not a diversity LoRA, shapes the start.
-    assert not any("sda" in str(node["inputs"].get("lora_name", "")) for node in workflow.values())
+    # This route must remain plain img2img, with no editing or diversity adapter.
+    assert not any("LoraLoader" in node["class_type"] or node["class_type"].startswith("Krea2Edit")
+                   for node in workflow.values())
 
 
 def test_generate_variation_defaults_and_rejections(create_env):

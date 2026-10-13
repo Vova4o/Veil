@@ -26,7 +26,7 @@
     {
       "id": "light",
       "label": "Light edit",
-      "description": "Clothes, lingerie, garment states, hair, makeup, expression, style: face and scene stay almost 1:1.",
+      "description": "Default for local changes to clothes, hair, makeup, expression, style or missing details; strong source conditioning.",
       "references": 1,
       "seconds": 115,
       "settings": {
@@ -68,7 +68,7 @@
     {
       "id": "remove",
       "label": "Remove",
-      "description": "Take a garment off or delete an object: the command states only the result, the removed thing goes to the negative. CFG 2.5, about twice as long.",
+      "description": "Delete an object, garment or covering overlay while retaining strong source conditioning; describe the desired fill/result and put the removed thing in the negative. CFG 2.5, about twice as long.",
       "references": 1,
       "seconds": 210,
       "settings": {
@@ -82,7 +82,7 @@
     {
       "id": "heavy",
       "label": "Different face",
-      "description": "Replace the face: CFG 2.5, about twice as long.",
+      "description": "Explicitly replace an already visible face with a different identity; weak source conditioning can shift the scene. Not for filling hidden details or removing overlays. CFG 2.5, about twice as long.",
       "references": 1,
       "seconds": 205,
       "settings": {
@@ -124,7 +124,7 @@
     {
       "id": "donor_detail",
       "label": "Detail from the second photo",
-      "description": "A tattoo, jewelry or garment from the donor photo: the scene holds strongly and the pattern is copied exactly.",
+      "description": "Transfer only the requested tattoo, jewelry, garment or object/detail from photo 2; retain photo 1's scene with strong conditioning. Fidelity must be checked in the result.",
       "references": 2,
       "seconds": 190,
       "settings": {

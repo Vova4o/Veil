@@ -42,9 +42,9 @@ from .simple_profiles import ApprovedProfile, resolve_edit_profile
 
 logger = logging.getLogger(__name__)
 
-CreateMode = Literal["text", "reference", "edit"]
+CreateMode = Literal["text", "reference", "variation", "edit"]
 CREATE_CONTENT_DIR = CONTENT_DIR / "create" / "krea2"
-CREATE_INSTRUCTION_VERSION = "1"
+CREATE_INSTRUCTION_VERSION = "2"
 # Agent CLIs need time to read a long task package and an image; profile timeouts
 # saved for short translations (60 s) are too tight for Create.
 MIN_AGENT_TIMEOUT_SECONDS = 240
@@ -55,6 +55,7 @@ MAX_PREVIOUS_PROMPT_CHARS = 20_000
 _MODE_OPERATIONS: dict[str, PromptOperation] = {
     "text": PromptOperation.GENERATE,
     "reference": PromptOperation.RECONSTRUCT,
+    "variation": PromptOperation.RECONSTRUCT,
     "edit": PromptOperation.EDIT,
 }
 
@@ -75,7 +76,7 @@ class CreateInstructionBundle(InstructionBundle):
     """
 
     def render(self) -> str:
-        mode = next(
+        mode = self.versions.get("mode") or next(
             (name for name, operation in _MODE_OPERATIONS.items() if operation is self.task.operation),
             self.task.operation.value,
         )
@@ -140,11 +141,12 @@ def _content(name: str) -> tuple[str, str]:
 
 
 def _edit_profiles_section(profile: ApprovedProfile, *, references: int) -> str:
-    lines = ["Available edit profiles (id: purpose; photos; time per image):"]
+    lines = ["Available edit profiles for the attached photos (id: purpose; photos; time per image):"]
     for item in profile.edit_profiles:
+        if item.references != references:
+            continue
         photos = "needs 2 photos" if item.references == 2 else "1 photo"
-        usable = "" if item.references == references else " (not usable now)"
-        lines.append(f"- {item.id}: {item.description} [{photos}; about {item.seconds} s]{usable}")
+        lines.append(f"- {item.id}: {item.description} [{photos}; about {item.seconds} s]")
     return "\n".join(lines)
 
 
@@ -548,7 +550,7 @@ def build_user_input(
     cleaned = request.strip()[:MAX_REQUEST_CHARS]
     if cleaned:
         parts.append(f"USER REQUEST (any language, translate it):\n{cleaned}")
-    elif mode == "reference":
+    elif mode in {"reference", "variation"}:
         parts.append("USER REQUEST: none. Write a faithful reconstruction of the reference photo.")
     else:
         parts.append("USER REQUEST: none.")
@@ -720,7 +722,7 @@ def run_create_agent(
     runs), then ``thinking`` / ``working`` / ``writing`` with an optional ``log`` line
     or ``text``, as far as the host reports them.
     """
-    if mode in {"reference", "edit"} and image is None:
+    if mode in {"reference", "variation", "edit"} and image is None:
         raise CreateAgentError("Attach a photo for this mode.", code="image_required")
     if mode == "edit" and not request.strip():
         raise CreateAgentError("Describe what to change in the photo.", code="instruction_required")
@@ -753,7 +755,7 @@ def run_create_agent(
     except ExecutionRouterError as exc:
         raise CreateAgentError(str(exc), code=exc.code, status=409) from exc
     sees = image is not None and _sees_images(agent) and bool(accepted)
-    if mode == "reference" and not sees:
+    if mode in {"reference", "variation"} and not sees:
         raise CreateAgentError(
             f"The agent '{agent.get('name')}' cannot see photos. Choose a model that sees photos "
             "in Create's agent menu for this mode.",
@@ -832,10 +834,14 @@ def run_create_agent(
     if mode == "edit":
         negative = result.negative_prompt
         try:
+            if profile.edit_profiles and not result.edit_profile:
+                raise ValueError("The agent did not select an edit profile")
             chosen = resolve_edit_profile(profile, result.edit_profile, references=references)
-        except ValueError:
-            logger.info("Create agent chose an unusable edit profile %r; using the default", result.edit_profile)
-            chosen = resolve_edit_profile(profile, None, references=references)
+        except ValueError as exc:
+            raise CreateAgentError(
+                "The agent chose an edit type that does not match the attached photos. Try preparing the edit again.",
+                code="edit_profile_invalid", status=502, technical_error=str(exc),
+            ) from exc
         edit_profile = chosen.id if chosen else None
     metadata = outcome.metadata if isinstance(outcome.metadata, dict) else {}
     latency = metadata.get("latency_ms")

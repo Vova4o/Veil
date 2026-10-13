@@ -120,7 +120,19 @@ def test_bundle_modules_follow_the_mode():
     assert rendered.startswith("CMV CREATE TASK")
     assert "mode: edit" in rendered
     assert "family: flux" not in rendered
-    assert "- light:" in rendered and "(not usable now)" in rendered
+    assert "- light:" in rendered and "- donor:" not in rendered
+    donor = build_create_bundle(PROFILE, "edit", references=2).render()
+    assert "- donor:" in donor and "- donor_detail:" in donor
+    assert "- light:" not in donor and "- heavy:" not in donor
+
+
+def test_variation_bundle_describes_a_vae_conditioned_result_without_edit_instructions():
+    bundle = build_create_bundle(PROFILE, "variation")
+    assert "mode: variation" in bundle.render()
+    sections = {item.section_id: item.content for item in bundle.sections}
+    assert "composition" in sections and "mode_variation" in sections
+    assert "edit_profiles" not in sections and "mode_reference" not in sections
+    assert "VAE-encoded starting latent" in sections["mode_variation"]
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -227,15 +239,26 @@ def test_edit_run_uses_agent_profile_and_negative():
     assert result.saw_image is True
 
 
-def test_edit_run_with_donor_sends_side_by_side_sheet_and_fixes_profile():
-    router = FakeRouter(PromptResult(positive_prompt="Put the person from the second image.", edit_profile="light"))
+def test_edit_run_with_donor_sends_side_by_side_sheet_and_retains_profile():
+    router = FakeRouter(PromptResult(positive_prompt="Put the person from the second image.", edit_profile="donor"))
     result = run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="swap",
                               image=_png(), subject=_png(500, 500), router=router)
     width, height = router.calls[0]["image_size"]
     assert width > height  # two photos side by side
     assert "side-by-side" in router.calls[0]["user_input"]
-    # "light" needs one photo; with a donor the first two-photo profile is used.
     assert result.edit_profile == "donor"
+
+
+@pytest.mark.parametrize(("selected", "second_photo"), [
+    ("light", True), ("donor", False), ("unknown", False), (None, False), (None, True),
+])
+def test_agent_cannot_silently_substitute_an_incompatible_edit_profile(selected, second_photo):
+    router = FakeRouter(PromptResult(positive_prompt="Recolor the cup.", edit_profile=selected))
+    with pytest.raises(CreateAgentError) as caught:
+        run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="Recolor the cup.",
+                         image=_png(), subject=_png() if second_photo else None, router=router)
+    assert caught.value.code == "edit_profile_invalid"
+    assert caught.value.status == 502
 
 
 def test_edit_without_vision_agent_writes_command_blind():
@@ -498,7 +521,7 @@ def test_fetch_image_rejects_bad_links_pages_and_huge_files(monkeypatch):
     assert huge.status_code == 413 and huge.get_json()["code"] == "image_too_large"
 
 
-def test_variation_agent_describes_the_photo_like_reference(monkeypatch):
+def test_variation_agent_describes_the_photo_with_its_own_mode(monkeypatch):
     router = FakeRouter(PromptResult(positive_prompt="A woman in a grey sweater on a rocky coast."))
     monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
     monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([VISION]))
@@ -508,11 +531,19 @@ def test_variation_agent_describes_the_photo_like_reference(monkeypatch):
     assert response.status_code == 200, response.data
     data = response.get_json()
     assert data["mode"] == "variation"
-    assert "MODE: reference" in router.calls[0]["user_input"]
+    assert "MODE: variation" in router.calls[0]["user_input"]
     assert "faithful reconstruction" in router.calls[0]["user_input"]
     # The noise level is the user's choice; the agent is never told about it.
     assert "denoise" not in router.calls[0]["user_input"].casefold()
     assert data["width"] % 16 == 0
+
+
+def test_variation_needs_a_vision_agent():
+    router = FakeRouter(PromptResult(positive_prompt="A cup on a table."))
+    with pytest.raises(CreateAgentError) as caught:
+        run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="variation", request="",
+                         image=_png(), router=router)
+    assert caught.value.code == "vision_required"
 
 
 # --- agent picked in Create --------------------------------------------------------------

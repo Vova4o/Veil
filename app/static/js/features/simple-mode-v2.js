@@ -25,7 +25,7 @@ const MODE_COPY = {
     },
     edit: {
         label: 'Edit photo',
-        hint: 'Add a photo and say what to change. The face, light and scene stay as they are.',
+        hint: 'Say what to change. The editing adapter uses your photo to retain the surrounding details.',
         placeholder: 'For example: change her sweater to a black satin camisole',
         button: 'Edit photo',
     },
@@ -33,7 +33,7 @@ const MODE_COPY = {
 // "Edit photo" with a second photo: a person, a garment or a tattoo to bring in.
 const EDIT_REFERENCE_COPY = {
     label: 'Edit with reference',
-    hint: 'Add the photo and a reference: a person, a garment or a tattoo. Say what to bring in.',
+    hint: 'Add the photo to edit and a replacement reference. Say what to transfer; the first photo supplies the scene.',
     placeholder: 'For example: dress her in the red silk dress from the reference',
     button: 'Edit with reference',
 };
@@ -50,7 +50,7 @@ const REF_COPY = {
     },
     edit: {
         eyebrow: 'PHOTO',
-        main: ['Photo to edit', 'The face, light and scene stay as they are'],
+        main: ['Photo to edit', 'The source for the edit; say what to change'],
     },
     editReference: {
         eyebrow: 'PHOTOS',

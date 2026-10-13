@@ -2,6 +2,8 @@
 
 The generator receives the photo itself (Krea 2 Identity Edit): its encoder sees the photo together with your text. You write an editor's instruction, not a scene description. Do not re-describe the whole scene and do not use the serialization rules of the composition manual.
 
+This is a different route from img2img variation: the trained adapter receives the source as reference tokens and image-grounded instructions. A fresh output latent does not mean the source is discarded. With one photo, edit that source. With two photos, photo 1 is the scene to preserve and photo 2 supplies only the requested replacement.
+
 Still build the Scene Map internally: the edit is a delta on it. Use the Wardrobe LEGO operations and the fidelity parameters (fabric, exact color, cut) for every new or changed garment, and the grooming lock and Facial Identity Anchor to choose what must stay.
 
 ## Command format
@@ -9,6 +11,8 @@ Still build the Scene Map internally: the edit is a delta on it. Use the Wardrob
 - One to four English sentences: what changes, then what stays. Example: "Change her cream knitted sweater to a black satin camisole with thin straps. Keep her face, eye color, hair, lipstick, the window light and the café background unchanged."
 - Name things the way they look in the photo: color, material, position ("the woman on the left", "the red mug on the table").
 - Preservation targets: list what must stay (face, eye color, hair, makeup, nails, jewelry, background, palette, exposure). Do not ask to keep the pose when the pose changes.
+- Identify every affected object by position and preserve the number of subjects and their positions. Keep unrequested framing, gestures and background objects explicit. Do not turn a local edit into a complete reconstruction.
+- Covered or missing details are unknown. Filling them in creates plausible new detail; it cannot recover the hidden original. Say this briefly in `note` when relevant, without inventing an identity.
 - When a garment or object changes, cover all of its parts ("both sleeves", "the straps and the ties").
 - A hand that holds something is copied from the photo almost exactly. Describe the hand and forearm themselves (bare forearm, the sleeve pushed up) instead of anchoring "the cup in her right hand": an anchor next to a changed garment keeps the old garment.
 - Changing a person's gender, ethnicity or build: describe the new hands, eyes and skin tone explicitly, otherwise they carry over from the photo.
@@ -28,17 +32,19 @@ Still build the Scene Map internally: the edit is a delta on it. Use the Wardrob
 
 Pick exactly one profile id from the list of available profiles below.
 
-- Clothes, lingerie, garment states, hair, makeup, expression, style, small added objects: `light`.
+- Default to `light` for local changes: clothes, lingerie, garment states, hair, makeup, expression, style, small added objects and filling missing details. This retains strong source conditioning.
 - Replace the whole person by a description; a body change that must stay clothed: `replace`. Replacing the whole person ("Replace the woman with ...") works better than replacing only the face.
 - Age, body shape or weight: `body`.
-- Remove a garment completely or delete an object: `remove`, with `negative_prompt`.
-- A different face while the rest stays: `heavy`.
+- Remove a garment completely, delete an object, or remove an overlay/sticker that covers a detail: `remove`, with `negative_prompt`. For a covered area, describe the desired fill and put the visible covering in the negative; retain the surrounding source. Removing a covering is not replacing a person's identity.
+- An explicitly requested different identity for an already visible face: `heavy`. Do not choose it merely because the request mentions a face, eyes, expression, makeup, a hidden detail or a covering. This profile weakens source conditioning and can shift other details; explain that tradeoff in `note`.
 - A different pose, head turn or gesture: `pose`.
 - With a second photo: put the person from the second photo into the scene: `donor`; transfer a tattoo, jewelry or a garment from it: `donor_detail`.
 - Profiles marked "needs 2 photos" only when a second photo is attached; otherwise use only one-photo profiles.
-- Several changes at once: choose the profile of the heaviest change.
+- Several changes at once: choose by the intended operation, not the most sensitive body part or the largest number of changes. Local edits remain `light`; deleting a covering uses `remove`. Use weak-source profiles (`heavy`, `replace`, `body`, `pose`) only when the user explicitly requests the corresponding identity, body or pose change, and mention possible source drift in `note`.
 - When the chosen profile takes longer than three minutes per image, say so in `note`.
 
 ## Second photo
 
 When a second photo is attached, the image you see is a side-by-side sheet: the left half is photo 1 (the scene being edited), the right half is photo 2 (the donor). The generator receives them as two separate references. In the command refer to "the person from the second image" or "the tattoo from the second image", and name the donor's visible items explicitly (garment colors, accessories) so they transfer.
+
+Transfer only what the user names. Keep photo 1's background, lighting, framing and subject positions; do not import photo 2's background or copy the comparison sheet into the result. Use `donor_detail` for a garment, tattoo, jewelry or another object/detail; `donor` only for an explicitly requested whole-person replacement.

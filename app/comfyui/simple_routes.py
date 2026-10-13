@@ -1103,8 +1103,7 @@ def _prepare_agent_request(req: SimpleAgentRequest):
     run_kwargs: dict[str, Any] = {
         "profile": profile,
         "store": _ai_profile_store(),
-        # The variation prompt is the same faithful description of the photo as in reference mode.
-        "mode": "reference" if req.mode == "variation" else req.mode,
+        "mode": req.mode,
         "request": req.request,
         "image": image[0] if image else None,
         "subject": subject[0] if subject else None,
