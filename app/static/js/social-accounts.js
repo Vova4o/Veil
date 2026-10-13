@@ -37,8 +37,6 @@ let vkPollStartedAt = 0;
 
 let socialStatus = null;
 
-window.cmvSocialStatus = () => socialStatus;
-
 function $(id) {
     return document.getElementById(id);
 }
@@ -208,7 +206,6 @@ async function renderSocialGrid() {
     if (!grid) return;
     await loadSocialStatus();
     grid.replaceChildren(...visibleProviders().map(renderCard));
-    if (typeof window.updateRailCounts === 'function') window.updateRailCounts();
 }
 
 function stopTelegramPolling() {

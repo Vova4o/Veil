@@ -7399,3 +7399,14 @@
     font-weight: 550;
     color: var(--text-muted);
 }
+
+/* Model select with the picked model's reasoning level beside it (model-picker.js). */
+.model-reasoning-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+}
+
+.model-reasoning-row.has-reasoning {
+    grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 30%);
+}

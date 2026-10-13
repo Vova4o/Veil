@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import database
 from app.ai.execution import (
@@ -266,16 +267,24 @@ class AIRankingTest(unittest.TestCase):
             404,
         )
 
-    def test_evaluate_endpoint_requires_saved_multimodal_profile(self) -> None:
-        response = self.client.post(
-            "/api/ai/evaluate",
-            json={
-                "image_id": self.image_id,
-                "profile": {"kind": "dummy-vision", "multimodal": True},
-            },
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["code"], "missing_profile")
+    def test_evaluate_endpoint_needs_a_connected_model_that_sees_photos(self) -> None:
+        text_only = {"id": "text", "kind": "cli", "cli_type": "opencode", "model": "m",
+                     "model_card": True, "multimodal": False, "name": "Text model"}
+        with patch("app.ai.agents.implicit_opencode_profile", return_value=None):
+            # An execution profile in the request is ignored; only connected models run.
+            missing = self.client.post(
+                "/api/ai/evaluate",
+                json={
+                    "image_id": self.image_id,
+                    "profile": {"kind": "dummy-vision", "multimodal": True},
+                },
+            )
+        self.assertEqual(missing.status_code, 409)
+        self.assertEqual(missing.get_json()["code"], "no_ai_model")
+        with patch("app.ai.routes.agents.profile_for_request", return_value=text_only):
+            blind = self.client.post("/api/ai/evaluate", json={"image_id": self.image_id})
+        self.assertEqual(blind.status_code, 409)
+        self.assertEqual(blind.get_json()["code"], "vision_required")
 
 
 if __name__ == "__main__":

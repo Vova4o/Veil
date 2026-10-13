@@ -99,19 +99,23 @@ def test_auto_rating_lifecycle_trigger_on_completed_run(db_env):
         "multimodal": True,
         "api_key_source": "none",
     }
-    mock_profile_store = MagicMock()
-    mock_profile_store.get_defaults.return_value = {"multimodal_profile_id": "test-multimodal", "rating_auto_enabled": True}
-    mock_profile_store.get.return_value = mock_profile
-    mock_profile_store.resolve_api_key.return_value = None
+    mock_provider_store = MagicMock()
+    mock_provider_store.rating_auto_enabled.return_value = True
+    mock_provider_store.resolve_api_key.return_value = None
 
-    with patch.object(AIRankingService, "evaluate_asset") as mock_eval:
-        service = WorkflowExecutionService(store=store, client=mock_client, profile_store=mock_profile_store)
+    with (
+        patch("app.ai.agents.default_profile", return_value=mock_profile) as default_profile,
+        patch.object(AIRankingService, "evaluate_asset") as mock_eval,
+    ):
+        service = WorkflowExecutionService(store=store, client=mock_client, provider_store=mock_provider_store)
         completed_run = service.refresh(run.id)
 
         assert completed_run.status == "completed"
         assert len(completed_run.output_asset_ids) == 1
         assert mock_eval.called
         assert mock_eval.call_args[1]["image_id"] == completed_run.output_asset_ids[0]
+        # Auto rating runs the default model, preferring one that sees photos.
+        default_profile.assert_called_once_with(mock_provider_store, wants_image=True)
 
 
 def test_auto_rating_failure_does_not_crash_refresh(db_env):
@@ -139,12 +143,15 @@ def test_auto_rating_failure_does_not_crash_refresh(db_env):
         auto_rate=True,
     )
 
-    mock_profile_store = MagicMock()
-    mock_profile_store.get_defaults.return_value = {"multimodal_profile_id": "test-multimodal", "rating_auto_enabled": True}
-    mock_profile_store.get.return_value = {"id": "test-multimodal", "kind": "openai_compatible", "multimodal": True, "api_key_source": "none"}
-    mock_profile_store.resolve_api_key.return_value = None
+    mock_provider_store = MagicMock()
+    mock_provider_store.rating_auto_enabled.return_value = True
+    mock_provider_store.resolve_api_key.return_value = None
+    vision = {"id": "test-multimodal", "kind": "openai_compatible", "multimodal": True, "api_key_source": "none"}
 
-    with patch.object(AIRankingService, "evaluate_asset", side_effect=Exception("Rating service error")):
-        service = WorkflowExecutionService(store=store, client=mock_client, profile_store=mock_profile_store)
+    with (
+        patch("app.ai.agents.default_profile", return_value=vision),
+        patch.object(AIRankingService, "evaluate_asset", side_effect=Exception("Rating service error")),
+    ):
+        service = WorkflowExecutionService(store=store, client=mock_client, provider_store=mock_provider_store)
         completed_run = service.refresh(run.id)
         assert completed_run.status == "completed"

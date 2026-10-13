@@ -15,6 +15,7 @@ from rich.text import Text
 
 from ..config_store import ConfigStoreError
 from ..paths import PathValidationError, build_runtime_paths, normalize_path
+from . import agents
 from .execution import (
     OpenCodeIntentJudgeExecutionError,
     OpenCodeIntentJudgeExecutionResult,
@@ -24,7 +25,6 @@ from .execution import (
     OpenCodePromptExecutor,
 )
 from .opencode_smoke import resolve_opencode_profile
-from .profiles import AIProfileStore, AIProfileStoreError
 from .prompting import (
     CapabilityStatus,
     PromptFamily,
@@ -35,6 +35,7 @@ from .prompting import (
     PromptTask,
 )
 from .prompting.registry import get_family_profile
+from .providers import AIProviderError, AIProviderStore
 from .secrets import SecretStoreError
 from .smoke import SmokeRunnerError
 
@@ -2440,7 +2441,7 @@ def _menu_choice(
 
 def _interactive_selection(
     console: Console,
-    store: AIProfileStore,
+    store: AIProviderStore,
     *,
     json_out_override: str | None = None,
     disable_json: bool = False,
@@ -2501,29 +2502,29 @@ def _interactive_selection(
     if benchmark is None:
         return None
 
-    listing = store.list()
     profiles = tuple(
-        profile
-        for profile in listing["profiles"]
-        if profile.get("kind") == "cli" and profile.get("cli_type") == "opencode"
+        {"id": model["id"], "name": model["name"], "model": model["id"]}
+        for group in agents.catalog(store, visible_only=True)["groups"]
+        if group["host"] == "opencode"
+        for model in group["models"]
     )
     if not profiles:
         raise SmokeRunnerError(
-            "No OpenCode CLI profiles are configured.",
-            code="profile_not_found",
+            "OpenCode shows no models. Install OpenCode or show its models in Integrations › Models.",
+            code="model_not_found",
         )
-    default_profile_id = listing["defaults"].get("text_profile_id")
+    default = store.default_model()
     default_index = next(
         (
             index
             for index, profile in enumerate(profiles)
-            if profile["id"] == default_profile_id
+            if default and default["host"] == "opencode" and profile["id"] == default["model"]
         ),
         0,
     )
     generator = _menu_choice(
         console,
-        title="Generator profile",
+        title="Generator model",
         options=tuple(
             (f"{profile['name']} · {profile['model']}", profile)
             for profile in profiles
@@ -2535,7 +2536,7 @@ def _interactive_selection(
 
     judge = _menu_choice(
         console,
-        title="Judge profile",
+        title="Judge model",
         options=(("Same as generator", _SAME_AS_GENERATOR),)
         + tuple(
             (f"{profile['name']} · {profile['model']}", profile)
@@ -2729,10 +2730,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run", help="Run one intent benchmark through OpenCode.")
     run.add_argument("benchmark", choices=tuple(BENCHMARKS))
-    run.add_argument("--profile", help="Generator OpenCode profile ID or exact name.")
+    run.add_argument("--model", help="Generator OpenCode model as provider/model[#variant].")
     run.add_argument(
-        "--judge-profile",
-        help="Judge OpenCode profile ID or exact name. Defaults to the generator profile.",
+        "--judge-model",
+        help="Judge OpenCode model as provider/model[#variant]. Defaults to the generator model.",
     )
     run.add_argument("--config", help="Override the application config.json path.")
     run.add_argument("--minimum-score", type=int, default=80)
@@ -2768,7 +2769,7 @@ def main(argv: list[str] | None = None) -> int:
         config_path = (
             normalize_path(args.config) if args.config else build_runtime_paths().config
         )
-        store = AIProfileStore(config_path)
+        store = AIProviderStore(config_path)
         if args.command == "interactive":
             selection = _interactive_selection(
                 console,
@@ -2780,21 +2781,21 @@ def main(argv: list[str] | None = None) -> int:
                 console.print("[yellow]Interactive benchmark cancelled.[/yellow]")
                 return 0
             args.benchmark = selection.benchmark_id
-            args.profile = selection.generator_profile
-            args.judge_profile = selection.judge_profile
+            args.model = selection.generator_profile
+            args.judge_model = selection.judge_profile
             args.json_out = selection.json_out
         generator_resolved = resolve_opencode_profile(
             store,
-            selector=args.profile,
+            selector=args.model,
             requires_image=False,
         )
         judge_resolved = (
             resolve_opencode_profile(
                 store,
-                selector=args.judge_profile,
+                selector=args.judge_model,
                 requires_image=False,
             )
-            if args.judge_profile
+            if args.judge_model
             else generator_resolved
         )
         generator_profile = dict(generator_resolved.profile)
@@ -2879,7 +2880,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except (
         SmokeRunnerError,
-        AIProfileStoreError,
+        AIProviderError,
         ConfigStoreError,
         SecretStoreError,
         PathValidationError,

@@ -376,7 +376,7 @@
                         <label class="enhance-field"><span>Scenario</span><select id="enhance-scenario" required></select></label>
                     </div>
                     <label class="enhance-field"><span>Checkpoint profile</span><input id="enhance-checkpoint-profile" type="text" maxlength="120" placeholder="Optional tested profile"><small id="enhance-checkpoint-note">Use a known capability profile when the checkpoint needs special prompt rules.</small></label>
-                    <label class="enhance-field"><span>Execution profile</span><select id="enhance-profile" required></select><small id="enhance-profile-note">Profiles are configured on the AI settings page.</small></label>
+                    <label class="enhance-field"><span>Model</span><select id="enhance-profile" required></select><small id="enhance-profile-note">Which models are listed: Integrations › Models.</small></label>
                     <div class="enhance-footer"><button id="enhance-cancel" class="btn btn-secondary" type="button">Cancel</button><button id="enhance-submit" class="btn btn-primary" type="button">Enhance to draft</button></div>
                 </div>
                 <p id="generate-help" class="generate-help">The result will be saved to the library automatically.</p>
@@ -505,7 +505,7 @@
                 <label class="ai-prompt-source"><span>What do you want to create?</span><textarea id="ai-prompt-input" rows="6" maxlength="100000" placeholder="A quiet glass house in a pine forest at blue hour…" required></textarea></label>
                 <label><span>Prompt family</span><select id="ai-prompt-family" required></select></label>
                 <label><span>Scenario</span><select id="ai-prompt-scenario" required></select><small id="ai-scenario-note">Only compatible scenarios are shown.</small></label>
-                <label class="ai-prompt-profile"><span>Execution profile</span><select id="ai-prompt-profile" required></select><small id="ai-profile-note">Profiles are configured on the AI settings page.</small></label>
+                <label class="ai-prompt-profile"><span>Model</span><select id="ai-prompt-profile" required></select><small id="ai-profile-note">Which models are listed: Integrations › Models.</small></label>
             </div>
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" value="cancel">Cancel</button><button id="ai-prompt-submit" class="btn btn-primary" type="submit">Create draft</button></div>
         </form>
@@ -524,7 +524,7 @@
                 <label><span>Target language</span><input id="translate-target-language" type="text" maxlength="80" value="en" required></label>
                 <label><span>Prompt family</span><select id="translate-prompt-family" required></select><small>Used as prompt context; this operation does not perform family adaptation.</small></label>
                 <label><span>Scenario</span><select id="translate-prompt-scenario" required></select></label>
-                <label class="ai-prompt-profile"><span>Execution profile</span><select id="translate-prompt-profile" required></select><small id="translate-profile-note">Profiles are configured on the AI settings page.</small></label>
+                <label class="ai-prompt-profile"><span>Model</span><select id="translate-prompt-profile" required></select><small id="translate-profile-note">Which models are listed: Integrations › Models.</small></label>
             </div>
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" value="cancel">Cancel</button><button id="translate-prompt-submit" class="btn btn-primary" type="submit">Translate to draft</button></div>
         </form>
@@ -542,7 +542,7 @@
                 <label><span>Target prompt family</span><select id="adapt-prompt-family" required></select></label>
                 <label><span>Scenario</span><select id="adapt-prompt-scenario" required></select></label>
                 <label><span>Checkpoint profile</span><input id="adapt-checkpoint-profile" type="text" maxlength="120" placeholder="Optional tested profile"><small id="adapt-checkpoint-note">Use a known capability profile when the checkpoint needs special prompt rules.</small></label>
-                <label class="ai-prompt-profile"><span>Execution profile</span><select id="adapt-prompt-profile" required></select><small id="adapt-profile-note">Profiles are configured on the AI settings page.</small></label>
+                <label class="ai-prompt-profile"><span>Model</span><select id="adapt-prompt-profile" required></select><small id="adapt-profile-note">Which models are listed: Integrations › Models.</small></label>
             </div>
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" value="cancel">Cancel</button><button id="adapt-prompt-submit" class="btn btn-primary" type="submit">Adapt to draft</button></div>
         </form>
@@ -562,10 +562,10 @@
                 <div class="ai-prompt-fields reconstruct-prompt-fields">
                     <label><span>Target prompt family</span><select id="reconstruct-prompt-family" required></select></label>
                     <label><span>Scenario</span><select id="reconstruct-prompt-scenario" required></select></label>
-                    <label class="ai-prompt-profile"><span>Vision profile</span><select id="reconstruct-vision-profile"></select><small id="reconstruct-vision-note">A multimodal profile analyzes the source image once.</small></label>
+                    <label class="ai-prompt-profile"><span>Vision model</span><select id="reconstruct-vision-profile"></select><small id="reconstruct-vision-note">A model that sees photos analyzes the source image once.</small></label>
                     <button id="reconstruct-analyze" class="btn btn-secondary reconstruct-analyze" type="button">Analyze image</button>
                     <label class="ai-prompt-source"><span>Editable SceneSpec JSON</span><textarea id="reconstruct-scene-spec" rows="14" spellcheck="false" placeholder="Analyze the image to create a SceneSpec." required></textarea><small>Corrections are saved before each render. Re-rendering this SceneSpec does not call the vision model again.</small></label>
-                    <label class="ai-prompt-profile"><span>Prompt render profile</span><select id="reconstruct-render-profile" required></select><small id="reconstruct-render-note">This text profile converts SceneSpec into a model-family prompt.</small></label>
+                    <label class="ai-prompt-profile"><span>Prompt model</span><select id="reconstruct-render-profile" required></select><small id="reconstruct-render-note">This model converts SceneSpec into a model-family prompt.</small></label>
                 </div>
             </div>
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" value="cancel">Cancel</button><button id="reconstruct-prompt-submit" class="btn btn-primary" type="submit">Render to draft</button></div>

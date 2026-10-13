@@ -8,8 +8,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from .cli import CLIIntegrationError, run_cli_test, sanitize_output
-from .profiles import AIProfileStore
+from .cli import sanitize_output
 
 TEST_PNG_BASE64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mOQaMgD"
@@ -17,7 +16,7 @@ TEST_PNG_BASE64 = (
 )
 CONTENT_REJECTED_MESSAGE = (
     "Провайдер или выбранная модель отклонили изображение из-за ограничений "
-    "обработки контента. Выберите другой настроенный профиль и повторите попытку."
+    "обработки контента. Выберите другую модель и повторите попытку."
 )
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
@@ -279,21 +278,48 @@ def run_openai_compatible_test(
     }
 
 
-def test_profile(
-    store: AIProfileStore,
-    profile: dict[str, Any],
-    *,
-    multimodal: bool = False,
-) -> dict[str, Any]:
+MAX_MODEL_LIST_BYTES = 8 * 1024 * 1024
+
+
+def list_openai_compatible_models(base_url: str, *, api_key: str | None, timeout: int = 20) -> list[str]:
+    """Model ids from ``GET {base_url}/models``; checks the address and the key without inference."""
+    endpoint = f"{base_url.rstrip('/')}/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(endpoint, headers=headers, method="GET")
     try:
-        if profile["kind"] == "cli":
-            return run_cli_test(profile, multimodal=multimodal)
-        return run_openai_compatible_test(
-            profile,
-            api_key=store.resolve_api_key(profile),
-            multimodal=multimodal,
-        )
-    except CLIIntegrationError as exc:
+        with _open_url(request, timeout=timeout) as response:
+            raw = response.read(MAX_MODEL_LIST_BYTES)
+    except urllib.error.HTTPError as exc:
+        message, provider_code = _extract_error(exc.read(64_000), api_key)
         raise AIProviderRequestError(
-            str(exc), code=exc.code, technical_error=str(exc)
+            message or f"Provider returned HTTP {exc.code}.",
+            code=_classify_provider_error(exc.code, message, provider_code),
+            technical_error=f"HTTP {exc.code}: {message}"[:16_000],
         ) from exc
+    except TimeoutError as exc:
+        raise AIProviderRequestError(
+            f"The provider did not respond within {timeout} seconds.", code="timeout"
+        ) from exc
+    except urllib.error.URLError as exc:
+        reason = _redact(str(exc.reason), api_key)
+        raise AIProviderRequestError(
+            f"Cannot connect to the provider: {reason}", code="network_error", technical_error=reason
+        ) from exc
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AIProviderRequestError("The provider returned an unreadable model list.",
+                                     code="incompatible_format") from exc
+    items = payload.get("data") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and not isinstance(items, list):
+        items = payload.get("models")
+    if not isinstance(items, list):
+        raise AIProviderRequestError("The provider returned an unreadable model list.", code="incompatible_format")
+    ids = []
+    for item in items:
+        model_id = item.get("id") or item.get("name") if isinstance(item, dict) else item
+        if isinstance(model_id, str) and model_id.strip() and len(model_id) <= 200:
+            ids.append(model_id.strip().removeprefix("models/"))
+    return list(dict.fromkeys(ids))

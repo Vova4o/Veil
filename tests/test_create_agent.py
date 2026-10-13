@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from app.ai import opencode_host
+from app.ai import agents, opencode_host
 from app.ai.cli import CommandResult
 from app.ai.execution import codex as codex_module
 from app.ai.execution.adapters import CodexAgentHostAdapter
@@ -22,13 +22,13 @@ from app.ai.execution.codex import (
 )
 from app.ai.execution.router import ExecutionRouter
 from app.ai.prompting import PromptResult
+from app.ai.providers import AIProviderError
 from app.comfyui import create_agent, simple_routes
 from app.comfyui.create_agent import (
     CREATE_CONTENT_DIR,
     CreateAgentError,
     agent_image_bytes,
     build_create_bundle,
-    pick_agent_profile,
     run_create_agent,
     wants_intimate_module,
     wants_original_module,
@@ -53,30 +53,52 @@ VISION = {"id": "vision", "name": "Vision agent", "kind": "cli", "cli_type": "cl
           "roles": ["vision"], "multimodal": True, "timeout_seconds": 60}
 TEXT = {"id": "text", "name": "Text agent", "kind": "cli", "cli_type": "opencode", "model": "m",
         "roles": ["text"], "multimodal": False, "timeout_seconds": 60}
-TRANSLATOR = {"id": "tr", "name": "Translator", "kind": "cli", "cli_type": "opencode", "model": "m",
-              "roles": ["translator"], "multimodal": False, "timeout_seconds": 60}
 
 
 @pytest.fixture(autouse=True)
 def _no_local_opencode(monkeypatch, request):
     """Keep the zero-setup OpenCode fallback away from the machine's real installs."""
-    if not request.node.name.startswith("test_implicit_opencode"):
-        monkeypatch.setattr(create_agent, "implicit_opencode_profile", lambda: None)
+    if not request.node.name.startswith(("test_implicit_opencode", "test_default_")):
+        monkeypatch.setattr(agents, "implicit_opencode_profile", lambda: None)
 
 
 class FakeStore:
-    def __init__(self, profiles, defaults=None):
-        self.profiles = {item["id"]: item for item in profiles}
-        self.defaults = defaults or {}
+    """Integrations with one default model (an execution profile), or none."""
 
-    def list(self):
-        return {"profiles": list(self.profiles.values()), "defaults": self.defaults}
+    def __init__(self, default=None, *, ref=None, disconnected=()):
+        self.default = default
+        self.ref = ref or ({"host": "fake", "model": default["model"], "variant": None} if default else None)
+        self.disconnected = set(disconnected)
 
-    def get(self, profile_id):
-        return self.profiles[profile_id]
+    def default_model(self):
+        return self.ref
+
+    def disconnected_tools(self):
+        return self.disconnected
+
+    def providers(self):
+        return []
+
+    def visibility(self):
+        return {}
+
+    def get(self, provider_id):
+        raise AIProviderError("This provider is not connected.", code="provider_not_found")
 
     def resolve_api_key(self, profile):
         return None
+
+
+@pytest.fixture(autouse=True)
+def _default_model_from_the_fake_store(monkeypatch):
+    real_resolve = agents.resolve
+
+    def resolve(store, ref):
+        if isinstance(store, FakeStore) and ref.get("host") == "fake":
+            return store.default
+        return real_resolve(store, ref)
+
+    monkeypatch.setattr(agents, "resolve", resolve)
 
 
 class FakeRouter:
@@ -197,7 +219,7 @@ def test_original_request_reaches_the_agent_in_every_create_route(mode, referenc
     router = FakeRouter(PromptResult(positive_prompt="The requested result.", edit_profile=edit_profile))
     request = "original, change the blouse color to blue"
     result = run_create_agent(
-        profile=PROFILE, store=FakeStore([VISION]), mode=mode, request=request,
+        profile=PROFILE, store=FakeStore(VISION), mode=mode, request=request,
         image=_png() if references else None, subject=_png() if references == 2 else None, router=router,
     )
     call = router.calls[0]
@@ -213,7 +235,7 @@ def test_original_request_reaches_the_agent_in_every_create_route(mode, referenc
 def test_original_is_a_current_request_modifier_not_inherited_prompt_text():
     router = FakeRouter(PromptResult(positive_prompt="A blue blouse."))
     run_create_agent(
-        profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="change the blouse color to blue",
+        profile=PROFILE, store=FakeStore(TEXT), mode="text", request="change the blouse color to blue",
         previous_prompt="An original painting with a woman in a red blouse.", router=router,
     )
     call = router.calls[0]
@@ -224,13 +246,25 @@ def test_original_is_a_current_request_modifier_not_inherited_prompt_text():
 # --- agent profile -----------------------------------------------------------------
 
 
-def test_pick_agent_prefers_defaults_and_skips_translators():
-    store = FakeStore([TRANSLATOR, TEXT, VISION], {"text_profile_id": "text", "multimodal_profile_id": "vision"})
-    assert pick_agent_profile(store, wants_image=True)["id"] == "vision"
-    assert pick_agent_profile(store, wants_image=False)["id"] == "text"
-    assert pick_agent_profile(FakeStore([TRANSLATOR]), wants_image=False) is None
-    # A photo task without a vision agent still gets the text agent.
-    assert pick_agent_profile(FakeStore([TEXT]), wants_image=True)["id"] == "text"
+def test_default_model_runs_and_a_photo_task_prefers_a_free_vision_model(monkeypatch):
+    implicit = {**VISION, "id": agents.IMPLICIT_OPENCODE_PROFILE_ID, "model_card": True}
+    monkeypatch.setattr(agents, "implicit_opencode_profile", lambda: implicit)
+    assert agents.default_profile(FakeStore(VISION), wants_image=True)["id"] == "vision"
+    assert agents.default_profile(FakeStore(TEXT), wants_image=False)["id"] == "text"
+    # A text-only default model hands photo tasks to the free OpenCode vision model.
+    assert agents.default_profile(FakeStore(TEXT), wants_image=True)["id"] == agents.IMPLICIT_OPENCODE_PROFILE_ID
+    assert agents.default_profile(FakeStore(), wants_image=False)["id"] == agents.IMPLICIT_OPENCODE_PROFILE_ID
+    monkeypatch.setattr(agents, "implicit_opencode_profile", lambda: None)
+    # Without a free model the photo task still runs the default model, blind.
+    assert agents.default_profile(FakeStore(TEXT), wants_image=True)["id"] == "text"
+    assert agents.default_profile(FakeStore(), wants_image=True) is None
+
+
+def test_default_model_that_no_longer_exists_falls_back(monkeypatch):
+    implicit = {**VISION, "id": agents.IMPLICIT_OPENCODE_PROFILE_ID, "model_card": True}
+    monkeypatch.setattr(agents, "implicit_opencode_profile", lambda: implicit)
+    store = FakeStore(ref={"host": "codex", "model": "gone"}, disconnected={"codex"})
+    assert agents.default_profile(store, wants_image=False)["id"] == agents.IMPLICIT_OPENCODE_PROFILE_ID
 
 
 def _free_models():
@@ -247,24 +281,24 @@ def test_implicit_opencode_runs_a_free_vision_model_when_nothing_is_configured(m
     installation = opencode_host.OpenCodeInstallation("desktop", "C:/OpenCode/opencode-cli.exe", "2.0.24", 2)
     monkeypatch.setattr(opencode_host, "find_installations", lambda: [installation])
     monkeypatch.setattr(opencode_host, "list_models", lambda executable, provider=None: _free_models())
-    create_agent._free_model_cache.clear()
-    profile = pick_agent_profile(FakeStore([TRANSLATOR]), wants_image=True)
-    assert profile["id"] == create_agent.IMPLICIT_OPENCODE_PROFILE_ID
+    agents._free_model_cache.clear()
+    profile = agents.default_profile(FakeStore(), wants_image=True)
+    assert profile["id"] == agents.IMPLICIT_OPENCODE_PROFILE_ID
     assert profile["model"] == "opencode/muse-spark-1.3-contributor-free"
     assert profile["multimodal"] is True and "vision" in profile["roles"]
     assert profile["executable"] == installation.executable
-    # A configured agent always wins over the fallback.
-    assert pick_agent_profile(FakeStore([TEXT]), wants_image=True)["id"] == "text"
+    # A default model that sees photos always wins over the fallback.
+    assert agents.default_profile(FakeStore(VISION), wants_image=True)["id"] == "vision"
 
 
 def test_implicit_opencode_needs_an_installation_and_a_free_model(monkeypatch):
     installation = opencode_host.OpenCodeInstallation("cli", "C:/npm/opencode.cmd", "1.18.34", 1)
     monkeypatch.setattr(opencode_host, "find_installations", list)
-    assert create_agent.implicit_opencode_profile() is None
+    assert agents.implicit_opencode_profile() is None
     monkeypatch.setattr(opencode_host, "find_installations", lambda: [installation])
     monkeypatch.setattr(opencode_host, "list_models", lambda executable, provider=None: [_free_models()[1]])
-    create_agent._free_model_cache.clear()
-    assert create_agent.implicit_opencode_profile() is None
+    agents._free_model_cache.clear()
+    assert agents.implicit_opencode_profile() is None
 
 
 # --- runs ----------------------------------------------------------------------------
@@ -273,7 +307,7 @@ def test_implicit_opencode_needs_an_installation_and_a_free_model(monkeypatch):
 def test_reference_mode_needs_an_agent_that_sees_photos():
     router = FakeRouter(PromptResult(positive_prompt="x"))
     with pytest.raises(CreateAgentError) as exc_info:
-        run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="reference", request="",
+        run_create_agent(profile=PROFILE, store=FakeStore(TEXT), mode="reference", request="",
                          image=_png(), router=router)
     assert exc_info.value.code == "vision_required"
     assert router.calls == []
@@ -281,14 +315,14 @@ def test_reference_mode_needs_an_agent_that_sees_photos():
 
 def test_no_agent_configured():
     with pytest.raises(CreateAgentError) as exc_info:
-        run_create_agent(profile=PROFILE, store=FakeStore([]), mode="text", request="a cat",
+        run_create_agent(profile=PROFILE, store=FakeStore(), mode="text", request="a cat",
                          router=FakeRouter(PromptResult(positive_prompt="x")))
-    assert exc_info.value.code == "no_ai_profile"
+    assert exc_info.value.code == "no_ai_model"
 
 
 def test_text_run_passes_bundle_request_and_previous_prompt():
     router = FakeRouter(PromptResult(positive_prompt="A cat on a sill.", edit_profile="light", note=""))
-    result = run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="кот на окне",
+    result = run_create_agent(profile=PROFILE, store=FakeStore(TEXT), mode="text", request="кот на окне",
                               previous_prompt="A dog.", dimensions=(896, 1152), router=router)
     call = router.calls[0]
     assert call["bundle"].task.operation.value == "generate"
@@ -305,7 +339,7 @@ def test_text_run_passes_bundle_request_and_previous_prompt():
 def test_edit_run_uses_agent_profile_and_negative():
     router = FakeRouter(PromptResult(positive_prompt="She is topless.", negative_prompt="sweater",
                                      edit_profile="remove", note="Try 2-4 images."))
-    result = run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit",
+    result = run_create_agent(profile=PROFILE, store=FakeStore(VISION), mode="edit",
                               request="сними свитер полностью", image=_png(), router=router)
     call = router.calls[0]
     assert call["image_size"] == (640, 960)
@@ -316,7 +350,7 @@ def test_edit_run_uses_agent_profile_and_negative():
 
 def test_edit_run_with_donor_sends_side_by_side_sheet_and_retains_profile():
     router = FakeRouter(PromptResult(positive_prompt="Put the person from the second image.", edit_profile="donor"))
-    result = run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="swap",
+    result = run_create_agent(profile=PROFILE, store=FakeStore(VISION), mode="edit", request="swap",
                               image=_png(), subject=_png(500, 500), router=router)
     width, height = router.calls[0]["image_size"]
     assert width > height  # two photos side by side
@@ -330,7 +364,7 @@ def test_edit_run_with_donor_sends_side_by_side_sheet_and_retains_profile():
 def test_agent_cannot_silently_substitute_an_incompatible_edit_profile(selected, second_photo):
     router = FakeRouter(PromptResult(positive_prompt="Recolor the cup.", edit_profile=selected))
     with pytest.raises(CreateAgentError) as caught:
-        run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="Recolor the cup.",
+        run_create_agent(profile=PROFILE, store=FakeStore(VISION), mode="edit", request="Recolor the cup.",
                          image=_png(), subject=_png() if second_photo else None, router=router)
     assert caught.value.code == "edit_profile_invalid"
     assert caught.value.status == 502
@@ -338,7 +372,7 @@ def test_agent_cannot_silently_substitute_an_incompatible_edit_profile(selected,
 
 def test_edit_task_reports_a_frame_change():
     router = FakeRouter(PromptResult(positive_prompt="Change the sweater to red.", edit_profile="light"))
-    run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="красный свитер",
+    run_create_agent(profile=PROFILE, store=FakeStore(VISION), mode="edit", request="красный свитер",
                      image=_png(640, 960), dimensions=(1344, 768), router=router)
     text = router.calls[0]["user_input"]
     assert "PHOTO 1 SIZE: 640x960 pixels" in text
@@ -348,7 +382,7 @@ def test_edit_task_reports_a_frame_change():
 
 def test_edit_task_in_the_photo_frame_has_no_frame_change():
     router = FakeRouter(PromptResult(positive_prompt="Change the sweater to red.", edit_profile="light"))
-    run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="edit", request="красный свитер",
+    run_create_agent(profile=PROFILE, store=FakeStore(VISION), mode="edit", request="красный свитер",
                      image=_png(640, 960), dimensions=(832, 1248), router=router)
     text = router.calls[0]["user_input"]
     assert "PHOTO 1 SIZE: 640x960 pixels" in text
@@ -357,7 +391,7 @@ def test_edit_task_in_the_photo_frame_has_no_frame_change():
 
 def test_edit_without_vision_agent_writes_command_blind():
     router = FakeRouter(PromptResult(positive_prompt="Make the dress red.", edit_profile="light"))
-    result = run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="edit", request="красное платье",
+    result = run_create_agent(profile=PROFILE, store=FakeStore(TEXT), mode="edit", request="красное платье",
                               image=_png(), router=router)
     assert "image_path" not in router.calls[0]
     assert "cannot see it" in router.calls[0]["user_input"]
@@ -366,7 +400,7 @@ def test_edit_without_vision_agent_writes_command_blind():
 
 def test_direct_agents_get_a_data_url():
     router = FakeRouter(PromptResult(positive_prompt="x"), image_inputs=("data_url",))
-    run_create_agent(profile=PROFILE, store=FakeStore([VISION]), mode="reference", request="", image=_png(),
+    run_create_agent(profile=PROFILE, store=FakeStore(VISION), mode="reference", request="", image=_png(),
                      router=router)
     assert router.calls[0]["image_data_url"].startswith("data:image/jpeg;base64,")
 
@@ -379,7 +413,7 @@ def test_agent_image_is_bounded():
 def test_agent_route_returns_prompt_and_profile_timing(monkeypatch):
     router = FakeRouter(PromptResult(positive_prompt="Pose change.", edit_profile="pose", note="~7 min"))
     monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([VISION]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore(VISION))
     response = app.test_client().post("/api/simple/agent", json={
         "mode": "edit", "request": "поверни голову к окну", "reference_image": _data_url(), "aspect_ratio": "source",
     })
@@ -392,24 +426,24 @@ def test_agent_route_returns_prompt_and_profile_timing(monkeypatch):
     assert data["width"] % 32 == 0
 
 
-def test_agent_profile_override_and_unknown_id(monkeypatch):
-    router = FakeRouter(PromptResult(positive_prompt="x"))
-    store = FakeStore([TEXT, VISION], {"text_profile_id": "text"})
-    run_create_agent(profile=PROFILE, store=store, mode="text", request="a cat", router=router,
-                     agent_profile_id="vision")
-    assert router.calls[0]["profile"]["id"] == "vision"
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: store)
-    response = app.test_client().post("/api/simple/agent", json={"mode": "text", "request": "a cat",
-                                                                 "agent_profile_id": "missing"})
+def test_agent_route_reports_an_unknown_provider(monkeypatch):
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore(TEXT))
+    response = app.test_client().post("/api/simple/agent", json={
+        "mode": "text", "request": "a cat", "agent_host": "api:missing", "agent_model": "m",
+    })
     assert response.status_code == 404
-    assert response.get_json()["code"] == "profile_not_found"
+    assert response.get_json()["code"] == "provider_not_found"
+    invalid = app.test_client().post("/api/simple/agent", json={
+        "mode": "text", "request": "a cat", "agent_host": "../etc", "agent_model": "m",
+    })
+    assert invalid.status_code == 400
 
 
 def test_agent_route_reports_missing_agent(monkeypatch):
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore())
     response = app.test_client().post("/api/simple/agent", json={"mode": "text", "request": "a cat"})
     assert response.status_code == 409
-    assert response.get_json()["code"] == "no_ai_profile"
+    assert response.get_json()["code"] == "no_ai_model"
 
 
 # --- streamed progress ---------------------------------------------------------------
@@ -479,13 +513,13 @@ def test_run_reports_start_and_forwards_host_lines():
             return super().execute(**kwargs)
 
     router = StreamingRouter(PromptResult(positive_prompt="A cat."))
-    run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="a cat",
+    run_create_agent(profile=PROFILE, store=FakeStore(TEXT), mode="text", request="a cat",
                      router=router, on_progress=seen.append)
     assert seen[0] == {"phase": "started", "agent": "Text agent", "model": "m", "sees_images": False}
     assert seen[1] == {"phase": "thinking"}
     # Without a listener nothing is parsed.
     plain = FakeRouter(PromptResult(positive_prompt="A cat."))
-    run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="text", request="a cat", router=plain)
+    run_create_agent(profile=PROFILE, store=FakeStore(TEXT), mode="text", request="a cat", router=plain)
     assert plain.calls[0]["on_output_chunk"] is None
 
 
@@ -507,7 +541,7 @@ def test_agent_route_streams_progress_then_the_result(monkeypatch):
         )
 
     monkeypatch.setattr(simple_routes, "run_create_agent", fake_run)
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([TEXT]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore(TEXT))
     response = app.test_client().post("/api/simple/agent?stream=1", json={"mode": "text", "request": "a cat"})
     assert response.status_code == 200
     assert response.mimetype == "text/event-stream"
@@ -519,11 +553,11 @@ def test_agent_route_streams_progress_then_the_result(monkeypatch):
 
 
 def test_agent_route_streams_errors_with_their_status(monkeypatch):
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore())
     response = app.test_client().post("/api/simple/agent?stream=1", json={"mode": "text", "request": "a cat"})
     events = _sse_events(response)
     assert events[-1]["event"] == "error"
-    assert events[-1]["code"] == "no_ai_profile"
+    assert events[-1]["code"] == "no_ai_model"
     assert events[-1]["status"] == 409
     # Validation still answers with plain JSON before any stream starts.
     invalid = app.test_client().post("/api/simple/agent?stream=1", json={"mode": "edit", "request": "x"})
@@ -632,7 +666,7 @@ def test_fetch_image_rejects_bad_links_pages_and_huge_files(monkeypatch):
 def test_variation_agent_describes_the_photo_with_its_own_mode(monkeypatch):
     router = FakeRouter(PromptResult(positive_prompt="A woman in a grey sweater on a rocky coast."))
     monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([VISION]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore(VISION))
     response = app.test_client().post("/api/simple/agent", json={
         "mode": "variation", "request": "", "reference_image": _data_url(), "aspect_ratio": "source",
     })
@@ -649,7 +683,7 @@ def test_variation_agent_describes_the_photo_with_its_own_mode(monkeypatch):
 def test_variation_needs_a_vision_agent():
     router = FakeRouter(PromptResult(positive_prompt="A cup on a table."))
     with pytest.raises(CreateAgentError) as caught:
-        run_create_agent(profile=PROFILE, store=FakeStore([TEXT]), mode="variation", request="",
+        run_create_agent(profile=PROFILE, store=FakeStore(TEXT), mode="variation", request="",
                          image=_png(), router=router)
     assert caught.value.code == "vision_required"
 
@@ -670,30 +704,31 @@ def opencode_cards(monkeypatch):
     installation = opencode_host.OpenCodeInstallation("desktop", "C:/OpenCode/opencode-cli.exe", "2.0.27", 2)
     monkeypatch.setattr(opencode_host, "find_installations", lambda: [installation])
     monkeypatch.setattr(opencode_host, "list_models", lambda executable, provider=None: _cards())
-    monkeypatch.setattr(simple_routes, "native_cli_models", lambda host, refresh=False: (None, []))
-    create_agent._models_cache.clear()
+    monkeypatch.setattr(agents, "native_cli_models", lambda host, refresh=False: (None, []))
+    monkeypatch.setattr(agents, "antigravity_models", lambda refresh=False: (None, []))
+    agents._models_cache.clear()
     yield installation
-    create_agent._models_cache.clear()
+    agents._models_cache.clear()
 
 
 def test_a_picked_opencode_model_runs_with_its_card_and_reasoning_level(opencode_cards, monkeypatch):
-    profile = create_agent.chosen_opencode_profile("opencode/exo-free", "high")
+    profile = agents.opencode_profile("opencode/exo-free", "high")
     assert profile["model"] == "opencode/exo-free#high"
     assert profile["multimodal"] is True and profile["executable"] == opencode_cards.executable
     assert profile["name"] == "OpenCode · Exo Free · high"
-    assert create_agent.chosen_opencode_profile("opencode/ling-3.1-flash-free")["multimodal"] is False
-    with pytest.raises(create_agent.CreateAgentError) as unknown:
-        create_agent.chosen_opencode_profile("opencode/nope")
+    assert agents.opencode_profile("opencode/ling-3.1-flash-free")["multimodal"] is False
+    with pytest.raises(agents.AgentError) as unknown:
+        agents.opencode_profile("opencode/nope")
     assert unknown.value.code == "model_unavailable"
-    with pytest.raises(create_agent.CreateAgentError) as level:
-        create_agent.chosen_opencode_profile("opencode/exo-free", "turbo")
+    with pytest.raises(agents.AgentError) as level:
+        agents.opencode_profile("opencode/exo-free", "turbo")
     assert level.value.code == "variant_unavailable"
 
 
 def test_the_agent_call_uses_the_model_picked_in_create(opencode_cards, monkeypatch):
     router = FakeRouter(PromptResult(positive_prompt="A rainy cafe."))
     monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([TEXT]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore(TEXT))
     response = app.test_client().post("/api/simple/agent", json={
         "mode": "text", "request": "a rainy cafe", "agent_model": "opencode/exo-free", "agent_variant": "high",
     })
@@ -706,28 +741,21 @@ def test_the_agent_call_uses_the_model_picked_in_create(opencode_cards, monkeypa
     assert blind.status_code == 409 and blind.get_json()["code"] == "vision_required"
 
 
-def test_the_agent_menu_lists_opencode_cards_and_the_other_agents(opencode_cards, monkeypatch):
-    agy = {"id": "agy-1", "name": "Antigravity CLI (Text)", "kind": "cli", "cli_type": "antigravity",
-           "model": "gemini-3.8-flash-low", "roles": ["text"], "multimodal": False}
-    twin = {**agy, "id": "agy-2", "name": "Antigravity CLI (Vision)", "roles": ["vision"]}
-    translator = {**agy, "id": "tr", "model": "other", "roles": ["translator"]}
-    opencode_profile = {"id": "oc", "name": "OpenCode (Text)", "kind": "cli", "cli_type": "opencode",
-                        "model": "opencode/exo-free", "roles": ["text"]}
-    codex = {"id": "cx", "name": "Codex CLI", "kind": "cli", "cli_type": "codex", "model": "gpt-5.5", "roles": ["text"]}
-    monkeypatch.setattr(simple_routes, "_ai_profile_store",
-                        lambda: FakeStore([agy, twin, translator, opencode_profile, codex]))
-    agy_models = create_agent.parse_antigravity_models(AGY_MODELS)
-    monkeypatch.setattr(simple_routes, "antigravity_models", lambda refresh=False: ("C:/agy/agy.exe", agy_models))
-    data = app.test_client().get("/api/simple/agents").get_json()
-    assert data["opencode"]["variants"] is True
-    cards = {item["id"]: item for item in data["opencode"]["models"]}
+def test_the_model_catalog_lists_opencode_cards_and_antigravity_levels(opencode_cards, monkeypatch):
+    agy_models = agents.parse_antigravity_models(AGY_MODELS)
+    monkeypatch.setattr(agents, "antigravity_models", lambda refresh=False: ("C:/agy/agy.exe", agy_models))
+    groups = {group["id"]: group for group in agents.catalog(FakeStore())["groups"]}
+    assert list(groups) == ["opencode:opencode", "antigravity"]
+    cards = {item["id"]: item for item in groups["opencode:opencode"]["models"]}
     assert cards["opencode/exo-free"]["vision"] is True and cards["opencode/exo-free"]["variants"] == ["high"]
     assert cards["opencode/ling-3.1-flash-free"]["vision"] is False
-    # OpenCode and Antigravity models come from their CLIs; Codex always sees photos.
-    assert [(item["id"], item["sees_images"]) for item in data["agents"]] == [("cx", True)]
-    agy_rows = {item["id"]: item for item in data["antigravity"]["models"]}
+    assert all(card["visible"] for card in cards.values())
+    agy_rows = {item["id"]: item for item in groups["antigravity"]["models"]}
     assert agy_rows["gpt-oss-120b"]["vision"] is False and agy_rows["gemini-3.8-flash"]["vision"] is True
-    assert data["antigravity"]["vision_source"] == "family"
+    assert [item["level"] for item in agy_rows["gemini-3.8-flash"]["levels"]] == ["high", "low"]
+    # A disconnected tool leaves the catalog.
+    assert [group["id"] for group in agents.catalog(FakeStore(disconnected={"antigravity"}))["groups"]] == [
+        "opencode:opencode"]
 
 
 AGY_MODELS = (
@@ -739,38 +767,42 @@ AGY_MODELS = (
 
 
 def test_antigravity_models_group_their_reasoning_levels_and_know_text_only_families(monkeypatch):
-    models = {item["id"]: item for item in create_agent.parse_antigravity_models(AGY_MODELS)}
+    models = {item["id"]: item for item in agents.parse_antigravity_models(AGY_MODELS)}
     assert models["gemini-3.8-flash"]["name"] == "Gemini 3.8 Flash"
     assert [item["level"] for item in models["gemini-3.8-flash"]["levels"]] == ["high", "low"]
     assert models["gpt-oss-120b"]["vision"] is False
-    monkeypatch.setattr(create_agent, "antigravity_models",
+    monkeypatch.setattr(agents, "antigravity_models",
                         lambda refresh=False: ("C:/agy/agy.exe", list(models.values())))
-    profile = create_agent.chosen_antigravity_profile("gemini-3.8-flash-low")
+    profile = agents.antigravity_profile("gemini-3.8-flash-low")
     assert (profile["model"], profile["multimodal"], profile["executable"]) == ("gemini-3.8-flash-low", True, "C:/agy/agy.exe")
     assert profile["name"] == "Antigravity · Gemini 3.8 Flash · low"
-    assert create_agent.sees_images(create_agent.chosen_antigravity_profile("gpt-oss-120b-medium")) is False
-    with pytest.raises(create_agent.CreateAgentError):
-        create_agent.chosen_antigravity_profile("gemini-9")
-    # An Integrations profile with a text-only model does not get the photo either.
-    assert create_agent.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "gpt-oss-120b-medium"}) is False
-    assert create_agent.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "gemini-3.8-flash-low"}) is True
+    assert agents.sees_images(agents.antigravity_profile("gpt-oss-120b-medium")) is False
+    with pytest.raises(agents.AgentError):
+        agents.antigravity_profile("gemini-9")
+    # A base model without a level runs its medium level, else the first one.
+    assert agents.antigravity_profile("gemini-3.8-flash", "high")["model"] == "gemini-3.8-flash-high"
+    assert agents.antigravity_profile("gemini-3.8-flash")["model"] == "gemini-3.8-flash-high"
+    # A run without a model card is judged by its model family.
+    assert agents.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "gpt-oss-120b-medium"}) is False
+    assert agents.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "gemini-3.8-flash-low"}) is True
 
 
-def test_antigravity_unknown_family_stays_unknown_and_duplicate_levels_are_removed():
-    models = create_agent.parse_antigravity_models(AGY_MODELS + AGY_MODELS + "future-text-high\tFuture (High)\n")
+def test_antigravity_models_see_photos_unless_text_only_and_duplicate_levels_are_removed():
+    models = agents.parse_antigravity_models(AGY_MODELS + AGY_MODELS + "future-text-high\tFuture (High)\n")
     assert len(models[0]["levels"]) == 2
-    assert models[-1]["vision"] is None and models[-1]["vision_source"] == "unknown"
-    assert create_agent.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "future-text-high"}) is False
+    # Antigravity models see photos; GPT-OSS is the only text-only family.
+    assert models[-1]["vision"] is True
+    assert agents.sees_images({"kind": "cli", "cli_type": "antigravity", "model": "future-text-high"}) is True
 
 
 @pytest.mark.parametrize("host", ["codex", "claude"])
 def test_native_picked_model_and_effort_reach_executor_and_text_only_is_blocked(host, monkeypatch):
     models = [{"id": "m-vision", "name": "Vision", "vision": True, "variants": ["high"]},
               {"id": "m-text", "name": "Text", "vision": False, "variants": []}]
-    monkeypatch.setattr(create_agent, "native_cli_models", lambda name, refresh=False: (name, models))
+    monkeypatch.setattr(agents, "native_cli_models", lambda name, refresh=False: (name, models))
     router = FakeRouter(PromptResult(positive_prompt="A rainy cafe."))
     monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([TEXT]))
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: FakeStore(TEXT))
     response = app.test_client().post("/api/simple/agent", json={
         "request": "a rainy cafe", "agent_host": host, "agent_model": "m-vision", "agent_variant": "high",
     })
@@ -782,32 +814,28 @@ def test_native_picked_model_and_effort_reach_executor_and_text_only_is_blocked(
     })
     assert blind.status_code == 409 and blind.get_json()["code"] == "vision_required"
     assert len(router.calls) == 1
-    with pytest.raises(create_agent.CreateAgentError) as missing:
-        create_agent.chosen_native_profile(host, "not-listed")
+    with pytest.raises(agents.AgentError) as missing:
+        agents.native_profile(host, "not-listed")
     assert missing.value.code == "model_unavailable"
-    with pytest.raises(create_agent.CreateAgentError) as effort:
-        create_agent.chosen_native_profile(host, "m-vision", "not-listed")
+    with pytest.raises(agents.AgentError) as effort:
+        agents.native_profile(host, "m-vision", "not-listed")
     assert effort.value.code == "variant_unavailable"
 
 
-def test_agent_menu_isolates_host_errors_and_refreshes_every_catalog(opencode_cards, monkeypatch):
+def test_model_catalog_isolates_host_errors_and_refreshes_every_catalog(opencode_cards, monkeypatch):
     calls = []
+
     def native(host, refresh=False):
         calls.append((host, refresh))
         if host == "claude":
-            raise create_agent.CLIIntegrationError("Claude is offline")
+            raise agents.CLIIntegrationError("Claude is offline")
         return host, [{"id": "gpt-5.5", "name": "GPT", "vision": True, "variants": ["high"]}]
-    monkeypatch.setattr(simple_routes, "native_cli_models", native)
-    monkeypatch.setattr(simple_routes, "antigravity_models", lambda refresh=False: (None, []))
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([
-        {"id": "cx", "kind": "cli", "cli_type": "codex", "model": "gpt-5.5"},
-        {"id": "cl", "kind": "cli", "cli_type": "claude", "model": "sonnet"},
-    ]))
-    response = app.test_client().get("/api/simple/agents?refresh=1")
-    assert response.status_code == 200
-    data = response.get_json()
-    assert data["opencode"]["models"] and data["codex"]["models"]
-    assert data["claude"]["error"] == "Claude is offline"
+
+    monkeypatch.setattr(agents, "native_cli_models", native)
+    groups = {group["id"]: group for group in agents.catalog(FakeStore(), refresh=True)["groups"]}
+    assert groups["opencode:opencode"]["models"] and groups["codex"]["models"]
+    assert groups["claude"]["error"] == "Claude is offline" and groups["claude"]["models"] == []
     assert sorted(calls) == [("claude", True), ("codex", True)]
-    # The duplicate Codex profile disappears, while the failed host keeps its saved profile.
-    assert [item["id"] for item in data["agents"]] == ["cl"]
+    # Pickers keep a failed host so its error stays visible.
+    visible = {group["id"] for group in agents.catalog(FakeStore(), visible_only=True)["groups"]}
+    assert "claude" in visible

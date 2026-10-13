@@ -43,12 +43,12 @@ class WorkflowExecutionService:
         store: WorkflowStore,
         client: ComfyUIJobClient,
         registry: WorkflowTemplateRegistry | None = None,
-        profile_store: Any | None = None,
+        provider_store: Any | None = None,
     ):
         self.store = store
         self.client = client
         self.registry = registry or WorkflowTemplateRegistry()
-        self.profile_store = profile_store
+        self.provider_store = provider_store
 
     def queue(
         self,
@@ -163,32 +163,30 @@ class WorkflowExecutionService:
         return updated_run
 
     def _maybe_auto_rate_run(self, run: WorkflowRun, draft: WorkflowDraft) -> None:
+        """Rate the outputs with the default model when auto rating is on and it sees photos."""
         try:
-            from app.ai.profiles import AIProfileStore
+            from app.ai import agents
+            from app.ai.providers import AIProviderStore
             from app.ai.ranking import AIRankingService
-            profile_store = self.profile_store
-            if profile_store is None:
+            provider_store = self.provider_store
+            if provider_store is None:
                 try:
                     from flask import current_app
                     config_file = current_app.config.get("CONFIG_FILE")
                     if config_file:
-                        profile_store = AIProfileStore(config_file, secret_store=current_app.config.get("AI_SECRET_STORE"))
+                        provider_store = AIProviderStore(
+                            config_file, secret_store=current_app.config.get("AI_SECRET_STORE")
+                        )
                 except Exception:
                     pass
-            if profile_store is None:
+            if provider_store is None:
                 return
-            defaults = profile_store.get_defaults()
-            is_auto = run.auto_rate or draft.auto_rate or bool(defaults.get("rating_auto_enabled"))
-            if not is_auto:
+            if not (run.auto_rate or draft.auto_rate or provider_store.rating_auto_enabled()):
                 return
-            mm_id = defaults.get("multimodal_profile_id")
-            if not mm_id:
+            profile = agents.default_profile(provider_store, wants_image=True)
+            if profile is None or not agents.sees_images(profile):
                 return
-            try:
-                profile = profile_store.get(mm_id)
-            except Exception:
-                return
-            api_key = profile_store.resolve_api_key(profile) if profile.get("kind") == "openai_compatible" else None
+            api_key = provider_store.resolve_api_key(profile)
             prompt_text = str(draft.values.get("prompt") or draft.values.get("positive_prompt") or "")
             service = AIRankingService()
             for asset_id in run.output_asset_ids:

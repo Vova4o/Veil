@@ -3,8 +3,6 @@ const mainModuleUrl = bootstrapScript?.dataset.aiSettingsMain;
 const originalFetch = window.fetch;
 const pendingRequests = new Set();
 
-const secretStoreStatus = document.getElementById('secret-store-status');
-const openAiFields = document.getElementById('openai-fields');
 
 function trackRequest(request) {
     const tracked = request
@@ -77,16 +75,13 @@ function waitForTwoFrames() {
     });
 }
 
-function relocateCredentialStatus() {
-    if (!secretStoreStatus || !openAiFields) return;
-
-    secretStoreStatus.classList.add('secret-store-warning');
-    openAiFields.append(secretStoreStatus);
-}
-
 async function bootstrap() {
-    window.fetch = (...args) => trackRequest(originalFetch.apply(window, args));
-    relocateCredentialStatus();
+    window.fetch = (...args) => {
+        const request = originalFetch.apply(window, args);
+        // The model catalog asks every local tool and can take seconds; Models shows its own status.
+        const url = String(args[0]?.url || args[0] || '');
+        return url.includes('/api/ai/models') ? request : trackRequest(request);
+    };
 
     try {
         if (!mainModuleUrl) throw new Error('AI settings module URL is missing.');

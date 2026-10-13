@@ -17,7 +17,6 @@ from ..config_store import ConfigStoreError
 from ..paths import PathValidationError, build_runtime_paths, normalize_path
 from .execution import OpenCodePromptExecutionError, OpenCodePromptExecutor
 from .opencode_smoke import resolve_opencode_profile
-from .profiles import AIProfileStore, AIProfileStoreError
 from .prompting import (
     PromptFamily,
     PromptModifier,
@@ -26,6 +25,7 @@ from .prompting import (
     PromptScenario,
     PromptTask,
 )
+from .providers import AIProviderError, AIProviderStore
 from .secrets import SecretStoreError
 from .smoke import SmokeRunnerError
 
@@ -423,7 +423,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run", help="Run one quality benchmark through OpenCode.")
     run.add_argument("benchmark", choices=tuple(BENCHMARKS))
-    run.add_argument("--profile", help="OpenCode profile ID or exact profile name.")
+    run.add_argument("--model", help="OpenCode model as provider/model[#variant].")
     run.add_argument("--config", help="Override the application config.json path.")
     run.add_argument("--minimum-score", type=int, default=85)
     run.add_argument("--timeout", type=int)
@@ -447,10 +447,10 @@ def main(argv: list[str] | None = None) -> int:
                 code="invalid_minimum_score",
             )
         config_path = normalize_path(args.config) if args.config else build_runtime_paths().config
-        store = AIProfileStore(config_path)
+        store = AIProviderStore(config_path)
         resolved = resolve_opencode_profile(
             store,
-            selector=args.profile,
+            selector=args.model,
             requires_image=False,
         )
         profile = dict(resolved.profile)
@@ -467,7 +467,7 @@ def main(argv: list[str] | None = None) -> int:
         header.add_column(style="bold cyan")
         header.add_column()
         header.add_row("Benchmark", f"{benchmark.benchmark_id} · {benchmark.title}")
-        header.add_row("Profile", f"{profile['name']} · {profile['model']}")
+        header.add_row("Model", f"{profile['name']} · {profile['model']}")
         header.add_row("Backend", "OpenCode managed CLI")
         header.add_row("Minimum score", f"{args.minimum_score}%")
         console.print(Panel(header, title="Prompt quality benchmark", border_style="cyan"))
@@ -491,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except (
         SmokeRunnerError,
-        AIProfileStoreError,
+        AIProviderError,
         ConfigStoreError,
         SecretStoreError,
         PathValidationError,

@@ -16,7 +16,6 @@ from app.ai.opencode_smoke import (
     resolve_opencode_profile,
     run_opencode_smoke_scenario,
 )
-from app.ai.profiles import AIProfileStore
 from app.ai.prompting import (
     PromptCompiler,
     PromptFamily,
@@ -26,7 +25,9 @@ from app.ai.prompting import (
     PromptScenario,
     PromptTask,
 )
+from app.ai.providers import AIProviderStore
 from app.ai.secrets import SecretStoreStatus
+from app.ai.smoke import SmokeRunnerError
 
 
 class MemorySecretStore:
@@ -362,41 +363,32 @@ class OpenCodeSmokeRunnerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.store = AIProfileStore(
+        self.store = AIProviderStore(
             Path(self.temp_dir.name) / "config.json",
             secret_store=MemorySecretStore(),
         )
 
-    def test_resolver_uses_saved_opencode_profile(self) -> None:
-        created = self.store.create({
-            "kind": "cli",
-            "name": "Local OpenCode",
-            "model": "provider/model",
-            "timeout_seconds": 60,
-            "multimodal": True,
-            "cli_type": "opencode",
-            "executable": "C:/tools/opencode.cmd",
-        })
-        self.store.set_defaults({
-            "text_profile_id": created["id"],
-            "multimodal_profile_id": created["id"],
-        })
+    def test_resolver_uses_the_default_or_the_picked_opencode_model(self) -> None:
+        def card(model_id, variant=None):
+            return {"id": f"opencode:{model_id}", "model": model_id, "cli_type": "opencode", "kind": "cli",
+                    "model_card": True, "multimodal": model_id != "provider/text", "variant": variant}
 
-        text = resolve_opencode_profile(
-            self.store,
-            selector=None,
-            requires_image=False,
-        )
-        vision = resolve_opencode_profile(
-            self.store,
-            selector=None,
-            requires_image=True,
-        )
+        with (
+            patch("app.ai.opencode_smoke.agents.opencode_profile", side_effect=card),
+            patch("app.ai.opencode_smoke.agents.implicit_opencode_profile", return_value=None),
+        ):
+            with self.assertRaisesRegex(SmokeRunnerError, "no free model"):
+                resolve_opencode_profile(self.store, selector=None, requires_image=False)
+            self.store.set_default_model({"host": "opencode", "model": "provider/model", "variant": "high"})
+            text = resolve_opencode_profile(self.store, selector=None, requires_image=False)
+            picked = resolve_opencode_profile(self.store, selector="provider/other#low", requires_image=True)
+            with self.assertRaisesRegex(SmokeRunnerError, "does not see photos"):
+                resolve_opencode_profile(self.store, selector="provider/text", requires_image=True)
 
-        self.assertEqual(text.profile["id"], created["id"])
-        self.assertEqual(text.selected_by, "text_profile_id")
-        self.assertEqual(vision.profile["id"], created["id"])
-        self.assertEqual(vision.selected_by, "multimodal_profile_id")
+        self.assertEqual((text.profile["model"], text.profile["variant"]), ("provider/model", "high"))
+        self.assertEqual(text.selected_by, "default model")
+        self.assertEqual((picked.profile["model"], picked.profile["variant"]), ("provider/other", "low"))
+        self.assertEqual(picked.selected_by, "explicit model")
 
     def test_runner_uses_fake_host_executor_without_network(self) -> None:
         profile = opencode_profile(multimodal=False)

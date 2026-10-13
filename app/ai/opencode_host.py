@@ -71,6 +71,11 @@ class OpenCodeModel:
     free: bool | None
     # Reasoning levels the model offers (``provider/model#variant``), from its card.
     variants: tuple[str, ...] = ()
+    # The model family and release time (ms since epoch) choose the default model list.
+    family: str | None = None
+    released: int | None = None
+    # What the model produces besides text ("image", "audio"): a media model, not a chat model.
+    media_outputs: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,6 +85,9 @@ class OpenCodeModel:
             "vision": self.vision,
             "free": self.free,
             "variants": list(self.variants),
+            "family": self.family,
+            "released": self.released,
+            "media_outputs": list(self.media_outputs),
         }
 
 
@@ -384,8 +392,23 @@ def parse_api_models(payload: Any) -> list[OpenCodeModel]:
             vision=_vision_from_capabilities(item.get("capabilities")),
             free=_is_free_cost(item.get("cost")),
             variants=_variant_ids(item.get("variants")),
+            family=item.get("family") if isinstance(item.get("family"), str) else None,
+            released=_released_ms(item.get("time")),
+            media_outputs=_media_outputs(item.get("capabilities")),
         ))
     return models
+
+
+def _media_outputs(capabilities: Any) -> tuple[str, ...]:
+    outputs = capabilities.get("output") if isinstance(capabilities, dict) else None
+    if not isinstance(outputs, list):
+        return ()
+    return tuple(str(item) for item in outputs if isinstance(item, str) and item != "text")
+
+
+def _released_ms(value: Any) -> int | None:
+    released = value.get("released") if isinstance(value, dict) else None
+    return int(released) if isinstance(released, int | float) and released > 0 else None
 
 
 def _listing_error(result: cli.CommandResult) -> cli.CLIIntegrationError:

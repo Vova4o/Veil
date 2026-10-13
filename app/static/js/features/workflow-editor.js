@@ -5,6 +5,7 @@ import {
     openLightbox,
     prevLightbox,
 } from '../lightbox.js';
+import { pickedAgent, populateModelPicker } from '../model-picker.js';
 import { showImageContextMenu } from '../components/image-context-menu.js';
 import { initKeyboardShortcuts } from './keyboard.js';
 
@@ -259,9 +260,8 @@ const state = {
     workflows: [],
     editingWorkflowId: null,
     aiCapabilities: [],
-    aiProfiles: [],
-    aiDefaultProfileId: null,
-    aiDefaultMultimodalProfileId: null,
+    aiModelGroups: [],
+    aiDefaultModel: null,
     aiPromptContext: null,
     aiPromptTranslation: null,
     aiPromptAdaptation: null,
@@ -1738,23 +1738,14 @@ function suggestedPromptFamily() {
     return 'sdxl';
 }
 
-function supportedPromptProfile(profile) {
-    return profile.kind === 'openai_compatible'
-        || (profile.kind === 'cli' && (profile.cli_type === 'opencode' || profile.cli_type === 'antigravity'));
-}
-
 async function loadPromptAssistantData() {
-    const [capabilities, profiles] = await Promise.all([
+    const [capabilities, models] = await Promise.all([
         requestJson('/api/ai/prompt-capabilities'),
-        requestJson('/api/ai/profiles'),
+        requestJson('/api/ai/models?visible=1'),
     ]);
     state.aiCapabilities = capabilities.families || [];
-    state.aiProfiles = (profiles.profiles || []).filter((profile) => (
-        profile.has_credentials !== false && supportedPromptProfile(profile)
-    ));
-    state.aiDefaultProfileId = profiles.defaults?.text_profile_id || null;
-    state.aiDefaultTranslatorProfileId = profiles.defaults?.translator_profile_id || null;
-    state.aiDefaultMultimodalProfileId = profiles.defaults?.multimodal_profile_id || null;
+    state.aiModelGroups = models.groups || [];
+    state.aiDefaultModel = models.default_model || null;
 }
 
 function populatePromptFamilies(select) {
@@ -1765,44 +1756,22 @@ function populatePromptFamilies(select) {
     if (state.aiCapabilities.some((family) => family.id === suggested)) select.value = suggested;
 }
 
-function populatePromptProfiles(select, note, preferredDefaultId = null, roleFilter = ['text', 'translator']) {
-    const rolesToMatch = Array.isArray(roleFilter) ? roleFilter : [roleFilter];
-    const matchingProfiles = state.aiProfiles.filter((profile) => (
-        !profile.roles || profile.roles.some((role) => rolesToMatch.includes(role))
-    ));
-    const roleLabel = rolesToMatch.join('/');
-    select.innerHTML = matchingProfiles.length
-        ? matchingProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('')
-        : `<option value="">No ready ${escapeHtml(roleLabel)} profiles</option>`;
-    const targetId = preferredDefaultId || state.aiDefaultProfileId || state.aiDefaultTranslatorProfileId;
-    if (matchingProfiles.some((profile) => profile.id === targetId)) {
-        select.value = targetId;
-    } else if (matchingProfiles.length > 0) {
-        select.value = matchingProfiles[0].id;
+function defaultModelLabel() {
+    const ref = state.aiDefaultModel;
+    if (!ref) return 'Default model (automatic)';
+    for (const group of state.aiModelGroups) {
+        const model = group.host === ref.host ? group.models.find((item) => item.id === ref.model) : null;
+        if (model) return ['Default model', model.name, ref.variant].filter(Boolean).join(' · ');
     }
-    note.innerHTML = matchingProfiles.length
-        ? 'The selected profile returns the same normalized prompt contract.'
-        : 'Add a usable text or translator profile in <a href="/settings/ai">AI settings</a> first.';
+    return ['Default model', String(ref.model).split('/').pop(), ref.variant].filter(Boolean).join(' · ');
 }
 
-function populateVisionProfiles(select, note) {
-    const profiles = state.aiProfiles.filter((profile) => (
-        profile.multimodal === true &&
-        (!profile.roles || profile.roles.includes('vision')) && (
-            profile.kind === 'openai_compatible' ||
-            (profile.kind === 'cli' && profile.cli_type === 'opencode') ||
-            (profile.kind === 'cli' && profile.cli_type === 'antigravity')
-        )
-    ));
-    select.innerHTML = profiles.length
-        ? profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('')
-        : '<option value="">No ready multimodal profiles</option>';
-    if (profiles.some((profile) => profile.id === state.aiDefaultMultimodalProfileId)) {
-        select.value = state.aiDefaultMultimodalProfileId;
-    }
-    note.innerHTML = profiles.length
-        ? 'The image is sent only during Analyze image.'
-        : 'Add an OpenAI-compatible or OpenCode multimodal profile in <a href="/settings/ai">AI settings</a> first.';
+/** The models Integrations › Models shows, grouped by provider; photo tasks skip text-only ones. */
+function populateModelSelect(select, note, { needsPhotos = false } = {}) {
+    populateModelPicker(select, state.aiModelGroups, { needsPhotos, defaultLabel: defaultModelLabel() });
+    note.innerHTML = needsPhotos
+        ? 'Only models that see photos are listed. The image is sent only during Analyze image.'
+        : 'Which models are listed: <a href="/settings/ai#models">Integrations › Models</a>.';
 }
 
 function compatibleScenarios(familyId) {
@@ -1884,7 +1853,7 @@ async function openAIPromptDialog() {
     try {
         await loadPromptAssistantData();
         populatePromptFamilies(elements.aiPromptFamily);
-        populatePromptProfiles(elements.aiPromptProfile, elements.aiPromptProfileNote);
+        populateModelSelect(elements.aiPromptProfile, elements.aiPromptProfileNote);
         elements.aiPromptInput.value = String(state.values.positive_prompt || '');
         renderAIScenarios();
         elements.aiPromptDialog.showModal();
@@ -1935,7 +1904,7 @@ async function createAIPromptDraft(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                profile_id: elements.aiPromptProfile.value,
+                ...pickedAgent(elements.aiPromptProfile),
                 user_input: userInput,
                 task: {
                     family: elements.aiPromptFamily.value,
@@ -1972,12 +1941,7 @@ async function openTranslatePromptDialog() {
     try {
         await loadPromptAssistantData();
         populatePromptFamilies(elements.translatePromptFamily);
-        populatePromptProfiles(
-            elements.translatePromptProfile,
-            elements.translateProfileNote,
-            state.aiDefaultTranslatorProfileId,
-            'translator',
-        );
+        populateModelSelect(elements.translatePromptProfile, elements.translateProfileNote);
         elements.translatePromptPositive.value = String(state.values.positive_prompt || '');
         elements.translatePromptNegative.value = String(
             state.values.negative_prompt || state.advancedFieldMemory.negative_prompt || '',
@@ -2012,7 +1976,7 @@ async function createTranslatedPromptDraft(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                profile_id: elements.translatePromptProfile.value,
+                ...pickedAgent(elements.translatePromptProfile),
                 source_language: elements.translateSourceLanguage.value.trim() || null,
                 target_language: targetLanguage,
                 source: {
@@ -2054,7 +2018,7 @@ async function openAdaptPromptDialog() {
     try {
         await loadPromptAssistantData();
         populatePromptFamilies(elements.adaptPromptFamily);
-        populatePromptProfiles(elements.adaptPromptProfile, elements.adaptProfileNote);
+        populateModelSelect(elements.adaptPromptProfile, elements.adaptProfileNote);
         elements.adaptPromptPositive.value = String(state.values.positive_prompt || '');
         elements.adaptPromptNegative.value = String(
             state.values.negative_prompt || state.advancedFieldMemory.negative_prompt || '',
@@ -2120,7 +2084,7 @@ async function createAdaptedPromptDraft(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                profile_id: elements.adaptPromptProfile.value,
+                ...pickedAgent(elements.adaptPromptProfile),
                 target_family: elements.adaptPromptFamily.value,
                 checkpoint_profile: elements.adaptCheckpointProfile.value.trim() || null,
                 checkpoint_resource_hash: checkpointResource?.content_hash || null,
@@ -2186,12 +2150,7 @@ function openEnhancePopover() {
         try {
             if (!state.aiCapabilities?.length) await loadPromptAssistantData();
             populatePromptFamilies(elements.enhanceFamily);
-            populatePromptProfiles(
-                elements.enhanceProfile,
-                elements.enhanceProfileNote,
-                state.aiDefaultProfileId || state.aiDefaultTranslatorProfileId,
-                ['text', 'translator'],
-            );
+            populateModelSelect(elements.enhanceProfile, elements.enhanceProfileNote);
             const suggested = suggestedPromptFamily();
             if (state.aiCapabilities.some((family) => family.id === suggested)) {
                 elements.enhanceFamily.value = suggested;
@@ -2267,7 +2226,7 @@ async function createEnhancedPromptDraft() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                profile_id: elements.enhanceProfile.value,
+                ...pickedAgent(elements.enhanceProfile),
                 wishes: elements.enhanceWishes.value.trim(),
                 checkpoint_profile: elements.enhanceCheckpointProfile.value.trim() || null,
                 checkpoint_resource_hash: checkpointResource?.content_hash || null,
@@ -2316,8 +2275,8 @@ async function openReconstructPromptDialog() {
     try {
         await loadPromptAssistantData();
         populatePromptFamilies(elements.reconstructPromptFamily);
-        populatePromptProfiles(elements.reconstructRenderProfile, elements.reconstructRenderNote);
-        populateVisionProfiles(elements.reconstructVisionProfile, elements.reconstructVisionNote);
+        populateModelSelect(elements.reconstructRenderProfile, elements.reconstructRenderNote);
+        populateModelSelect(elements.reconstructVisionProfile, elements.reconstructVisionNote, { needsPhotos: true });
         if (state.aiPromptContext?.family) {
             elements.reconstructPromptFamily.value = state.aiPromptContext.family;
         }
@@ -2353,7 +2312,7 @@ async function analyzeReconstructionScene() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                profile_id: elements.reconstructVisionProfile.value,
+                ...pickedAgent(elements.reconstructVisionProfile),
                 asset_id: assetId,
                 task: {
                     family: elements.reconstructPromptFamily.value,
@@ -2405,7 +2364,7 @@ async function createReconstructedPromptDraft(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                profile_id: elements.reconstructRenderProfile.value,
+                ...pickedAgent(elements.reconstructRenderProfile),
                 scene_spec_job_id: state.aiSceneSpecJobId,
                 asset_id: state.draft?.source_asset_id || null,
                 task: {

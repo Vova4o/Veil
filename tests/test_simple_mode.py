@@ -28,7 +28,7 @@ def test_serialize_approved_profile_has_no_quality_presets():
 def test_simple_mode_routes(monkeypatch):
     from app.comfyui import simple_routes
 
-    monkeypatch.setattr(simple_routes, "pick_agent_profile", lambda store, *, wants_image: None)
+    monkeypatch.setattr(simple_routes.agents, "default_profile", lambda store, *, wants_image: None)
     client = app.test_client()
 
     resp = client.get("/create")

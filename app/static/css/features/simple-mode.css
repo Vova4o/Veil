@@ -967,6 +967,12 @@ body.assistant-open{overflow:hidden}
 .agent-line span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .agent-line:hover,.agent-line[aria-expanded="true"]{color:var(--text,#f0f2f7)}
 .agent-line.is-missing{color:#e4ad65}
+.agent-reasoning-chip{display:inline-flex;align-items:center;gap:3px;flex:none;height:20px;padding:0 2px 0 6px;border-radius:999px;background:color-mix(in srgb,var(--text-muted,#657088) 14%,transparent);color:var(--text-dim,#9aa4b8);cursor:pointer}
+.agent-reasoning-chip[hidden]{display:none}
+.agent-reasoning-chip:hover,.agent-reasoning-chip:focus-within{background:color-mix(in srgb,var(--accent,#5fb3a8) 22%,transparent);color:var(--text,#f0f2f7)}
+.agent-reasoning-chip svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.agent-reasoning-chip select{appearance:none;-webkit-appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-size:10.5px;font-weight:650;padding:0 4px 0 1px;cursor:pointer;outline:none}
+.agent-reasoning-chip select option{background:var(--surface,#1d2129);color:var(--text,#f0f2f7)}
 .agent-caret{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 .model-status-line{display:flex;align-items:center;gap:8px;padding:0 2px;color:var(--text-dim,#9aa4b8);font-size:11px}
@@ -1290,7 +1296,6 @@ body.assistant-open{overflow:hidden}
 .agent-option.is-blocked{opacity:.5}
 .agent-option-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .agent-tag{flex:none;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--text-muted,#657088) 18%,transparent);color:var(--text-dim,#9aa4b8);font-size:9.5px;font-weight:700}
-.agent-tag.is-vision{background:color-mix(in srgb,#5b8def 20%,transparent);color:#8fb3e8}
 .agent-reasoning{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:4px}
 .agent-reasoning > span{color:var(--text-dim,#9aa4b8);font-size:11px;font-weight:650}
 .agent-variants{display:flex;flex-wrap:wrap;gap:4px}

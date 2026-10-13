@@ -44,76 +44,104 @@ test('ComfyUI 502 errors keep the generation error message', () => {
     assert.equal(h.elements.get('error-title').textContent, 'ComfyUI is unavailable or rejected the task');
 });
 
-test('model tags preserve unknown capabilities and identify family inference', () => {
+test('model tags mark only text-only and free models', () => {
     const h = harness();
-    assert.match(h.run('agentTags(null, false)'), /Photos unknown/);
-    assert.doesNotMatch(h.run('agentTags(null, false)'), /Text only/);
-    assert.match(h.run('agentTags(false, false, "family")'), /Text only/);
-    assert.match(h.run('agentTags(true, false, "family")'), /Photos\*/);
+    assert.equal(h.run('agentTags({ vision: true })'), '');
+    assert.equal(h.run('agentTags({ vision: null })'), '');
+    assert.match(h.run('agentTags({ vision: false })'), /Text only/);
+    assert.match(h.run('agentTags({ vision: true, free: true })'), /Free/);
+    assert.doesNotMatch(h.run('agentTags({ vision: true, free: true })'), /Photos/);
 });
 
-test('native catalogs show text-only and unknown models dimmed in photo modes', () => {
+const CODEX = { id: 'codex', host: 'codex', label: 'Codex', kind: 'tool', models: [
+    { id: 'text', name: 'Text model', vision: false }, { id: 'unknown', name: 'Future', vision: null },
+    { id: 'vision', name: 'Vision model', vision: true, variants: ['low', 'high'] }] };
+
+test('photo modes dim text-only models and the picked model shows its reasoning levels', () => {
     const h = harness();
-    h.run(`state.mode = 'reference'; state.agents = {
-        codex: {label: 'Codex', models: [
-            {id:'text', name:'Text model', vision:false}, {id:'unknown', name:'Future', vision:null},
-            {id:'vision', name:'Vision model', vision:true, variants:['low','high']}]},
-        claude: {label:'Claude Code', models:[{id:'sonnet',name:'Sonnet',vision:true,vision_source:'family'}]}
-    }; state.agentChoice = {agentKind:'codex',model:'vision',name:'Vision model',vision:true,variant:'high'};
+    h.run(`state.mode = 'reference'; state.agents = { groups: [${JSON.stringify(CODEX)},
+        { id: 'api:acme', host: 'api:acme', label: 'Acme', kind: 'api', models: [{ id: 'm', name: 'Acme M', vision: null }] }] };
+    state.agentChoice = { agentKind: 'codex', model: 'vision', name: 'Vision model', vision: true, variant: 'high' };
     paintAgentMenu();`);
     const menu = h.elements.get('agent-menu-body').innerHTML;
-    assert.match(menu, /is-blocked[^>]+data-native-model="text"/);
-    assert.match(menu, /is-blocked[^>]+data-native-model="unknown"/);
-    assert.match(menu, /data-native-variant="high"/);
-    assert.match(menu, /Photos\* inferred from model family/);
+    assert.match(menu, /is-blocked[^>]+data-agent-model="text"/);
+    // Unknown photo support is left to the provider instead of being blocked.
+    assert.doesNotMatch(menu, /is-blocked[^>]+data-agent-model="unknown"/);
+    assert.match(menu, /data-agent-variant="high"/);
+    assert.match(menu, /Acme M/);
     assert.deepEqual(JSON.parse(h.run('JSON.stringify(agentRequestFields())')),
-        {agent_host:'codex',agent_model:'vision',agent_variant:'high'});
+        { agent_host: 'codex', agent_model: 'vision', agent_variant: 'high' });
+    h.run(`state.agentChoice = agentChoiceFor(state.agents.groups[1], state.agents.groups[1].models[0]);`);
+    assert.deepEqual(JSON.parse(h.run('JSON.stringify(agentRequestFields())')),
+        { agent_host: 'api:acme', agent_model: 'm', agent_variant: null });
+    assert.equal(h.run('agentLabel(state.agentChoice)'), 'Acme · Acme M');
 });
 
-test('refresh updates a saved Antigravity level and keeps unknown vision distinct', async () => {
+test('the reasoning chip shows the picked model levels from light to deep', () => {
+    const h = harness();
+    h.run(`state.agentChoice = { agentKind: 'antigravity', base: 'g', model: 'g-high', level: 'high', name: 'Gemini',
+        levels: [{ id: 'g-high', level: 'high' }, { id: 'g-low', level: 'low' }, { id: 'g-medium', level: 'medium' }] };
+        paintAgentReasoning();`);
+    assert.equal(h.elements.get('agent-reasoning-wrap').hidden, false);
+    assert.match(h.elements.get('agent-reasoning').innerHTML, /low.*medium.*high/s);
+    assert.equal(h.elements.get('agent-reasoning').value, 'g-high');
+    assert.equal(h.run('agentLabel(state.agentChoice)'), 'Antigravity · Gemini');
+    h.run(`state.agentChoice = { agentKind: 'opencode', model: 'opencode/longcat', name: 'LongCat', variants: [] }; paintAgentReasoning();`);
+    assert.equal(h.elements.get('agent-reasoning-wrap').hidden, true);
+});
+
+test('refresh updates a saved Antigravity level', async () => {
     const h = harness();
     h.run(`state.agentChoice = {agentKind:'antigravity',base:'future',model:'future-high',level:'high',vision:true};
-        json = async () => ({antigravity:{models:[{id:'future',name:'Future',vision:null,
-            levels:[{id:'future-low',level:'low'}]}]}});`);
+        json = async () => ({ groups: [{ id: 'antigravity', host: 'antigravity', label: 'Antigravity', models: [
+            { id: 'future', name: 'Future', vision: true, levels: [{ id: 'future-low', level: 'low' }] }] }] });`);
     await h.run('loadAgents(true)');
     const choice = JSON.parse(h.saved.get('cmv_create_agent'));
     assert.equal(choice.model, 'future-low');
-    assert.equal(choice.vision, null);
-    assert.match(h.elements.get('agent-menu-body').innerHTML, /Photos unknown/);
+    assert.equal(choice.level, 'low');
+    assert.deepEqual(JSON.parse(h.run('JSON.stringify(agentRequestFields())')),
+        { agent_host: 'antigravity', agent_model: 'future-low', agent_variant: null });
 });
 
 test('after a page restart cached models show before a slow discovery finishes', async () => {
     const h = harness();
-    const payload = { codex: { label: 'Codex', models: [{ id: 'saved', name: 'Saved model', vision: null }] }, agents: [] };
-    h.saved.set('cmv_create_agent_catalog_v1', JSON.stringify({ version: 1, savedAt: Date.now(), payload }));
+    const payload = { groups: [{ id: 'codex', host: 'codex', label: 'Codex', models: [{ id: 'saved', name: 'Saved model', vision: true }] }] };
+    h.saved.set('cmv_create_agent_catalog_v2', JSON.stringify({ version: 2, savedAt: Date.now(), payload }));
     h.run('restoreAgentCatalog(); json = () => new Promise(resolve => { globalThis.finishDiscovery = resolve; });');
     const pending = h.run('loadAgents()');
     assert.match(h.elements.get('agent-menu-body').innerHTML, /Saved model/);
-    assert.doesNotMatch(h.elements.get('agent-menu-body').innerHTML, /Asking the installed/);
-    h.run('finishDiscovery({ codex: { label: "Codex", models: [{ id: "new", name: "New model", vision: true }] }, agents: [] });');
+    assert.doesNotMatch(h.elements.get('agent-menu-body').innerHTML, /Asking the connected/);
+    h.run('finishDiscovery({ groups: [{ id: "codex", host: "codex", label: "Codex", models: [{ id: "new", name: "New model", vision: true }] }] });');
     await pending;
     assert.match(h.elements.get('agent-menu-body').innerHTML, /New model/);
-    assert.match(h.saved.get('cmv_create_agent_catalog_v1'), /New model/);
+    assert.match(h.saved.get('cmv_create_agent_catalog_v2'), /New model/);
 });
 
-test('a discovery failure preserves the last catalog and its capabilities', async () => {
+test('a catalog saved before Integrations changed the shown models is reloaded', () => {
     const h = harness();
-    h.run('state.agents = { claude: { label: "Claude Code", models: [{ id: "sonnet", name: "Sonnet", vision: null }] }, agents: [] }; json = async () => { throw new Error("Offline"); };');
+    h.run('state.agentsSavedAt = Date.now();');
+    assert.equal(h.run('agentCatalogStale()'), false);
+    h.saved.set('cmv_ai_models_changed_at', String(Date.now() + 1000));
+    assert.equal(h.run('agentCatalogStale()'), true);
+});
+
+test('a discovery failure preserves the last catalog', async () => {
+    const h = harness();
+    h.run('state.agents = { groups: [{ id: "claude", host: "claude", label: "Claude Code", models: [{ id: "sonnet", name: "Sonnet", vision: true }] }] }; json = async () => { throw new Error("Offline"); };');
     await h.run('loadAgents(true)');
     assert.match(h.elements.get('agent-menu-body').innerHTML, /Sonnet/);
-    assert.match(h.elements.get('agent-menu-body').innerHTML, /Photos unknown/);
     assert.match(h.elements.get('agent-menu-body').innerHTML, /Offline/);
 });
 
 test('one unavailable host keeps its saved cards while other hosts refresh', async () => {
     const h = harness();
-    h.run(`state.agents = { codex: { label: 'Codex', models: [{ id: 'saved', name: 'Saved', vision: null }] } };
-        json = async () => ({ codex: { label: 'Codex', models: [], error: 'Codex offline' },
-            claude: { label: 'Claude Code', models: [{ id: 'new', name: 'New Claude', vision: true }] }, agents: [] });`);
+    h.run(`state.agents = { groups: [{ id: 'codex', host: 'codex', label: 'Codex', models: [{ id: 'saved', name: 'Saved', vision: false }] }] };
+        json = async () => ({ groups: [{ id: 'codex', host: 'codex', label: 'Codex', models: [], error: 'Codex offline' },
+            { id: 'claude', host: 'claude', label: 'Claude Code', models: [{ id: 'new', name: 'New Claude', vision: true }] }] });`);
     await h.run('loadAgents(true)');
     const menu = h.elements.get('agent-menu-body').innerHTML;
     assert.match(menu, /Saved/);
-    assert.match(menu, /Photos unknown/);
+    assert.match(menu, /Text only/);
     assert.match(menu, /Codex offline/);
     assert.match(menu, /New Claude/);
 });

@@ -32,7 +32,7 @@ def create_runtime(tmp_path, monkeypatch):
         monkeypatch.setitem(app.config, key, str(tmp_path / key))
     monkeypatch.setitem(app.config, "CREATE_TASK_SERVICE", None)
     monkeypatch.delitem(app.config, "CREATE_TASK_SERVICE")
-    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: None)
+    monkeypatch.setattr(simple_routes, "_ai_provider_store", lambda: None)
     buffer = io.BytesIO()
     Image.new("RGB", (32, 48), "orange").save(buffer, format="PNG")
     png = buffer.getvalue()

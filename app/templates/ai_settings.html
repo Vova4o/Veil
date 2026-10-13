@@ -33,7 +33,7 @@
     <script src="/static/js/nav-prefetch.js" defer></script>
     <script src="/static/js/theme-manager.js?v={{ static_version('js/theme-manager.js') }}" type="module"></script>
 </head>
-<body class="ai-settings-body studio-theme ui-booting">
+<body class="ai-settings-body studio-theme ui-booting" data-provider-icons="/static/icons/providers.svg?v={{ static_version('icons/providers.svg') }}">
     <header class="global-header ai-settings-header">
         <div class="global-header-left">
             <a class="header-icon-button" href="/" title="Open media browser" aria-label="Open media browser"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></a>
@@ -93,297 +93,290 @@
                     </button>
                 </div>
             </div>
-            <button id="add-provider" class="header-primary-action header-primary-action-wide" type="button">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
-                <span>Add provider</span>
-            </button>
-            <button id="refresh-all" class="header-primary-action" type="button"><span>Refresh</span></button>
         </div>
     </header>
 
-    <main class="ai-settings-main">
-        <div class="page-head">
-            <div class="page-head-copy">
-                <p class="ai-eyebrow">Everything connects locally</p>
+    <main class="ai-settings-main integrations-shell">
+        <aside class="settings-nav" aria-label="Integration categories">
+            <div class="settings-nav-head">
                 <h1>Integrations</h1>
-                <p class="page-sub">Connect an OpenAI-compatible endpoint, reuse an authenticated local CLI, and link the accounts used to publish generated content. Credentials never leave this machine.</p>
+                <p>Everything connects locally. Credentials never leave this computer.</p>
             </div>
-            <div id="secret-store-status" class="status-pill" role="status">
-                <span class="status-dot"></span>
-                <span id="secret-store-title">Checking credential storage…</span>
-                <span id="secret-store-detail" class="status-pill-detail" hidden></span>
-            </div>
-        </div>
-
-        <div class="integrations-shell">
-            <aside class="integrations-rail" aria-label="Integration categories">
-                <nav class="integrations-rail-nav">
-                    <p class="rail-group-label">Intelligence</p>
+            <nav class="settings-nav-groups">
+                <div class="settings-nav-group">
+                    <p class="settings-nav-group-label">Intelligence</p>
                     <a class="rail-link active" href="#providers" data-pane="providers" aria-current="page">
-                        <span>Provider profiles</span>
-                        <span id="rail-count-providers" class="rail-count" hidden></span>
-                    </a>
-                    <a class="rail-link" href="#cli" data-pane="cli">
-                        <span>Local AI tools</span>
-                        <span id="rail-count-cli" class="rail-count" hidden></span>
-                    </a>
-                    <p class="rail-group-label">Publishing</p>
-                    <a class="rail-link" href="#social" data-pane="social">
-                        <span>Social accounts</span>
-                        <span id="rail-count-social" class="rail-count" hidden></span>
-                    </a>
-                    <p class="rail-group-label">Compute</p>
-                    <a class="rail-link" href="#remote" data-pane="remote">
-                        <span>Remote GPU</span>
-                        <span id="rail-count-remote" class="rail-count" hidden></span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
+                        <span>Providers</span>
                     </a>
                     <a class="rail-link" href="#models" data-pane="models">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.94 14.06 4 20"/><path d="m12 2 2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4Z"/></svg>
+                        <span>Models</span>
+                    </a>
+                </div>
+                <div class="settings-nav-group">
+                    <p class="settings-nav-group-label">Publishing</p>
+                    <a class="rail-link" href="#social" data-pane="social">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></svg>
+                        <span>Social accounts</span>
+                    </a>
+                </div>
+                <div class="settings-nav-group">
+                    <p class="settings-nav-group-label">Compute</p>
+                    <a class="rail-link" href="#remote" data-pane="remote">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></svg>
+                        <span>Remote GPU</span>
+                    </a>
+                    <a class="rail-link" href="#sources" data-pane="sources">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
                         <span>Model sources</span>
                     </a>
-                </nav>
-            </aside>
-
-            <div class="integrations-content">
-
-        <section class="settings-section integrations-pane" data-pane="providers" aria-labelledby="profiles-heading">
-            <div class="section-heading">
-                <div>
-                    <p class="section-kicker">Configured</p>
-                    <h2 id="profiles-heading">Provider profiles</h2>
-                    <p>Each operation uses the exact model ID and timeout saved in its profile.</p>
                 </div>
-            </div>
+            </nav>
+        </aside>
 
-            <div id="default-profile-panel" class="default-profile-panel" hidden>
-                <label>
-                    <span>Default text profile</span>
-                    <select id="default-text-profile"><option value="">Not selected</option></select>
+        <div class="settings-content">
+
+        <section class="integrations-pane" data-pane="providers" aria-labelledby="providers-heading">
+            <header class="settings-tab-header">
+                <div class="settings-tab-header-row">
+                    <div class="settings-tab-heading">
+                        <h2 id="providers-heading" class="settings-tab-title">Providers</h2>
+                        <span class="settings-tab-description">Connect local AI tools and API providers. Their models appear in Models.</span>
+                    </div>
+                </div>
+            </header>
+            <div class="settings-tab-body settings-providers">
+                <section class="settings-section" data-component="connected-providers-section">
+                    <h3 class="settings-section-title">Connected providers</h3>
+                    <div id="connected-providers" class="settings-list" data-variant="catalog" aria-live="polite"></div>
+                    <p id="secret-store-note" class="settings-note is-warning" role="status" hidden></p>
+                </section>
+                <section class="settings-section">
+                    <h3 class="settings-section-title">Popular providers</h3>
+                    <div id="popular-providers" class="settings-list" data-variant="catalog"></div>
+                    <button id="show-all-providers" class="settings-providers-view-all" type="button">Show more providers</button>
+                </section>
+            </div>
+        </section>
+
+        <section class="integrations-pane" data-pane="models" aria-labelledby="models-heading" hidden>
+            <header class="settings-tab-header settings-tab-header--stacked">
+                <div class="settings-tab-header-row">
+                    <div class="settings-tab-heading">
+                        <h2 id="models-heading" class="settings-tab-title">Models</h2>
+                        <span class="settings-tab-description">Choose which models appear in model pickers</span>
+                    </div>
+                    <button id="models-refresh" class="settings-ghost-button" type="button">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                        <span>Refresh</span>
+                    </button>
+                </div>
+                <label class="settings-filter-search">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input id="models-search" type="search" placeholder="Search models" autocomplete="off" spellcheck="false" aria-label="Search models">
                 </label>
-                <label>
-                    <span>Default translator profile</span>
-                    <select id="default-translator-profile"><option value="">Not selected</option></select>
+            </header>
+            <div class="settings-tab-body settings-models">
+                <section class="settings-section">
+                    <div id="default-model-list" class="settings-list" data-variant="catalog">
+                        <div class="settings-row">
+                            <div class="settings-row-copy">
+                                <label class="settings-row-title" for="default-model">Default model</label>
+                                <span class="settings-row-description">Runs wherever no model is picked: Viewer tools, auto rating and Create's automatic choice. Reasoning sets how long it thinks.</span>
+                            </div>
+                            <div class="settings-row-control">
+                                <select id="default-model" class="settings-select" aria-label="Default model"><option value="">Automatic (free OpenCode model)</option></select>
+                                <select id="default-reasoning" class="settings-select settings-select-compact" aria-label="Reasoning" title="Reasoning: how long the model thinks" hidden></select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <div id="models-groups" class="settings-models-groups"></div>
+                <div id="models-status" class="settings-models-status" role="status" hidden></div>
+            </div>
+        </section>
+
+        <section class="integrations-pane" id="social-section" data-pane="social" aria-labelledby="social-heading" hidden>
+            <header class="settings-tab-header">
+                <div class="settings-tab-header-row">
+                    <div class="settings-tab-heading">
+                        <h2 id="social-heading" class="settings-tab-title">Social accounts</h2>
+                        <span class="settings-tab-description">Accounts used to publish generated content. Everything is authorized in your browser.</span>
+                    </div>
+                </div>
+            </header>
+            <div class="settings-tab-body">
+                <label class="social-optional-toggle" for="social-show-optional">
+                    <input type="checkbox" id="social-show-optional">
+                    <span>Show optional adapters <span class="social-optional-note">(Telegram — registration-required)</span></span>
                 </label>
-                <label>
-                    <span>Default multimodal profile</span>
-                    <select id="default-multimodal-profile"><option value="">Not selected</option></select>
-                </label>
-                <p>Only profiles explicitly marked as multimodal can receive images or video frames.</p>
-            </div>
-
-            <div id="profiles-grid" class="profiles-grid"></div>
-            <div id="profiles-empty" class="empty-panel" hidden>
-                <strong>No provider profiles yet</strong>
-                <p>Add an OpenAI-compatible endpoint, or import one of the local command-line tools below.</p>
-                <div class="empty-actions">
-                    <button id="empty-add-provider" class="btn btn-primary" type="button">Add endpoint</button>
-                    <button id="empty-goto-cli" class="btn btn-secondary" type="button">Import from local CLI</button>
-                </div>
+                <div id="social-grid" class="social-grid" aria-live="polite"></div>
             </div>
         </section>
 
-        <section class="settings-section integrations-pane" id="cli-section" data-pane="cli" aria-labelledby="cli-heading" hidden>
-            <div class="section-heading">
-                <div>
-                    <p class="section-kicker">Existing authorization</p>
-                    <h2 id="cli-heading">Local AI command-line tools</h2>
-                    <p>Nothing is scanned until you press Connect. Connected tools are re-checked on later visits; credential files are never opened or copied.</p>
+        <section class="integrations-pane" id="remote-section" data-pane="remote" aria-labelledby="remote-heading" hidden>
+            <header class="settings-tab-header">
+                <div class="settings-tab-header-row">
+                    <div class="settings-tab-heading">
+                        <h2 id="remote-heading" class="settings-tab-title">Remote GPU</h2>
+                        <span class="settings-tab-description">Create can render on a Colab GPU under your own Google account. Nothing is checked until this tab is open; sign-in goes through Google's own page and the Colab CLI keeps the token inside WSL.</span>
+                    </div>
                 </div>
+            </header>
+            <div class="settings-tab-body">
+                <div id="remote-grid" class="cli-grid remote-grid" aria-live="polite"></div>
             </div>
-            <div id="cli-grid" class="cli-grid" aria-live="polite"></div>
         </section>
 
-        <section class="settings-section integrations-pane" id="social-section" data-pane="social" aria-labelledby="social-heading" hidden>
-            <div class="section-heading">
-                <div>
-                    <p class="section-kicker">Social publishing</p>
-                    <h2 id="social-heading">Social accounts</h2>
-                    <p>Connect the accounts used to publish generated content. Everything is authorized in your browser; credentials never leave this machine.</p>
+        <section class="integrations-pane" id="sources-section" data-pane="sources" aria-labelledby="sources-heading" hidden>
+            <header class="settings-tab-header">
+                <div class="settings-tab-header-row">
+                    <div class="settings-tab-heading">
+                        <h2 id="sources-heading" class="settings-tab-title">Model sources</h2>
+                        <span class="settings-tab-description">Keys for sites that host models. They are used only to download models, here or on a Colab runtime, and stay on this computer.</span>
+                    </div>
                 </div>
+            </header>
+            <div class="settings-tab-body">
+                <div id="models-grid" class="cli-grid remote-grid" aria-live="polite"></div>
             </div>
-            <label class="social-optional-toggle" for="social-show-optional">
-                <input type="checkbox" id="social-show-optional">
-                <span>Show optional adapters <span class="social-optional-note">(Telegram — registration-required)</span></span>
-            </label>
-            <div id="social-grid" class="social-grid" aria-live="polite"></div>
         </section>
 
-        <section class="settings-section integrations-pane" id="remote-section" data-pane="remote" aria-labelledby="remote-heading" hidden>
-            <div class="section-heading">
-                <div>
-                    <p class="section-kicker">Google Colab</p>
-                    <h2 id="remote-heading">Remote GPU</h2>
-                    <p>Create can render on a Colab GPU under your own Google account instead of this computer's graphics card. Nothing is checked until this tab is open; sign-in goes through Google's own page and the Colab CLI keeps the token inside WSL.</p>
-                </div>
-            </div>
-            <div id="remote-grid" class="cli-grid remote-grid" aria-live="polite"></div>
-        </section>
-
-        <section class="settings-section integrations-pane" id="models-section" data-pane="models" aria-labelledby="models-heading" hidden>
-            <div class="section-heading">
-                <div>
-                    <p class="section-kicker">Downloads</p>
-                    <h2 id="models-heading">Model sources</h2>
-                    <p>Keys for sites that host models. They are used only to download models, here or on a Colab runtime, and stay on this computer.</p>
-                </div>
-            </div>
-            <div id="models-grid" class="cli-grid remote-grid" aria-live="polite"></div>
-        </section>
-
-            </div>
         </div>
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <dialog id="profile-dialog" class="profile-dialog" aria-labelledby="profile-dialog-title">
-        <form id="profile-form" method="dialog">
+    <dialog id="connect-dialog" class="profile-dialog settings-dialog" aria-labelledby="connect-title">
+        <form id="connect-form" method="dialog">
             <header class="dialog-header">
-                <div>
-                    <p class="section-kicker" id="profile-dialog-kicker">OpenAI-compatible</p>
-                    <h2 id="profile-dialog-title">Add provider profile</h2>
+                <div class="dialog-title-row">
+                    <svg id="connect-icon" class="provider-icon provider-icon-large" aria-hidden="true"><use href=""></use></svg>
+                    <div>
+                        <h2 id="connect-title">Connect provider</h2>
+                        <p id="connect-description" class="dialog-description"></p>
+                    </div>
                 </div>
-                <button id="close-profile-dialog" class="dialog-close" type="button" aria-label="Close">×</button>
+                <button class="dialog-close" type="button" data-close aria-label="Close">×</button>
             </header>
-
-            <input id="profile-id" type="hidden">
-            <input id="profile-kind" type="hidden" value="openai_compatible">
-            <input id="profile-cli-type" type="hidden">
-            <input id="profile-executable" type="hidden">
-
+            <input id="connect-provider-id" type="hidden">
+            <input id="connect-template" type="hidden">
             <div class="form-grid">
+                <label id="connect-base-url-field" class="field field-wide">
+                    <span>Base URL</span>
+                    <input id="connect-base-url" type="url" placeholder="https://api.example.com/v1" spellcheck="false">
+                    <small>The app calls <code>/chat/completions</code> and lists <code>/models</code> at this address.</small>
+                </label>
                 <label class="field field-wide">
-                    <span>Profile name</span>
-                    <input id="profile-name" name="name" maxlength="80" required placeholder="My provider" autocomplete="off">
+                    <span>API key source</span>
+                    <select id="connect-key-source">
+                        <option value="system">Stored in the system credential store</option>
+                        <option value="environment">Environment variable</option>
+                        <option value="none">No key required</option>
+                    </select>
                 </label>
-
-                <div id="openai-fields" class="form-grid form-grid-nested field-wide">
-                    <label class="field field-wide">
-                        <span>Base URL</span>
-                        <input id="profile-base-url" type="url" placeholder="https://api.example.com/v1">
-                        <small>The app calls <code>/chat/completions</code> unless the path already ends with it.</small>
-                    </label>
-
-                    <label class="field">
-                        <span>API key source</span>
-                        <select id="profile-key-source">
-                            <option value="system">System credential store</option>
-                            <option value="environment">Environment variable</option>
-                            <option value="none">No key required</option>
-                        </select>
-                    </label>
-
-                    <label id="api-key-field" class="field">
-                        <span>API key</span>
-                        <input id="profile-api-key" type="password" autocomplete="new-password" placeholder="Stored securely after save">
-                        <small id="api-key-help">Required for a new system-stored profile.</small>
-                    </label>
-
-                    <label id="api-key-env-field" class="field" hidden>
-                        <span>Environment variable</span>
-                        <input id="profile-api-key-env" placeholder="PROVIDER_API_KEY" spellcheck="false">
-                        <small>The value stays outside the application.</small>
-                    </label>
-                </div>
-
-                <div id="standard-model-field" class="field field-wide">
-                    <label class="field-label" for="profile-model">Exact model ID</label>
-                    <div id="profile-model-combobox" class="model-combobox">
-                        <input id="profile-model" maxlength="200" required placeholder="provider/model-or-id" spellcheck="false" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="profile-model-options">
-                        <button id="profile-model-toggle" class="model-options-toggle" type="button" aria-label="Show available models" aria-expanded="false" aria-controls="profile-model-options"></button>
-                        <div id="profile-model-options" class="model-options" role="listbox" hidden></div>
-                    </div>
-                </div>
-
-                <div id="opencode-model-fields" class="field-wide" hidden>
-                    <div id="opencode-install-field" class="field opencode-install-field" hidden>
-                        <label class="field-label" for="profile-opencode-install">Installation</label>
-                        <select id="profile-opencode-install"></select>
-                        <small>OpenCode 2+ (desktop app). Free OpenCode Zen models need no account or key.</small>
-                    </div>
-                    <div class="cli-model-grid">
-                        <div class="field">
-                            <label class="field-label" for="profile-model-provider">Provider</label>
-                            <div id="profile-model-provider-combobox" class="model-combobox">
-                                <input id="profile-model-provider" maxlength="100" placeholder="deepseek" spellcheck="false" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="profile-model-provider-options">
-                                <button id="profile-model-provider-toggle" class="model-options-toggle" type="button" aria-label="Show visible providers" aria-expanded="false" aria-controls="profile-model-provider-options"></button>
-                                <div id="profile-model-provider-options" class="model-options" role="listbox" hidden></div>
-                            </div>
-                        </div>
-                        <div class="field">
-                            <label class="field-label" for="profile-model-name">Model</label>
-                            <div id="profile-model-name-combobox" class="model-combobox">
-                                <input id="profile-model-name" maxlength="200" placeholder="deepseek-chat" spellcheck="false" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="profile-model-name-options">
-                                <button id="profile-model-name-toggle" class="model-options-toggle" type="button" aria-label="Show visible models" aria-expanded="false" aria-controls="profile-model-name-options"></button>
-                                <div id="profile-model-name-options" class="model-options" role="listbox" hidden></div>
-                            </div>
-                        </div>
-                    </div>
-                    <p id="opencode-model-capability" class="model-capability" hidden></p>
-                    <div class="catalog-settings-row">
-                        <small id="model-catalog-hint">Choose which providers and models appear in these lists.</small>
-                        <button id="open-model-catalog" class="btn btn-secondary" type="button">Display settings</button>
-                    </div>
-                </div>
-
-                <label class="field">
-                    <span>Timeout, seconds</span>
-                    <input id="profile-timeout" type="number" min="5" max="600" value="60" required>
+                <label id="connect-api-key-field" class="field field-wide">
+                    <span id="connect-api-key-label">API key</span>
+                    <input id="connect-api-key" type="password" autocomplete="new-password" placeholder="API key" spellcheck="false">
+                    <small id="connect-api-key-help">Saved in the operating system credential store, never in config files.</small>
                 </label>
-
-                <div id="profile-roles-group" class="profile-roles-group field-wide">
-                    <span class="field-label">Profile roles & intended defaults</span>
-                    <small class="roles-hint">Select which profile sections to create or assign this model for:</small>
-                    <div class="profile-roles-grid">
-                        <label class="check-field">
-                            <input id="profile-role-text" type="checkbox" checked>
-                            <span><strong>Text prompt profile</strong><small>For prompt generation & AI expansion.</small></span>
-                        </label>
-                        <label class="check-field">
-                            <input id="profile-role-translator" type="checkbox">
-                            <span><strong>Translator profile</strong><small>For automatic prompt translation.</small></span>
-                        </label>
-                        <label class="check-field">
-                            <input id="profile-role-vision" type="checkbox">
-                            <span><strong>Vision / Multimodal profile</strong><small>Allow image and video-frame requests.</small></span>
-                        </label>
-                    </div>
-                </div>
-
-                <label id="extra-body-field" class="field field-wide">
-                    <span>Additional request parameters <em>optional</em></span>
-                    <textarea id="profile-extra-body" rows="4" spellcheck="false" placeholder='{"temperature": 0.2}'></textarea>
-                    <small>JSON object only. Authentication fields are rejected.</small>
+                <label id="connect-env-field" class="field field-wide" hidden>
+                    <span>Environment variable</span>
+                    <input id="connect-env" placeholder="PROVIDER_API_KEY" spellcheck="false">
+                    <small>The value stays outside the application.</small>
                 </label>
             </div>
-
-            <div id="profile-form-error" class="form-error" role="alert" hidden></div>
+            <p id="connect-docs" class="dialog-footnote" hidden><a id="connect-docs-link" href="#" target="_blank" rel="noopener noreferrer">Provider documentation</a></p>
+            <div id="connect-error" class="form-error" role="alert" hidden></div>
             <footer class="dialog-actions">
-                <button id="cancel-profile" class="btn btn-secondary" type="button">Cancel</button>
-                <button id="save-profile" class="btn btn-primary" type="submit">Save profile</button>
+                <button class="btn btn-secondary" type="button" data-close>Cancel</button>
+                <button id="connect-submit" class="btn btn-primary" type="submit">Connect</button>
             </footer>
         </form>
     </dialog>
 
-    <dialog id="model-catalog-dialog" class="profile-dialog catalog-dialog" aria-labelledby="model-catalog-title">
-        <form id="model-catalog-form" method="dialog">
+    <dialog id="custom-dialog" class="profile-dialog settings-dialog" aria-labelledby="custom-title">
+        <form id="custom-form" method="dialog">
             <header class="dialog-header">
-                <div>
-                    <p class="section-kicker">OpenCode</p>
-                    <h2 id="model-catalog-title">Model display settings</h2>
+                <div class="dialog-title-row">
+                    <svg class="provider-icon provider-icon-large" aria-hidden="true"><use href="/static/icons/providers.svg#custom"></use></svg>
+                    <div>
+                        <h2 id="custom-title">Custom provider</h2>
+                        <p class="dialog-description">Configure an OpenAI-compatible provider: a hosted API, a gateway or a server on this computer.</p>
+                    </div>
                 </div>
-                <button id="close-model-catalog" class="dialog-close" type="button" aria-label="Close">×</button>
+                <button class="dialog-close" type="button" data-close aria-label="Close">×</button>
             </header>
-            <p class="catalog-description">Select the providers shown in the profile form. For each provider, show all its models or keep a smaller allowlist.</p>
-            <div class="catalog-discovery">
-                <button id="discover-model-catalog" class="btn btn-secondary" type="button">Scan providers</button>
-                <span id="model-catalog-status">The complete catalog is requested only when you press Scan providers.</span>
+            <input id="custom-editing" type="hidden">
+            <div class="form-grid">
+                <label class="field">
+                    <span>Provider ID</span>
+                    <input id="custom-id" maxlength="48" placeholder="myprovider" spellcheck="false" autocomplete="off">
+                    <small>Lowercase letters, numbers, hyphens, or underscores</small>
+                </label>
+                <label class="field">
+                    <span>Display name</span>
+                    <input id="custom-name" maxlength="80" placeholder="My AI Provider" autocomplete="off">
+                </label>
+                <label class="field field-wide">
+                    <span>Base URL</span>
+                    <input id="custom-base-url" type="url" placeholder="https://api.myprovider.com/v1" spellcheck="false">
+                </label>
+                <label class="field field-wide">
+                    <span>API key <em>optional</em></span>
+                    <input id="custom-api-key" type="password" autocomplete="new-password" placeholder="API key" spellcheck="false">
+                    <small id="custom-api-key-help">Leave empty for a server that needs no key.</small>
+                </label>
+                <div class="field field-wide">
+                    <span class="field-label">Models <em>optional</em></span>
+                    <div id="custom-models" class="custom-model-rows"></div>
+                    <button id="custom-add-model" class="settings-link-button" type="button">+ Add model</button>
+                    <small>Listed in addition to the provider's own <code>/models</code> list, for servers that do not offer one.</small>
+                </div>
             </div>
-            <div id="model-catalog-providers" class="catalog-provider-list"></div>
-            <div id="model-catalog-error" class="form-error" role="alert" hidden></div>
+            <div id="custom-error" class="form-error" role="alert" hidden></div>
             <footer class="dialog-actions">
-                <button id="cancel-model-catalog" class="btn btn-secondary" type="button">Cancel</button>
-                <button class="btn btn-primary" type="submit">Save display settings</button>
+                <button class="btn btn-secondary" type="button" data-close>Cancel</button>
+                <button id="custom-submit" class="btn btn-primary" type="submit">Connect</button>
             </footer>
         </form>
+    </dialog>
+
+    <dialog id="all-providers-dialog" class="profile-dialog settings-dialog all-providers-dialog" aria-labelledby="all-providers-title">
+        <div class="dialog-body">
+            <header class="dialog-header">
+                <div>
+                    <h2 id="all-providers-title">Connect a provider</h2>
+                    <p class="dialog-description">Provider list from models.dev, the catalog OpenCode uses.</p>
+                </div>
+                <button class="dialog-close" type="button" data-close aria-label="Close">×</button>
+            </header>
+            <label class="settings-filter-search">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="all-providers-search" type="search" placeholder="Search providers" autocomplete="off" spellcheck="false" aria-label="Search providers">
+            </label>
+            <div id="all-providers-list" class="all-providers-list"></div>
+        </div>
+    </dialog>
+
+    <dialog id="tool-dialog" class="profile-dialog settings-dialog" aria-labelledby="tool-title">
+        <div class="dialog-body">
+            <header class="dialog-header">
+                <div class="dialog-title-row">
+                    <svg id="tool-icon" class="provider-icon provider-icon-large" aria-hidden="true"><use href=""></use></svg>
+                    <div>
+                        <h2 id="tool-title">Local tool</h2>
+                        <p id="tool-path" class="dialog-description"></p>
+                    </div>
+                </div>
+                <button class="dialog-close" type="button" data-close aria-label="Close">×</button>
+            </header>
+            <div id="tool-body" class="tool-body" aria-live="polite"></div>
+            <footer class="dialog-actions">
+                <button class="btn btn-secondary" type="button" data-close>Close</button>
+                <button id="tool-recheck" class="btn btn-primary" type="button">Check again</button>
+            </footer>
+        </div>
     </dialog>
 
     <dialog id="social-telegram-dialog" class="profile-dialog social-dialog" aria-labelledby="social-telegram-title">

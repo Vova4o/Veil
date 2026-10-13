@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest.mock import patch
 
 from app.ai.execution import OpenCodeIntentJudgeExecutor
 from app.ai.intent_benchmark_core import (
@@ -12,8 +13,8 @@ from app.ai.intent_benchmark_core import (
     build_parser,
     evaluate_intent_heuristics,
 )
-from app.ai.profiles import AIProfileStore
 from app.ai.prompting import PromptCompiler, PromptFamily, PromptResult, PromptScenario
+from app.ai.providers import AIProviderStore
 from app.ai.secrets import SecretStoreStatus
 
 
@@ -114,22 +115,18 @@ class IntentBenchmarkInteractiveSelectionTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.store = AIProfileStore(
+        self.store = AIProviderStore(
             Path(self.temp_dir.name) / "config.json",
             secret_store=MemorySecretStore(),
         )
-        self.profile = self.store.create(
-            {
-                "kind": "cli",
-                "name": "OpenCode Test",
-                "model": "opencode/mimo-v2.5-free",
-                "timeout_seconds": 300,
-                "multimodal": False,
-                "cli_type": "opencode",
-                "executable": "C:/tools/opencode.cmd",
-            }
-        )
-        self.store.set_defaults({"text_profile_id": self.profile["id"]})
+        self.store.set_default_model({"host": "opencode", "model": "opencode/mimo-v2.5-free"})
+        catalog = {"groups": [{"host": "opencode", "models": [
+            {"id": "opencode/exo-free", "name": "Exo Free"},
+            {"id": "opencode/mimo-v2.5-free", "name": "MiMo 2.5 Free"},
+        ]}]}
+        patcher = patch("app.ai.intent_benchmark_core.agents.catalog", return_value=catalog)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_selects_one_sdxl_scenario_without_creating_a_comparison(self) -> None:
         console = FakeConsole([
@@ -149,7 +146,8 @@ class IntentBenchmarkInteractiveSelectionTest(unittest.TestCase):
             selection.benchmark_id,
             "sdxl-graphic-design-text-intent-basic",
         )
-        self.assertEqual(selection.generator_profile, self.profile["id"])
+        # The default model is preselected among the OpenCode models the pickers show.
+        self.assertEqual(selection.generator_profile, "opencode/mimo-v2.5-free")
         self.assertIsNone(selection.judge_profile)
         self.assertEqual(
             selection.json_out,

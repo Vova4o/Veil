@@ -465,12 +465,6 @@ function render() {
     if (status.account?.signed_in) cards.push(usageCard());
     if (status.cli?.installed) cards.push(settingsCard());
     grid.replaceChildren(...cards);
-    const count = $('rail-count-remote');
-    if (count) {
-        const active = usage?.active_assignments || 0;
-        count.textContent = String(active);
-        count.hidden = active <= 0;
-    }
 }
 
 function onPane() {

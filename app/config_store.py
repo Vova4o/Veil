@@ -58,19 +58,58 @@ def _remote_settings(raw: Any) -> dict[str, Any]:
     }
 
 
+def _ai_settings(raw: Any) -> dict[str, Any]:
+    """Integrations › Providers and Models (app/ai/providers.py).
+
+    ``providers`` is None in a file written before providers replaced the AI profiles;
+    the legacy ``profiles`` and default profile ids are kept only until they migrate.
+    """
+    ai = raw if isinstance(raw, dict) else {}
+    raw_providers = ai.get("providers")
+    providers = (
+        [dict(item) for item in raw_providers if isinstance(item, dict)]
+        if isinstance(raw_providers, list)
+        else None
+    )
+    tools = ai.get("tools") if isinstance(ai.get("tools"), dict) else {}
+    disconnected = tools.get("disconnected")
+    models = ai.get("models") if isinstance(ai.get("models"), dict) else {}
+    visibility = models.get("visibility")
+    default_model = ai.get("default_model")
+    defaults = ai.get("defaults") if isinstance(ai.get("defaults"), dict) else {}
+    settings: dict[str, Any] = {
+        "providers": providers,
+        "tools": {
+            "disconnected": [
+                item for item in disconnected if isinstance(item, str)
+            ] if isinstance(disconnected, list) else [],
+        },
+        "models": {
+            "visibility": {
+                key: value for key, value in visibility.items()
+                if isinstance(key, str) and isinstance(value, bool)
+            } if isinstance(visibility, dict) else {},
+        },
+        "default_model": dict(default_model) if isinstance(default_model, dict) else None,
+        "defaults": {"rating_auto_enabled": bool(defaults.get("rating_auto_enabled", False))},
+    }
+    if providers is None:
+        raw_profiles = ai.get("profiles")
+        settings["profiles"] = (
+            [dict(item) for item in raw_profiles if isinstance(item, dict)]
+            if isinstance(raw_profiles, list)
+            else []
+        )
+        for key in ("text_profile_id", "translator_profile_id", "multimodal_profile_id"):
+            settings["defaults"][key] = defaults.get(key)
+    return settings
+
+
 def _default_config() -> dict[str, Any]:
     return {
         "version": CONFIG_VERSION,
         "sources": [],
-        "ai": {
-            "profiles": [],
-            "defaults": {
-                "text_profile_id": None,
-                "translator_profile_id": None,
-                "multimodal_profile_id": None,
-                "rating_auto_enabled": False,
-            },
-        },
+        "ai": _ai_settings({"providers": []}),
         "comfyui": {
             "install_path": None,
             "custom_python": None,
@@ -152,17 +191,6 @@ class ConfigStore:
                     "recursive": item.get("recursive") is True,
                 })
 
-            raw_ai = raw.get("ai")
-            ai = raw_ai if isinstance(raw_ai, dict) else {}
-            raw_profiles = ai.get("profiles")
-            profiles = (
-                [dict(item) for item in raw_profiles if isinstance(item, dict)]
-                if isinstance(raw_profiles, list)
-                else []
-            )
-            raw_defaults = ai.get("defaults")
-            defaults = raw_defaults if isinstance(raw_defaults, dict) else {}
-
             raw_comfyui = raw.get("comfyui")
             comfyui = raw_comfyui if isinstance(raw_comfyui, dict) else {}
 
@@ -178,17 +206,7 @@ class ConfigStore:
             return {
                 "version": CONFIG_VERSION,
                 "sources": sources,
-                "ai": {
-                    "profiles": profiles,
-                    "defaults": {
-                        "text_profile_id": defaults.get("text_profile_id"),
-                        "translator_profile_id": defaults.get("translator_profile_id"),
-                        "multimodal_profile_id": defaults.get(
-                            "multimodal_profile_id"
-                        ),
-                        "rating_auto_enabled": bool(defaults.get("rating_auto_enabled", False)),
-                    },
-                },
+                "ai": _ai_settings(raw.get("ai")),
                 "comfyui": {
                     "install_path": comfyui.get("install_path"),
                     "custom_python": comfyui.get("custom_python"),

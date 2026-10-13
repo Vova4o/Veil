@@ -118,14 +118,13 @@ def test_catalog_invalidates_after_cli_replacement(tmp_path, monkeypatch):
 
 
 def test_incomplete_opencode_cache_is_ignored(monkeypatch):
-    from app.ai import opencode_host
-    from app.comfyui import create_agent
+    from app.ai import agents, opencode_host
 
     catalog_cache.save("opencode", "opencode.exe", [{"id": "broken"}])
     catalog_cache.memory.clear()
     card = opencode_host.OpenCodeModel("opencode/test", "opencode", "Test", True, True, ())
     monkeypatch.setattr(opencode_host, "list_models", lambda exe: [card])
-    assert create_agent.opencode_models("opencode.exe") == [card]
+    assert agents.opencode_models("opencode.exe") == [card]
 
 
 def test_expired_catalog_and_failed_refresh_do_not_destroy_last_good_file(monkeypatch):
@@ -154,20 +153,19 @@ def test_expired_catalog_and_failed_refresh_do_not_destroy_last_good_file(monkey
 def test_create_host_catalogs_are_reused_after_restart(host, monkeypatch):
     from types import SimpleNamespace
 
-    from app.ai import cli, opencode_host
-    from app.comfyui import create_agent
+    from app.ai import agents, opencode_host
 
     calls = []
     if host == "opencode":
         card = opencode_host.OpenCodeModel("opencode/test", "opencode", "Test", None, True, ("high",))
         monkeypatch.setattr(opencode_host, "list_models", lambda exe: calls.append(exe) or [card])
-        read = lambda: create_agent.opencode_models("opencode.exe")
+        read = lambda: agents.opencode_models("opencode.exe")
         assert read() == [card]
     else:
-        monkeypatch.setattr(cli, "find_executable", lambda host: "agy.exe")
-        monkeypatch.setattr(cli, "run_command", lambda *args, **kwargs: calls.append(args) or SimpleNamespace(
+        monkeypatch.setattr(agents, "find_executable", lambda host: "agy.exe")
+        monkeypatch.setattr(agents, "run_command", lambda *args, **kwargs: calls.append(args) or SimpleNamespace(
             returncode=0, stdout="gemini-3-pro-high\tGemini 3 Pro (High)\ngemini-3-pro-low\tGemini 3 Pro (Low)", stderr=""))
-        read = lambda: create_agent.antigravity_models()[1]
+        read = lambda: agents.antigravity_models()[1]
         assert read()
     catalog_cache.memory.clear()
     assert read()

@@ -15,7 +15,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,11 +23,9 @@ from pydantic import BaseModel, Field
 
 from app import database as db
 from app import library as media_library
-from app.ai import opencode_host
-from app.ai.cli import CLIIntegrationError
+from app.ai import agents
 from app.ai.execution import ExecutionRouter
-from app.ai.model_catalog import native_cli_models
-from app.ai.profiles import AIProfileStore
+from app.ai.providers import AIProviderStore
 from app.config_store import ConfigStore
 
 from .backends import BackendKind, ComfyUIJobClient, InferenceBackend
@@ -36,12 +33,8 @@ from .client import ComfyUIClient, ComfyUIClientError
 from .create_agent import (
     CreateAgentError,
     CreateAgentResult,
-    antigravity_models,
     instruction_paths,
-    opencode_models,
-    pick_agent_profile,
     run_create_agent,
-    sees_images,
 )
 from .detector import detect_comfyui
 from .node_packs import (
@@ -77,8 +70,8 @@ def _config_store() -> ConfigStore:
     return current_app.config["CONFIG_STORE"]
 
 
-def _ai_profile_store() -> AIProfileStore:
-    return AIProfileStore(
+def _ai_provider_store() -> AIProviderStore:
+    return AIProviderStore(
         Path(current_app.config["CONFIG_FILE"]),
         secret_store=current_app.config.get("AI_SECRET_STORE"),
     )
@@ -124,16 +117,16 @@ def _agent_summary(profile: dict[str, Any] | None) -> dict[str, Any] | None:
         "kind": profile.get("kind"),
         "cli_type": profile.get("cli_type"),
         "model": profile.get("model"),
-        "sees_images": accepts_images and sees_images(profile),
+        "sees_images": accepts_images and agents.sees_images(profile),
     }
 
 
 def _agent_status_payload() -> dict[str, Any]:
-    """Which agent Create will use for text and for photo modes (Integrations defaults)."""
-    store = _ai_profile_store()
+    """Which model Create uses for text and for photo modes when none is picked there."""
+    store = _ai_provider_store()
     try:
-        text_agent = _agent_summary(pick_agent_profile(store, wants_image=False))
-        photo_agent = _agent_summary(pick_agent_profile(store, wants_image=True))
+        text_agent = _agent_summary(agents.default_profile(store, wants_image=False))
+        photo_agent = _agent_summary(agents.default_profile(store, wants_image=True))
     except Exception as exc:
         logger.debug("Create agent status failed: %s", exc)
         text_agent = photo_agent = None
@@ -364,77 +357,6 @@ def simple_ambient():
 @simple_blueprint.route("/api/simple/agent-status", methods=["GET"])
 def simple_agent_status():
     return jsonify(_agent_status_payload())
-
-
-@simple_blueprint.route("/api/simple/agents", methods=["GET"])
-def simple_agents():
-    """What Create's agent menu offers: OpenCode models by their cards, and the other agents.
-
-    OpenCode models carry ``vision`` (sees photos), ``free`` and ``variants`` (reasoning
-    levels) from OpenCode itself. Native Codex and Claude catalogs list their models;
-    capability metadata takes precedence over explicitly labeled family fallbacks.
-    """
-    payload: dict[str, Any] = {"opencode": None, "antigravity": None, "codex": None, "claude": None, "agents": []}
-    refresh = request.args.get("refresh") == "1"
-
-    def opencode_section() -> dict[str, Any] | None:
-        installations = opencode_host.find_installations()
-        if not installations:
-            return None
-        installation = installations[0]
-        models: list[dict[str, Any]] = []
-        error = None
-        try:
-            models = [model.to_dict() for model in opencode_models(installation.executable, refresh=refresh)]
-        except CLIIntegrationError as exc:
-            error = str(exc)
-        return {"label": installation.label, "variants": installation.generation >= 2, "models": models, "error": error}
-
-    def antigravity_section() -> dict[str, Any] | None:
-        try:
-            executable, models = antigravity_models(refresh=refresh)
-        except CLIIntegrationError as exc:
-            return {"label": "Antigravity CLI", "models": [], "error": str(exc)}
-        if executable is None:
-            return None
-        # Antigravity reports no input types; known families are an explicit fallback.
-        return {"label": "Antigravity CLI", "models": models, "error": None, "vision_source": "family"}
-
-    def native_section(host: str) -> dict[str, Any] | None:
-        label = {"codex": "Codex", "claude": "Claude Code"}[host]
-        try:
-            executable, models = native_cli_models(host, refresh=refresh)
-        except CLIIntegrationError as exc:
-            return {"label": label, "models": [], "error": str(exc)}
-        return {"label": label, "models": models, "error": None} if executable else None
-
-    # Discovery is read-only and each host has its own timeout/error section.
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {"opencode": pool.submit(opencode_section), "antigravity": pool.submit(antigravity_section),
-                   "codex": pool.submit(native_section, "codex"), "claude": pool.submit(native_section, "claude")}
-        for host, future in futures.items():
-            payload[host] = future.result()
-    seen: set[tuple[Any, Any, Any]] = set()
-    for profile in _ai_profile_store().list().get("profiles", []):
-        if not isinstance(profile, dict) or profile.get("cli_type") == "opencode":
-            continue
-        section = payload.get(profile.get("cli_type"))
-        if section and any(profile.get("model") == model.get("model", model["id"])
-                           or any(profile.get("model") == level["id"] for level in model.get("levels", []))
-                           for model in section["models"]):
-            continue
-        roles = set(profile.get("roles") or ())
-        if roles and roles <= {"translator"}:
-            continue
-        # Profiles that differ only by their role names run the same model.
-        key = (profile.get("kind"), profile.get("cli_type") or profile.get("base_url"), profile.get("model"))
-        if key in seen:
-            continue
-        seen.add(key)
-        summary = _agent_summary(profile)
-        if summary:
-            payload["agents"].append({"id": profile.get("id"), **summary})
-    return jsonify(payload)
 
 
 @simple_blueprint.route("/api/simple/bootstrap", methods=["GET"])
@@ -693,12 +615,12 @@ class SimpleAgentRequest(BaseModel):
     aspect_ratio: str = "1:1"
     reference_image: str | None = None
     subject_image: str | None = None
-    # An Integrations profile id that replaces the default agent for this run.
-    agent_profile_id: str | None = None
-    # Or a model and reasoning level picked from the host's native catalog in Create.
+    # A model and reasoning level picked in Create's agent menu (else the default model).
     agent_model: str | None = None
     agent_variant: str | None = None
-    agent_host: Literal["opencode", "antigravity", "codex", "claude"] | None = None
+    agent_host: str | None = Field(
+        default=None, pattern=r"^(?:opencode|claude|codex|antigravity|api:[a-z0-9][a-z0-9_-]{0,47})$"
+    )
 
 
 class SimpleCreateRequest(SimpleAgentRequest):
@@ -1115,14 +1037,13 @@ def _prepare_agent_request(req: SimpleAgentRequest):
         dimensions = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
     run_kwargs: dict[str, Any] = {
         "profile": profile,
-        "store": _ai_profile_store(),
+        "store": _ai_provider_store(),
         "mode": req.mode,
         "request": req.request,
         "image": image[0] if image else None,
         "subject": subject[0] if subject else None,
         "previous_prompt": req.previous_prompt,
         "dimensions": dimensions,
-        "agent_profile_id": req.agent_profile_id,
         "agent_model": (req.agent_model or "").strip() or None,
         "agent_variant": (req.agent_variant or "").strip() or None,
         "agent_host": req.agent_host,

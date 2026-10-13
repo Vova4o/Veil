@@ -17,17 +17,14 @@ import json
 import logging
 import re
 import tempfile
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from app.ai import catalog_cache, opencode_host
-from app.ai.cli import CLIIntegrationError
+from app.ai import agents
+from app.ai.agents import AgentError, sees_images
 from app.ai.execution import ExecutionRouter, ExecutionRouterError
-from app.ai.model_catalog import family_vision, native_cli_models
-from app.ai.profiles import AIProfileStore, AIProfileStoreError
 from app.ai.prompting import (
     InstructionBundle,
     InstructionSection,
@@ -37,6 +34,7 @@ from app.ai.prompting import (
 )
 from app.ai.prompting.models import CapabilityStatus
 from app.ai.prompting.registry import CONTENT_DIR
+from app.ai.providers import AIProviderError, AIProviderStore
 
 from .simple_profiles import ApprovedProfile, edit_frame_change, resolve_edit_profile
 
@@ -45,9 +43,8 @@ logger = logging.getLogger(__name__)
 CreateMode = Literal["text", "reference", "variation", "edit"]
 CREATE_CONTENT_DIR = CONTENT_DIR / "create" / "krea2"
 CREATE_INSTRUCTION_VERSION = "4"
-# Agent CLIs need time to read a long task package and an image; profile timeouts
-# saved for short translations (60 s) are too tight for Create.
-MIN_AGENT_TIMEOUT_SECONDS = 240
+# Agent CLIs need time to read a long task package and an image.
+MIN_AGENT_TIMEOUT_SECONDS = agents.DEFAULT_TIMEOUT_SECONDS
 AGENT_IMAGE_MAX_SIDE = 1536
 MAX_REQUEST_CHARS = 8_000
 MAX_PREVIOUS_PROMPT_CHARS = 20_000
@@ -242,277 +239,18 @@ def instruction_paths() -> list[str]:
     return [str(path) for path in sorted(CREATE_CONTENT_DIR.glob("*.md"))]
 
 
-# --- agent profile -----------------------------------------------------------------
+# --- agent ---------------------------------------------------------------------------
 
 
-def _roles(profile: dict[str, Any]) -> set[str]:
-    return {str(role) for role in profile.get("roles") or ()}
-
-
-def _sees_images(profile: dict[str, Any]) -> bool:
-    if profile.get("model_card"):
-        # Picked in Create: what the model's card (or family) says.
-        return profile.get("multimodal") is True
-    if profile.get("kind") == "cli" and profile.get("cli_type") in {"codex", "claude", "antigravity"}:
-        known = family_vision(str(profile.get("model") or ""))
-        if known is not None:
-            return known
-        # Legacy Codex/Claude profiles keep their native image transport defaults.
-        return profile.get("cli_type") != "antigravity"
-    return profile.get("multimodal") is True or "vision" in _roles(profile)
-
-
-def sees_images(profile: dict[str, Any]) -> bool:
-    """Whether Create may send this agent the photo (before the host's own input check)."""
-    return _sees_images(profile)
-
-
-def pick_agent_profile(store: AIProfileStore, *, wants_image: bool) -> dict[str, Any] | None:
-    """Choose the agent for one Create run from the Integrations defaults.
-
-    Photo modes prefer the default vision agent; text prefers the default text agent.
-    Either falls back to any profile with the other role. Translator-only profiles
-    are never used. With no usable profile at all, an installed OpenCode runs a free
-    Zen model, so Create works right after OpenCode is installed.
-    """
-    state = store.list()
-    profiles = [item for item in state.get("profiles", []) if isinstance(item, dict)]
-    defaults = state.get("defaults") or {}
-    vision = [defaults.get("multimodal_profile_id")] + [p["id"] for p in profiles if _sees_images(p)]
-    text = [defaults.get("text_profile_id")] + [p["id"] for p in profiles if "text" in _roles(p)]
-    for profile_id in (vision + text) if wants_image else (text + vision):
-        if not profile_id:
-            continue
-        try:
-            return store.get(profile_id)
-        except AIProfileStoreError:
-            continue
-    return implicit_opencode_profile()
-
-
-IMPLICIT_OPENCODE_PROFILE_ID = "implicit-opencode-free"
-# Free Zen model families in order of preference; ids change between releases.
-PREFERRED_FREE_MODELS = ("muse-spark", "mimo", "exo", "longcat", "space-bunny", "step")
-_FREE_MODEL_TTL_SECONDS = 15 * 60
-_free_model_cache: dict[str, tuple[float, opencode_host.OpenCodeModel | None]] = {}
-
-
-def default_free_model(executable: str) -> opencode_host.OpenCodeModel | None:
-    """The preferred free Zen model of one installation, vision models first."""
-    cached = _free_model_cache.get(executable)
-    if cached and time.monotonic() - cached[0] < _FREE_MODEL_TTL_SECONDS:
-        return cached[1]
+def _agent_profile(store: AIProviderStore, host: str | None, model: str | None, variant: str | None,
+                   *, wants_image: bool) -> dict[str, Any] | None:
+    """The model picked in Create's agent menu, else the default model of Integrations."""
+    if not model:
+        return agents.default_profile(store, wants_image=wants_image)
     try:
-        cards = catalog_cache.load("opencode", executable) or catalog_cache.load("opencode-zen", executable)
-        if cards:
-            models = [_opencode_card(card) for card in cards if card.get("provider") == opencode_host.ZEN_PROVIDER]
-        else:
-            models = opencode_host.list_models(executable, provider=opencode_host.ZEN_PROVIDER)
-            catalog_cache.save("opencode-zen", executable, [model.to_dict() for model in models])
-    except CLIIntegrationError as exc:
-        logger.info("OpenCode model list failed for %s: %s", executable, exc)
-        models = []
-    free = [model for model in models if model.free]
-
-    def rank(model: opencode_host.OpenCodeModel) -> tuple[int, int]:
-        name = model.id.split("/", 1)[-1]
-        family = next(
-            (index for index, prefix in enumerate(PREFERRED_FREE_MODELS) if name.startswith(prefix)),
-            len(PREFERRED_FREE_MODELS),
-        )
-        return (0 if model.vision else 1, family)
-
-    chosen = min(free, key=rank) if free else None
-    _free_model_cache[executable] = (time.monotonic(), chosen)
-    return chosen
-
-
-_models_cache = catalog_cache.memory
-
-
-def _opencode_card(card: dict[str, Any]) -> opencode_host.OpenCodeModel:
-    return opencode_host.OpenCodeModel(
-        id=card["id"], provider=card["provider"], name=card["name"], vision=card.get("vision"),
-        free=card.get("free"), variants=tuple(card.get("variants") or ()),
-    )
-
-
-def opencode_models(executable: str, *, refresh: bool = False) -> list[opencode_host.OpenCodeModel]:
-    """Every model one installation can run, with its card (vision, free, variants); cached."""
-    cached = catalog_cache.load("opencode", executable) if not refresh else None
-    if cached:
-        return [_opencode_card(card) for card in cached]
-    models = opencode_host.list_models(executable)
-    catalog_cache.save("opencode", executable, [model.to_dict() for model in models])
-    return models
-
-
-def chosen_opencode_profile(model_id: str, variant: str | None = None) -> dict[str, Any]:
-    """The agent for an OpenCode model picked in Create; its card says whether it sees photos.
-
-    The model must be one OpenCode 2 lists, and the variant one of its card.
-    """
-    installations = opencode_host.find_installations()
-    if not installations:
-        raise CreateAgentError("OpenCode is not installed.", code="cli_unavailable", status=409)
-    installation = installations[0]
-    try:
-        models = opencode_models(installation.executable)
-    except CLIIntegrationError as exc:
-        raise CreateAgentError(
-            "OpenCode could not list its models.", code="cli_unavailable", status=409, technical_error=str(exc)
-        ) from exc
-    model = next((item for item in models if item.id == model_id), None)
-    if model is None:
-        raise CreateAgentError(f"OpenCode has no model '{model_id}'.", code="model_unavailable", status=409)
-    if variant and variant not in model.variants:
-        raise CreateAgentError(
-            f"{model.name} has no reasoning level '{variant}'.", code="variant_unavailable", status=400
-        )
-    use_variant = bool(variant)
-    run_model = f"{model.id}{opencode_host.VARIANT_SEPARATOR}{variant}" if use_variant else model.id
-    return {
-        "id": f"opencode:{run_model}",
-        "model_card": True,
-        "kind": "cli",
-        "cli_type": "opencode",
-        "name": " · ".join(["OpenCode", model.name, *([variant] if use_variant else [])]),
-        "model": run_model,
-        "multimodal": bool(model.vision),
-        "roles": ["text", "vision"] if model.vision else ["text"],
-        "timeout_seconds": MIN_AGENT_TIMEOUT_SECONDS,
-        "executable": installation.executable,
-    }
-
-
-_AGY_LEVEL = re.compile(r"^(?P<base>.+?)-(?P<level>minimal|low|medium|high|xhigh|max)$")
-_AGY_NAME_LEVEL = re.compile(r"^(?P<name>.+?)\s*\((?P<level>[^()]+)\)$")
-_AGY_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,80}")
-_agy_cache = catalog_cache.memory
-
-
-def parse_antigravity_models(output: str) -> list[dict[str, Any]]:
-    """``agy models``: one ``id<TAB>Name (Level)`` line per model and reasoning level.
-
-    Levels of one model are grouped: ``gemini-3.8-flash-high`` is Gemini 3.8 Flash at high.
-    """
-    groups: dict[str, dict[str, Any]] = {}
-    for line in (output or "").splitlines():
-        if "\t" not in line:
-            continue
-        model_id, label = (part.strip() for part in line.split("\t", 1))
-        if not _AGY_MODEL_ID.fullmatch(model_id):
-            continue
-        level_match = _AGY_LEVEL.match(model_id)
-        base, level = (level_match["base"], level_match["level"]) if level_match else (model_id, None)
-        name_match = _AGY_NAME_LEVEL.match(label)
-        group = groups.setdefault(base, {
-            "id": base,
-            "name": (name_match["name"] if name_match else label) or base,
-            "vision": family_vision(base),
-            "vision_source": "family" if family_vision(base) is not None else "unknown",
-            "levels": [],
-        })
-        if level and not any(item["id"] == model_id for item in group["levels"]):
-            group["levels"].append({"id": model_id, "level": level})
-        else:
-            group["model"] = model_id
-    return list(groups.values())
-
-
-def antigravity_models(*, refresh: bool = False) -> tuple[str | None, list[dict[str, Any]]]:
-    """Antigravity's executable and its models (cached); no executable when it is not installed."""
-    from app.ai.cli import find_executable, run_command
-
-    executable = find_executable("antigravity")
-    if executable is None:
-        return None, []
-    cached = catalog_cache.load("antigravity", executable) if not refresh else None
-    if cached:
-        return executable, cached
-    result = run_command([executable, "models"], timeout=30, max_timeout=30)
-    if result.returncode != 0:
-        raise CLIIntegrationError(result.stderr or result.stdout or "Antigravity could not list its models.")
-    models = parse_antigravity_models(result.stdout)
-    if not models:
-        raise CLIIntegrationError("Antigravity returned no readable model catalog.")
-    catalog_cache.save("antigravity", executable, models)
-    return executable, models
-
-
-def chosen_antigravity_profile(model_id: str) -> dict[str, Any]:
-    """The agent for an Antigravity model picked in Create (the id carries its reasoning level)."""
-    try:
-        executable, models = antigravity_models()
-    except CLIIntegrationError as exc:
-        raise CreateAgentError(
-            "Antigravity could not list its models.", code="cli_unavailable", status=409, technical_error=str(exc)
-        ) from exc
-    if executable is None:
-        raise CreateAgentError("Antigravity is not installed.", code="cli_unavailable", status=409)
-    for model in models:
-        levels = {item["id"]: item["level"] for item in model["levels"]}
-        if model_id == model.get("model") or model_id in levels:
-            level = levels.get(model_id)
-            return {
-                "id": f"antigravity:{model_id}",
-                "model_card": True,
-                "kind": "cli",
-                "cli_type": "antigravity",
-                "name": " · ".join(["Antigravity", model["name"], *([level] if level else [])]),
-                "model": model_id,
-                "multimodal": model["vision"],
-                "roles": ["text", "vision"] if model["vision"] else ["text"],
-                "timeout_seconds": MIN_AGENT_TIMEOUT_SECONDS,
-                "executable": executable,
-            }
-    raise CreateAgentError(f"Antigravity has no model '{model_id}'.", code="model_unavailable", status=409)
-
-
-def chosen_native_profile(host: str, model_id: str, variant: str | None = None) -> dict[str, Any]:
-    """Validate a Create selection against the host's own catalog before execution."""
-    label = {"codex": "Codex", "claude": "Claude Code"}[host]
-    try:
-        executable, models = native_cli_models(host)
-    except CLIIntegrationError as exc:
-        raise CreateAgentError(f"{label} could not list its models.", code="cli_unavailable", status=409,
-                               technical_error=str(exc)) from exc
-    if executable is None:
-        raise CreateAgentError(f"{label} is not installed.", code="cli_unavailable", status=409)
-    model = next((item for item in models if item["id"] == model_id), None)
-    if model is None:
-        raise CreateAgentError(f"{label} has no model '{model_id}'.", code="model_unavailable", status=409)
-    if variant and variant not in model["variants"]:
-        raise CreateAgentError(f"{model['name']} has no reasoning level '{variant}'.", code="variant_unavailable")
-    return {
-        "id": f"{host}:{model_id}", "model_card": True, "kind": "cli", "cli_type": host,
-        "name": " · ".join([label, model["name"], *([variant] if variant else [])]),
-        "model": model_id, "multimodal": model["vision"], "reasoning_effort": variant,
-        "roles": ["text", "vision"] if model["vision"] else ["text"],
-        "timeout_seconds": MIN_AGENT_TIMEOUT_SECONDS, "executable": executable,
-    }
-
-
-def implicit_opencode_profile() -> dict[str, Any] | None:
-    """A zero-setup agent: the newest OpenCode installation with a free Zen model."""
-    installations = opencode_host.find_installations()
-    if not installations:
-        return None
-    installation = installations[0]
-    model = default_free_model(installation.executable)
-    if model is None:
-        return None
-    return {
-        "id": IMPLICIT_OPENCODE_PROFILE_ID,
-        "kind": "cli",
-        "cli_type": "opencode",
-        "name": f"{installation.label}, free {model.name}",
-        "model": model.id,
-        "multimodal": bool(model.vision),
-        "roles": ["text", "vision"] if model.vision else ["text"],
-        "timeout_seconds": MIN_AGENT_TIMEOUT_SECONDS,
-        "executable": installation.executable,
-    }
+        return agents.resolve(store, {"host": host or "opencode", "model": model, "variant": variant})
+    except AgentError as exc:
+        raise CreateAgentError(str(exc), code=exc.code, status=exc.status, technical_error=exc.technical_error) from exc
 
 
 # --- images ------------------------------------------------------------------------
@@ -755,7 +493,7 @@ def _safe_sink(on_progress: ProgressSink | None) -> ProgressSink:
 def run_create_agent(
     *,
     profile: ApprovedProfile,
-    store: AIProfileStore,
+    store: AIProviderStore,
     mode: CreateMode,
     request: str,
     image: bytes | None = None,
@@ -763,13 +501,12 @@ def run_create_agent(
     previous_prompt: str | None = None,
     dimensions: tuple[int, int] | None = None,
     router: ExecutionRouter | None = None,
-    agent_profile_id: str | None = None,
     agent_model: str | None = None,
     agent_variant: str | None = None,
     agent_host: str | None = None,
     on_progress: ProgressSink | None = None,
 ) -> CreateAgentResult:
-    """Write the prompt for one Create run; ``agent_profile_id`` overrides the default agent.
+    """Write the prompt for one Create run with the model picked in Create (or the default).
 
     ``on_progress`` receives small events while the agent works: ``started`` (who
     runs), then ``thinking`` / ``working`` / ``writing`` with an optional ``log`` line
@@ -782,24 +519,11 @@ def run_create_agent(
     if mode == "text" and not request.strip() and not (previous_prompt or "").strip():
         raise CreateAgentError("Describe what to create.", code="prompt_required")
 
-    if agent_model and agent_host == "antigravity":
-        agent = chosen_antigravity_profile(agent_model)
-    elif agent_model and agent_host in {"codex", "claude"}:
-        agent = chosen_native_profile(agent_host, agent_model, agent_variant)
-    elif agent_model:
-        # An OpenCode model picked in Create, outside the Integrations profiles.
-        agent = chosen_opencode_profile(agent_model, agent_variant)
-    elif agent_profile_id:
-        try:
-            agent = store.get(agent_profile_id)
-        except (AIProfileStoreError, KeyError) as exc:
-            raise CreateAgentError("The chosen agent profile does not exist.", code="profile_not_found", status=404) from exc
-    else:
-        agent = pick_agent_profile(store, wants_image=image is not None)
+    agent = _agent_profile(store, agent_host, agent_model, agent_variant, wants_image=image is not None)
     if agent is None:
         raise CreateAgentError(
-            "No AI agent is configured. Add one on the Integrations page.",
-            code="no_ai_profile",
+            "No AI model is available. Connect a provider in Integrations › Providers.",
+            code="no_ai_model",
             status=409,
         )
     router = router or ExecutionRouter()
@@ -807,7 +531,7 @@ def run_create_agent(
         accepted = router.capabilities_for(agent).image_inputs
     except ExecutionRouterError as exc:
         raise CreateAgentError(str(exc), code=exc.code, status=409) from exc
-    sees = image is not None and _sees_images(agent) and bool(accepted)
+    sees = image is not None and sees_images(agent) and bool(accepted)
     if mode in {"reference", "variation"} and not sees:
         raise CreateAgentError(
             f"The agent '{agent.get('name')}' cannot see photos. Choose a model that sees photos "
@@ -838,7 +562,7 @@ def run_create_agent(
     )
     try:
         api_key = store.resolve_api_key(agent)
-    except AIProfileStoreError as exc:
+    except AIProviderError as exc:
         raise CreateAgentError(str(exc), code=exc.code, status=409) from exc
     emit = _safe_sink(on_progress)
     emit({
@@ -924,10 +648,7 @@ __all__ = [
     "build_user_input",
     "create_task",
     "decode_data_url",
-    "default_free_model",
-    "implicit_opencode_profile",
     "instruction_paths",
-    "pick_agent_profile",
     "progress_reader",
     "run_create_agent",
     "wants_intimate_module",

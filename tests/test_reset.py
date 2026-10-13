@@ -10,7 +10,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app import database as db
-from app.ai.profiles import AIProfileStore
+from app.ai.providers import AIProviderStore
 from app.config_store import ConfigStore, ConfigStoreError
 from app.indexing import index_source_directory
 from app.main import app, configure_runtime
@@ -175,17 +175,16 @@ class PhysicalResetTest(ResetTestCase):
         ConfigStore(self.paths.config).add_source(source)
         self.index_source(source)
         secrets = TestSecrets()
-        profile = AIProfileStore(
+        provider = AIProviderStore(
             self.paths.config, secret_store=secrets
         ).create({
-            "kind": "openai_compatible",
+            "id": "reset-test",
             "name": "Reset test",
             "base_url": "https://provider.example/v1",
             "api_key_source": "system",
             "api_key": "factory-reset-secret",
-            "model": "test-model",
         })
-        self.assertEqual(secrets.values[profile["id"]], "factory-reset-secret")
+        self.assertEqual(secrets.values[provider["id"]], "factory-reset-secret")
         save_civitai_token(ConfigStore(self.paths.config), "civitai-secret")
         self.assertEqual(tokens.secret_store().get(CIVITAI_SECRET), "civitai-secret")
 

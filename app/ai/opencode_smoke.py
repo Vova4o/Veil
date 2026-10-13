@@ -13,9 +13,10 @@ from rich.text import Text
 
 from ..config_store import ConfigStoreError
 from ..paths import PathValidationError, build_runtime_paths, normalize_path
+from . import agents
 from .execution import OpenCodePromptExecutionError, OpenCodePromptExecutor
-from .profiles import AIProfileStore, AIProfileStoreError
 from .prompting import PromptTask
+from .providers import AIProviderError, AIProviderStore
 from .secrets import SecretStoreError
 from .smoke import (
     SCENARIOS,
@@ -38,71 +39,38 @@ class ResolvedOpenCodeProfile:
 
 
 def resolve_opencode_profile(
-    store: AIProfileStore,
+    store: AIProviderStore,
     *,
     selector: str | None,
     requires_image: bool,
 ) -> ResolvedOpenCodeProfile:
-    listing = store.list()
-    profiles = [
-        profile
-        for profile in listing["profiles"]
-        if profile.get("kind") == "cli" and profile.get("cli_type") == "opencode"
-    ]
-    if not profiles:
-        raise SmokeRunnerError(
-            "No OpenCode CLI profiles are configured.",
-            code="profile_not_found",
-        )
-
-    selected: dict[str, Any] | None = None
-    selected_by = ""
-    if selector:
-        selected = next(
-            (profile for profile in profiles if profile["id"] == selector),
-            None,
-        )
-        if selected is not None:
-            selected_by = "explicit id"
+    """An OpenCode model (``provider/model[#variant]``), else the default model or a free one."""
+    try:
+        if selector:
+            model, _, variant = selector.partition("#")
+            profile = agents.opencode_profile(model, variant or None)
+            selected_by = "explicit model"
         else:
-            matches = [
-                profile
-                for profile in profiles
-                if str(profile.get("name", "")).casefold() == selector.casefold()
-            ]
-            if len(matches) > 1:
-                raise SmokeRunnerError(
-                    "More than one OpenCode profile has this name; use its ID.",
-                    code="ambiguous_profile",
-                )
-            if matches:
-                selected = matches[0]
-                selected_by = "explicit name"
-    else:
-        default_key = "multimodal_profile_id" if requires_image else "text_profile_id"
-        default_id = listing["defaults"].get(default_key)
-        selected = next(
-            (profile for profile in profiles if profile["id"] == default_id),
-            None,
-        )
-        selected_by = default_key
-
-    if selected is None:
-        expected = "multimodal" if requires_image else "text"
+            ref = store.default_model()
+            if ref and ref["host"] == "opencode":
+                profile = agents.opencode_profile(ref["model"], ref.get("variant"))
+                selected_by = "default model"
+            else:
+                profile = agents.implicit_opencode_profile()
+                selected_by = "free OpenCode model"
+    except agents.AgentError as exc:
+        raise SmokeRunnerError(str(exc), code=exc.code) from exc
+    if profile is None:
         raise SmokeRunnerError(
-            f"No matching {expected} OpenCode profile was selected. "
-            "Use --profile ID-or-name.",
-            code="profile_not_found",
+            "OpenCode is not installed or offers no free model. Use --model provider/model.",
+            code="model_not_found",
         )
-    if requires_image and selected.get("multimodal") is not True:
+    if requires_image and not agents.sees_images(profile):
         raise SmokeRunnerError(
-            "The selected OpenCode profile is not marked as multimodal.",
+            "The selected OpenCode model does not see photos.",
             code="incompatible_profile",
         )
-    return ResolvedOpenCodeProfile(
-        profile=store.get(selected["id"]),
-        selected_by=selected_by,
-    )
+    return ResolvedOpenCodeProfile(profile=profile, selected_by=selected_by)
 
 
 def run_opencode_smoke_scenario(
@@ -172,32 +140,22 @@ def run_opencode_smoke_scenario(
     )
 
 
-def _print_opencode_profiles(console: Console, store: AIProfileStore) -> None:
-    listing = store.list()
-    defaults = listing["defaults"]
-    table = Table(title=f"OpenCode profiles · {store.config.path}")
-    table.add_column("ID", style="cyan")
+def _print_opencode_models(console: Console, store: AIProviderStore) -> None:
+    table = Table(title="OpenCode models shown in the pickers")
+    table.add_column("Model", style="cyan")
     table.add_column("Name", style="bold")
-    table.add_column("Model")
     table.add_column("Vision")
-    table.add_column("Executable")
-    table.add_column("Default")
-    for profile in listing["profiles"]:
-        if profile.get("kind") != "cli" or profile.get("cli_type") != "opencode":
+    table.add_column("Free")
+    for group in agents.catalog(store, visible_only=True)["groups"]:
+        if group["host"] != "opencode":
             continue
-        default_labels: list[str] = []
-        if defaults.get("text_profile_id") == profile["id"]:
-            default_labels.append("text")
-        if defaults.get("multimodal_profile_id") == profile["id"]:
-            default_labels.append("vision")
-        table.add_row(
-            profile["id"],
-            profile["name"],
-            profile["model"],
-            "yes" if profile.get("multimodal") else "no",
-            profile.get("executable") or "PATH",
-            ", ".join(default_labels) or "—",
-        )
+        for model in group["models"]:
+            table.add_row(
+                model["id"],
+                model["name"],
+                "yes" if model.get("vision") else "no",
+                "yes" if model.get("free") else "no",
+            )
     console.print(table)
 
 
@@ -252,17 +210,17 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("list", help="List shared CMV smoke scenarios.")
 
-    profiles = subparsers.add_parser(
-        "profiles",
-        help="List configured OpenCode profiles.",
+    models = subparsers.add_parser(
+        "models",
+        help="List the OpenCode models the pickers show.",
     )
-    profiles.add_argument("--config", help="Override the application config.json path.")
+    models.add_argument("--config", help="Override the application config.json path.")
 
     run = subparsers.add_parser("run", help="Run one scenario through OpenCode.")
     run.add_argument("scenario", choices=tuple(SCENARIOS))
     run.add_argument(
-        "--profile",
-        help="OpenCode profile ID or exact profile name. Defaults to app settings.",
+        "--model",
+        help="OpenCode model as provider/model[#variant]. Defaults to the default model.",
     )
     run.add_argument("--config", help="Override the application config.json path.")
     input_group = run.add_mutually_exclusive_group()
@@ -308,9 +266,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config_path = _config_path(getattr(args, "config", None))
-        store = AIProfileStore(config_path)
-        if args.command == "profiles":
-            _print_opencode_profiles(console, store)
+        store = AIProviderStore(config_path)
+        if args.command == "models":
+            _print_opencode_models(console, store)
             return 0
 
         scenario = scenario_by_id(args.scenario)
@@ -318,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         image = load_smoke_image(args.image) if args.image else None
         resolved = resolve_opencode_profile(
             store,
-            selector=args.profile,
+            selector=args.model,
             requires_image=scenario.requires_image,
         )
         _print_header(
@@ -353,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except (
         SmokeRunnerError,
-        AIProfileStoreError,
+        AIProviderError,
         ConfigStoreError,
         SecretStoreError,
         PathValidationError,

@@ -1,210 +1,101 @@
+// Integrations › Providers and Models, modelled on OpenCode desktop's settings.
+// Providers connects local AI tools and API providers; Models chooses which of their
+// models the pickers in Create and the Viewer show, and the default model.
+import { defaultReasoning, reasoningChoices } from './model-picker.js';
 import { customConfirm } from './utils.js';
 
-const elements = {
-    secretStatus: document.getElementById('secret-store-status'),
-    secretTitle: document.getElementById('secret-store-title'),
-    secretDetail: document.getElementById('secret-store-detail'),
-    toast: document.getElementById('toast'),
-    profilesGrid: document.getElementById('profiles-grid'),
-    profilesEmpty: document.getElementById('profiles-empty'),
-    cliGrid: document.getElementById('cli-grid'),
-    cliSection: document.getElementById('cli-section'),
-    defaultPanel: document.getElementById('default-profile-panel'),
-    defaultText: document.getElementById('default-text-profile'),
-    defaultTranslator: document.getElementById('default-translator-profile'),
-    defaultMultimodal: document.getElementById('default-multimodal-profile'),
-    dialog: document.getElementById('profile-dialog'),
-    form: document.getElementById('profile-form'),
-    formError: document.getElementById('profile-form-error'),
-    id: document.getElementById('profile-id'),
-    kind: document.getElementById('profile-kind'),
-    cliType: document.getElementById('profile-cli-type'),
-    executable: document.getElementById('profile-executable'),
-    name: document.getElementById('profile-name'),
-    baseUrl: document.getElementById('profile-base-url'),
-    keySource: document.getElementById('profile-key-source'),
-    apiKey: document.getElementById('profile-api-key'),
-    apiKeyEnv: document.getElementById('profile-api-key-env'),
-    standardModelField: document.getElementById('standard-model-field'),
-    model: document.getElementById('profile-model'),
-    modelCombobox: document.getElementById('profile-model-combobox'),
-    modelOptions: document.getElementById('profile-model-options'),
-    modelToggle: document.getElementById('profile-model-toggle'),
-    opencodeModelFields: document.getElementById('opencode-model-fields'),
-    opencodeInstallField: document.getElementById('opencode-install-field'),
-    opencodeInstall: document.getElementById('profile-opencode-install'),
-    opencodeModelCapability: document.getElementById('opencode-model-capability'),
-    modelProvider: document.getElementById('profile-model-provider'),
-    modelProviderCombobox: document.getElementById('profile-model-provider-combobox'),
-    modelProviderOptions: document.getElementById('profile-model-provider-options'),
-    modelProviderToggle: document.getElementById('profile-model-provider-toggle'),
-    modelName: document.getElementById('profile-model-name'),
-    modelNameCombobox: document.getElementById('profile-model-name-combobox'),
-    modelNameOptions: document.getElementById('profile-model-name-options'),
-    modelNameToggle: document.getElementById('profile-model-name-toggle'),
-    modelCatalogHint: document.getElementById('model-catalog-hint'),
-    catalogDialog: document.getElementById('model-catalog-dialog'),
-    catalogForm: document.getElementById('model-catalog-form'),
-    catalogProviders: document.getElementById('model-catalog-providers'),
-    catalogStatus: document.getElementById('model-catalog-status'),
-    catalogError: document.getElementById('model-catalog-error'),
-    catalogDiscover: document.getElementById('discover-model-catalog'),
-    timeout: document.getElementById('profile-timeout'),
-    multimodal: document.getElementById('profile-role-vision'),
-    roleText: document.getElementById('profile-role-text'),
-    roleTranslator: document.getElementById('profile-role-translator'),
-    roleVision: document.getElementById('profile-role-vision'),
-    extraBody: document.getElementById('profile-extra-body'),
-    openaiFields: document.getElementById('openai-fields'),
-    apiKeyField: document.getElementById('api-key-field'),
-    apiKeyHelp: document.getElementById('api-key-help'),
-    apiKeyEnvField: document.getElementById('api-key-env-field'),
-    extraBodyField: document.getElementById('extra-body-field'),
-    dialogTitle: document.getElementById('profile-dialog-title'),
-    dialogKicker: document.getElementById('profile-dialog-kicker'),
-    saveProfile: document.getElementById('save-profile'),
+const ICONS_URL = document.body.dataset.providerIcons || '/static/icons/providers.svg';
+const PANES = ['providers', 'models', 'social', 'remote', 'sources'];
+// Older links: Local AI tools now live in Providers.
+const PANE_ALIASES = { cli: 'providers' };
+// Model pickers reload their lists when this is newer than their copy.
+const MODELS_CHANGED_KEY = 'cmv_ai_models_changed_at';
+const COLLAPSED_KEY = 'cmv_ai_models_collapsed_v1';
+const LEGACY_KEYS = [
+    'cmv_ai_profiles_cache_v1', 'cmv_ai_connected_cli_types_v1', 'cmv_ai_model_catalog_v1', 'cmv_ai_cli_probes_v1',
+];
+const TOOL_DOWNLOADS = {
+    opencode: 'https://opencode.ai/download',
+    claude: 'https://docs.anthropic.com/en/docs/claude-code/setup',
+    codex: 'https://developers.openai.com/codex/cli',
+    antigravity: 'https://antigravity.google/docs/cli/install',
+};
+const KEY_SOURCE_TAGS = { system: 'API key', environment: 'Environment', none: 'No key' };
+
+const state = {
+    providers: [],
+    tools: [],
+    templates: [],
+    secretStore: { available: true },
+    defaultModel: null,
+    catalog: null,
+    catalogLoading: false,
+    catalogError: '',
+    checks: new Map(),
+    collapsed: readCollapsed(),
+    iconIds: null,
 };
 
-let profiles = [];
-let defaults = { text_profile_id: null, multimodal_profile_id: null, translator_profile_id: null };
-let secretStore = { available: false };
-let cliCatalog = [];
-const CONNECTED_CLI_STORAGE_KEY = 'cmv_ai_connected_cli_types_v1';
-const MODEL_CATALOG_STORAGE_KEY = 'cmv_ai_model_catalog_v1';
-const CLI_PROBES_STORAGE_KEY = 'cmv_ai_cli_probes_v1';
-const PROFILES_CACHE_KEY = 'cmv_ai_profiles_cache_v1';
-const cliProbes = new Map();
+const $ = id => document.getElementById(id);
 
-function readProfilesCache() {
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+}
+
+function svgIcon(markup, className) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    if (className) svg.setAttribute('class', className);
+    svg.innerHTML = markup;
+    return svg;
+}
+
+function iconName(name) {
+    if (!state.iconIds) return name || 'custom';
+    // A regional or plan variant ("google-vertex", "moonshotai-cn") uses its family mark.
+    let candidate = name || '';
+    while (candidate && !state.iconIds.has(candidate)) {
+        candidate = candidate.includes('-') ? candidate.slice(0, candidate.lastIndexOf('-')) : '';
+    }
+    return candidate || 'custom';
+}
+
+function providerIcon(name, className = 'provider-icon') {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', className);
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `${ICONS_URL}#${iconName(name)}`);
+    svg.append(use);
+    return svg;
+}
+
+function setIcon(svg, name) {
+    svg.querySelector('use')?.setAttribute('href', `${ICONS_URL}#${iconName(name)}`);
+}
+
+async function loadIconIds() {
     try {
-        const stored = JSON.parse(localStorage.getItem(PROFILES_CACHE_KEY) || 'null');
-        if (stored && typeof stored === 'object') {
-            if (Array.isArray(stored.profiles)) profiles = stored.profiles;
-            if (stored.defaults && typeof stored.defaults === 'object') defaults = stored.defaults;
-            if (stored.secretStore && typeof stored.secretStore === 'object') secretStore = stored.secretStore;
-        }
+        const text = await (await fetch(ICONS_URL)).text();
+        state.iconIds = new Set([...text.matchAll(/<symbol id="([^"]+)"/g)].map(match => match[1]));
     } catch {
-        // Fallback gracefully
+        state.iconIds = null;
     }
 }
 
-function writeProfilesCache() {
-    try {
-        localStorage.setItem(PROFILES_CACHE_KEY, JSON.stringify({ profiles, defaults, secretStore }));
-    } catch {
-        // Fallback gracefully
-    }
+function tag(text, variant = '') {
+    return el('span', `settings-tag${variant ? ` is-${variant}` : ''}`, text);
 }
 
-function readStoredCliProbes() {
-    try {
-        const stored = JSON.parse(localStorage.getItem(CLI_PROBES_STORAGE_KEY) || '{}');
-        if (stored && typeof stored === 'object') {
-            Object.entries(stored).forEach(([type, integration]) => {
-                if (integration && typeof integration === 'object') {
-                    cliProbes.set(type, integration);
-                }
-            });
-        }
-    } catch {
-        // Fallback gracefully
-    }
-}
-
-function writeStoredCliProbes() {
-    try {
-        const obj = Object.fromEntries(cliProbes);
-        localStorage.setItem(CLI_PROBES_STORAGE_KEY, JSON.stringify(obj));
-    } catch {
-        // Fallback gracefully
-    }
-}
-
-readStoredCliProbes();
-const cliPending = new Set();
-const activeTests = new Map();
-let modelChoices = [];
-let activeModelOptionIndex = -1;
-let modelProviderLoadingToken = 0;
-const discoveredCatalogModels = new Map();
-// OpenCode model lists per installation and provider, with vision/free flags.
-const opencodeModelCache = new Map();
-let opencodeProviderModels = [];
-let opencodeAutoPickModel = false;
-let catalogDraft = new Map();
-
-function readConnectedCliTypes() {
-    try {
-        const stored = JSON.parse(localStorage.getItem(CONNECTED_CLI_STORAGE_KEY) || '[]');
-        return new Set(Array.isArray(stored) ? stored.filter(type => typeof type === 'string') : []);
-    } catch {
-        return new Set();
-    }
-}
-
-const connectedCliTypes = readConnectedCliTypes();
-
-function writeConnectedCliTypes() {
-    try {
-        localStorage.setItem(CONNECTED_CLI_STORAGE_KEY, JSON.stringify([...connectedCliTypes]));
-    } catch {
-        // CLI probing still works when browser storage is unavailable.
-    }
-}
-
-const OPENCODE_PROVIDER_LABELS = {
-    opencode: 'OpenCode Zen (opencode)',
-    'opencode-go': 'OpenCode Go (opencode-go)',
-    zen: 'OpenCode Zen (opencode)',
-    go: 'OpenCode Go (opencode-go)',
-};
-
-function formatOpenCodeProviderLabel(provider) {
-    if (!provider) return '';
-    return OPENCODE_PROVIDER_LABELS[provider.toLowerCase()] || provider;
-}
-
-function readModelCatalogSettings() {
-    const defaultCatalog = { opencode: [], 'opencode-go': [] };
-    try {
-        const stored = JSON.parse(localStorage.getItem(MODEL_CATALOG_STORAGE_KEY) || '{}');
-        const providers = stored?.opencode?.providers;
-        const result = Object.create(null);
-        if (!providers || typeof providers !== 'object' || Array.isArray(providers)) return defaultCatalog;
-        Object.entries(providers)
-            .filter(([provider, models]) => (
-                typeof provider === 'string'
-                && provider
-                && Array.isArray(models)
-            ))
-            .forEach(([provider, models]) => {
-                result[provider] = [
-                    ...new Set(models.filter(model => typeof model === 'string' && model)),
-                ];
-            });
-        return Object.keys(result).length ? result : defaultCatalog;
-    } catch {
-        return defaultCatalog;
-    }
-}
-
-let visibleOpenCodeCatalog = readModelCatalogSettings();
-
-function writeModelCatalogSettings() {
-    try {
-        localStorage.setItem(MODEL_CATALOG_STORAGE_KEY, JSON.stringify({
-            opencode: { providers: visibleOpenCodeCatalog },
-        }));
-    } catch {
-        // Manual provider and model entry remains available without browser storage.
-    }
-}
-
-function createElement(tag, className, text) {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    if (text !== undefined) element.textContent = text;
-    return element;
+function button(label, onClick, className = 'settings-ghost-button') {
+    const node = el('button', className, label);
+    node.type = 'button';
+    node.addEventListener('click', onClick);
+    return node;
 }
 
 async function requestJson(url, options) {
@@ -219,303 +110,479 @@ async function requestJson(url, options) {
     return data;
 }
 
+function jsonOptions(method, body) {
+    return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+
 function showToast(message, isError = false) {
-    if (!elements.toast) return;
-    elements.toast.textContent = message;
-    elements.toast.classList.toggle('toast-error', isError);
-    elements.toast.classList.add('show');
+    const toast = $('toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.toggle('toast-error', isError);
+    toast.classList.add('show');
     window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => elements.toast.classList.remove('show'), 3200);
+    showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 3200);
 }
 
-function renderSecretStore() {
-    elements.secretStatus.classList.toggle('available', secretStore.available);
-    elements.secretStatus.classList.toggle('unavailable', !secretStore.available);
-    elements.secretTitle.textContent = secretStore.available
-        ? 'System credential store available'
-        : 'System credential store unavailable';
-    const detail = secretStore.available
-        ? ''
-        : (secretStore.message || 'Use an environment variable for API credentials.');
-    elements.secretDetail.textContent = detail;
-    elements.secretDetail.hidden = !detail;
-    const systemOption = elements.keySource.querySelector('option[value="system"]');
-    systemOption.disabled = !secretStore.available;
+function markModelsChanged() {
+    try { localStorage.setItem(MODELS_CHANGED_KEY, String(Date.now())); } catch { /* pickers refresh on their TTL */ }
 }
 
-function appendBadge(container, text, className = '') {
-    container.append(createElement('span', `profile-badge${className ? ` ${className}` : ''}`, text));
+function readCollapsed() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '{}');
+        return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    } catch {
+        return {};
+    }
 }
 
-function actionButton(label, action, className = 'btn btn-secondary') {
-    const button = createElement('button', className, label);
-    button.type = 'button';
-    button.addEventListener('click', action);
-    return button;
-}
-
-function trashIcon() {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '2');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    svg.innerHTML = '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>';
-    return svg;
-}
-
-function profileKindLabel(profile) {
-    if (profile.kind === 'openai_compatible') return 'OpenAI-compatible';
-    return cliCatalog.find(item => item.type === profile.cli_type)?.label
-        || profile.cli_type
-        || 'Local CLI';
+function writeCollapsed() {
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(state.collapsed)); } catch { /* per-visit only */ }
 }
 
 /* ------------------------------------------------------------------ */
-/* Integrations pane routing + rail counts                             */
+/* Pane routing                                                        */
 /* ------------------------------------------------------------------ */
-
-const RAIL_PANES = ['providers', 'cli', 'social', 'remote', 'models'];
 
 function currentPane() {
     const hash = window.location.hash.replace('#', '');
-    return RAIL_PANES.includes(hash) ? hash : 'providers';
+    const pane = PANE_ALIASES[hash] || hash;
+    return PANES.includes(pane) ? pane : 'providers';
 }
 
 function activatePane(pane) {
-    const target = RAIL_PANES.includes(pane) ? pane : 'providers';
     document.querySelectorAll('.integrations-pane').forEach(section => {
-        section.hidden = section.dataset.pane !== target;
+        section.hidden = section.dataset.pane !== pane;
     });
     document.querySelectorAll('.rail-link').forEach(link => {
-        const active = link.dataset.pane === target;
+        const active = link.dataset.pane === pane;
         link.classList.toggle('active', active);
         if (active) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
     });
+    if (pane === 'models' && !state.catalog && !state.catalogLoading) loadModels();
 }
 
-function updateRailCounts() {
-    const setCount = (id, count) => {
-        const badge = document.getElementById(id);
-        if (!badge) return;
-        badge.textContent = String(count);
-        badge.hidden = count <= 0;
-    };
-    setCount('rail-count-providers', profiles.length);
-    setCount('rail-count-cli', connectedCliTypes.size);
-    let socialCount = 0;
-    if (typeof window.cmvSocialStatus === 'function') {
-        const status = window.cmvSocialStatus();
-        const providers = (status && status.providers) ? status.providers : {};
-        socialCount = Object.keys(providers).filter(name => {
-            const data = providers[name];
-            if (!data) return false;
-            if (data.connected) return true;
-            return !!(data.publisher && data.publisher.connected);
-        }).length;
-    }
-    setCount('rail-count-social', socialCount);
-}
+/* ------------------------------------------------------------------ */
+/* Providers                                                           */
+/* ------------------------------------------------------------------ */
 
-function initPaneRouting() {
-    activatePane(currentPane());
-    window.addEventListener('hashchange', () => {
-        activatePane(currentPane());
-        window.scrollTo({ top: 0, behavior: 'instant' });
-    });
-    window.updateRailCounts = updateRailCounts;
-}
-
-function renderProfiles() {
-    elements.profilesGrid.replaceChildren();
-    elements.profilesEmpty.hidden = profiles.length > 0;
-    elements.defaultPanel.hidden = profiles.length === 0;
-    profiles.forEach(profile => {
-        const card = createElement('article', 'profile-card');
-        card.dataset.profileId = profile.id;
-        const top = createElement('div', 'card-topline');
-        const heading = createElement('div');
-        heading.append(createElement('h3', '', profile.name));
-        heading.append(createElement('p', 'model-id', profile.model));
-        if (profile.kind === 'openai_compatible' && profile.base_url) {
-            heading.append(createElement('p', 'model-id', profile.base_url));
-        }
-        top.append(heading);
-        top.append(createElement('span', 'profile-badge', profileKindLabel(profile)));
-        card.append(top);
-
-        const deleteButton = createElement('button', 'card-delete');
-        deleteButton.type = 'button';
-        deleteButton.title = `Delete “${profile.name}”`;
-        deleteButton.setAttribute('aria-label', `Delete profile ${profile.name}`);
-        deleteButton.append(trashIcon());
-        deleteButton.addEventListener('click', () => deleteProfile(profile));
-        card.append(deleteButton);
-
-        const badges = createElement('div', 'badge-row');
-        appendBadge(badges, `${profile.timeout_seconds}s timeout`);
-        if (profile.cli_type === 'opencode' && profile.executable) {
-            appendBadge(badges, /opencode-cli(\.exe)?$/i.test(profile.executable) ? 'Desktop app' : 'npm CLI');
-        }
-        if (profile.multimodal) appendBadge(badges, 'Multimodal', 'vision');
-        if (!profile.has_credentials) appendBadge(badges, 'Credentials unavailable', 'missing');
-        if (defaults.text_profile_id === profile.id) appendBadge(badges, 'Default text');
-        if (defaults.translator_profile_id === profile.id) appendBadge(badges, 'Default translator');
-        if (defaults.multimodal_profile_id === profile.id) appendBadge(badges, 'Default vision');
-        card.append(badges);
-
-        if (profile.credential_error) {
-            card.append(createElement('p', 'card-test-result error', profile.credential_error));
-        }
-        const result = createElement('p', 'card-test-result');
-        result.hidden = true;
-        card.append(result);
-
-        const actions = createElement('div', 'card-actions');
-        const testText = actionButton('Test text', () => runProfileTest(profile, false, testText, result));
-        actions.append(testText);
-        if (profile.multimodal) {
-            const testVision = actionButton('Test image', () => runProfileTest(profile, true, testVision, result));
-            actions.append(testVision);
-        }
-        actions.append(actionButton('Edit', () => openProfileDialog(profile)));
-        card.append(actions);
-        elements.profilesGrid.append(card);
-    });
-    renderDefaultSelectors();
-    updateRailCounts();
-}
-
-function renderDefaultSelectors() {
-    const fill = (select, predicate, selected) => {
-        select.replaceChildren(new Option('Not selected', ''));
-        profiles.filter(predicate).forEach(profile => {
-            select.append(new Option(`${profile.name} — ${profile.model}`, profile.id));
-        });
-        select.value = selected || '';
-    };
-    fill(
-        elements.defaultText,
-        profile => !profile.roles || profile.roles.includes('text'),
-        defaults.text_profile_id
-    );
-    if (elements.defaultTranslator) {
-        fill(
-            elements.defaultTranslator,
-            profile => !profile.roles || profile.roles.includes('translator'),
-            defaults.translator_profile_id
-        );
-    }
-    fill(
-        elements.defaultMultimodal,
-        profile => profile.multimodal && (!profile.roles || profile.roles.includes('vision')),
-        defaults.multimodal_profile_id
-    );
-}
-
-async function saveDefaults() {
+async function loadProviders() {
     try {
-        const data = await requestJson('/api/ai/defaults', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                text_profile_id: elements.defaultText.value || null,
-                translator_profile_id: elements.defaultTranslator?.value || null,
-                multimodal_profile_id: elements.defaultMultimodal.value || null,
-            }),
-        });
-        defaults = data.defaults;
-        renderProfiles();
-        showToast('Default AI profiles updated.');
+        const data = await requestJson('/api/ai/providers');
+        state.providers = data.providers || [];
+        state.tools = data.local_tools || [];
+        state.templates = data.templates || [];
+        state.secretStore = data.secret_store || { available: false };
+        state.defaultModel = data.default_model || null;
     } catch (error) {
-        renderDefaultSelectors();
+        showToast(error.message, true);
+    }
+    renderProviders();
+    renderDefaultModelSelect();
+}
+
+function templateById(id) {
+    return state.templates.find(item => item.id === id) || null;
+}
+
+function providerRow({ iconId, name, tags = [], meta = null, metaClass = '', actions = [] }) {
+    const row = el('div', 'settings-provider-row');
+    const lead = el('div', 'settings-provider-lead');
+    lead.append(providerIcon(iconId));
+    const copy = el('div', 'settings-provider-copy');
+    const main = el('div', 'settings-provider-main');
+    main.append(el('span', 'settings-provider-name', name), ...tags);
+    copy.append(main);
+    if (meta) {
+        const line = el('p', `settings-provider-meta${metaClass ? ` ${metaClass}` : ''}`, meta);
+        line.title = meta;
+        copy.append(line);
+    }
+    lead.append(copy);
+    const controls = el('div', 'settings-provider-actions');
+    controls.append(...actions);
+    row.append(lead, controls);
+    return row;
+}
+
+function connectedToolRow(tool) {
+    return providerRow({
+        iconId: tool.icon,
+        name: tool.label,
+        tags: [tag('Local tool')],
+        meta: tool.executable,
+        actions: [
+            button('Details', () => openToolDialog(tool)),
+            button('Disconnect', () => disconnectTool(tool), 'settings-ghost-button is-danger'),
+        ],
+    });
+}
+
+function connectedProviderRow(provider) {
+    const template = templateById(provider.template);
+    const tags = [tag(template ? KEY_SOURCE_TAGS[provider.api_key_source] : 'Custom')];
+    if (!provider.has_credentials) tags.push(tag('Key missing', 'warning'));
+    const check = state.checks.get(provider.id);
+    let meta = provider.base_url;
+    let metaClass = '';
+    if (provider.credential_error) {
+        meta = provider.credential_error;
+        metaClass = 'is-error';
+    } else if (check?.busy) {
+        meta = 'Checking the model list…';
+    } else if (check?.error) {
+        meta = check.error;
+        metaClass = 'is-error';
+    } else if (check?.models !== undefined) {
+        meta = `Connected · ${check.models} models`;
+        metaClass = 'is-success';
+    }
+    const checkButton = button(check?.busy ? 'Checking…' : 'Check', () => checkProvider(provider));
+    checkButton.disabled = Boolean(check?.busy);
+    return providerRow({
+        iconId: provider.template || 'custom',
+        name: provider.name,
+        tags,
+        meta,
+        metaClass,
+        actions: [
+            checkButton,
+            button('Edit', () => (template ? openConnectDialog(template, provider) : openCustomDialog(provider))),
+            button('Disconnect', () => disconnectProvider(provider), 'settings-ghost-button is-danger'),
+        ],
+    });
+}
+
+function popularRow({ iconId, name, tags = [], description, onConnect }) {
+    const row = el('div', 'settings-provider-row');
+    const lead = el('div', 'settings-provider-lead');
+    lead.append(providerIcon(iconId));
+    const copy = el('div', 'settings-provider-copy');
+    const main = el('div', 'settings-provider-main');
+    main.append(el('span', 'settings-provider-name', name), ...tags);
+    copy.append(main);
+    if (description) copy.append(el('p', 'settings-provider-description', description));
+    lead.append(copy);
+    const connect = el('button', 'settings-button');
+    connect.type = 'button';
+    connect.append(svgIcon('<path d="M12 5v14"/><path d="M5 12h14"/>'), el('span', '', 'Connect'));
+    connect.addEventListener('click', onConnect);
+    row.append(lead, connect);
+    return row;
+}
+
+function renderProviders() {
+    const connected = $('connected-providers');
+    connected.replaceChildren();
+    const tools = state.tools.filter(tool => tool.connected);
+    tools.forEach(tool => connected.append(connectedToolRow(tool)));
+    state.providers.forEach(provider => connected.append(connectedProviderRow(provider)));
+    if (!connected.children.length) connected.append(el('div', 'settings-provider-empty', 'No connected providers'));
+
+    const note = $('secret-store-note');
+    note.hidden = state.secretStore.available !== false;
+    note.textContent = state.secretStore.available === false
+        ? `${state.secretStore.message || 'The system credential store is unavailable.'} API keys can come from environment variables instead.`
+        : '';
+
+    const popular = $('popular-providers');
+    popular.replaceChildren();
+    state.tools.filter(tool => !tool.connected).forEach(tool => {
+        popular.append(popularRow({
+            iconId: tool.icon,
+            name: tool.label,
+            tags: [
+                ...(tool.type === 'opencode' ? [tag('Recommended', 'accent')] : []),
+                tag(tool.installed ? 'Disconnected' : 'Local tool'),
+            ],
+            description: tool.note,
+            onConnect: () => (tool.installed ? reconnectTool(tool) : openToolDialog(tool)),
+        }));
+    });
+    const connectedTemplates = new Set(state.providers.map(provider => provider.template));
+    state.templates
+        .filter(template => template.popular && !connectedTemplates.has(template.id))
+        .forEach(template => {
+            popular.append(popularRow({
+                iconId: template.id,
+                name: template.name,
+                description: template.note,
+                onConnect: () => openConnectDialog(template),
+            }));
+        });
+    if (!popular.children.length) popular.append(el('div', 'settings-provider-empty', 'Every popular provider is connected.'));
+}
+
+async function checkProvider(provider) {
+    state.checks.set(provider.id, { busy: true });
+    renderProviders();
+    try {
+        const data = await requestJson(`/api/ai/providers/${encodeURIComponent(provider.id)}/check`, { method: 'POST' });
+        state.checks.set(provider.id, { models: data.models });
+    } catch (error) {
+        state.checks.set(provider.id, { error: error.message });
+    }
+    renderProviders();
+}
+
+async function disconnectProvider(provider) {
+    const confirmed = await customConfirm(
+        'Disconnect provider',
+        `Disconnect ${provider.name}? Its stored API key is deleted and its models leave the pickers.`,
+    );
+    if (!confirmed) return;
+    try {
+        await requestJson(`/api/ai/providers/${encodeURIComponent(provider.id)}`, { method: 'DELETE' });
+        state.checks.delete(provider.id);
+        showToast(`${provider.name} disconnected.`);
+        afterProvidersChanged();
+    } catch (error) {
         showToast(error.message, true);
     }
 }
 
-async function runProfileTest(profile, multimodal, button, result) {
-    const active = activeTests.get(profile.id);
-    if (active) {
-        active.abort();
-        return;
-    }
-    const controller = new AbortController();
-    activeTests.set(profile.id, controller);
-    const originalLabel = button.textContent;
-    const timeoutSeconds = Math.max(5, Number(profile.timeout_seconds) || 60);
-    let elapsedSeconds = 0;
-    let clientTimedOut = false;
-    button.textContent = 'Cancel test';
-    result.hidden = false;
-    result.className = 'card-test-result';
-    const progressLabel = multimodal ? 'Testing image input' : 'Testing text input';
-    result.textContent = `${progressLabel}… 0s / ${timeoutSeconds}s`;
-    const progressTimer = window.setInterval(() => {
-        elapsedSeconds += 1;
-        result.textContent = `${progressLabel}… ${elapsedSeconds}s / ${timeoutSeconds}s`;
-    }, 1000);
-    const deadlineTimer = window.setTimeout(() => {
-        clientTimedOut = true;
-        controller.abort();
-    }, (timeoutSeconds + 3) * 1000);
+async function setToolConnected(tool, connected) {
     try {
-        const data = await requestJson(`/api/ai/profiles/${profile.id}/test`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ multimodal }),
-            signal: controller.signal,
-        });
-        result.className = 'card-test-result success';
-        result.textContent = `Connected in ${data.latency_ms} ms · ${data.response_preview}`;
+        const data = await requestJson(`/api/ai/local-tools/${tool.type}`, jsonOptions('PATCH', { connected }));
+        state.tools = data.local_tools || state.tools;
+        showToast(connected ? `${tool.label} connected.` : `${tool.label} disconnected.`);
+        afterProvidersChanged();
     } catch (error) {
-        result.className = 'card-test-result error';
-        if (clientTimedOut) {
-            result.textContent = `Test timed out after ${timeoutSeconds} seconds.`;
+        showToast(error.message, true);
+    }
+}
+
+async function disconnectTool(tool) {
+    const confirmed = await customConfirm(
+        'Disconnect local tool',
+        `Hide ${tool.label} and its models from the pickers? The tool itself stays installed and signed in.`,
+    );
+    if (confirmed) await setToolConnected(tool, false);
+}
+
+function reconnectTool(tool) {
+    return setToolConnected(tool, true);
+}
+
+function afterProvidersChanged() {
+    state.catalog = null;
+    markModelsChanged();
+    loadProviders();
+    if (currentPane() === 'models') loadModels();
+}
+
+/* --- connect dialog (template) --- */
+
+let connectTarget = null;
+
+function updateConnectKeyFields() {
+    const source = $('connect-key-source').value;
+    $('connect-api-key-field').hidden = source !== 'system';
+    $('connect-env-field').hidden = source !== 'environment';
+}
+
+function openConnectDialog(template, provider = null) {
+    connectTarget = { template, provider };
+    $('connect-form').reset();
+    $('connect-error').hidden = true;
+    setIcon($('connect-icon'), template.id);
+    $('connect-title').textContent = provider ? `Edit ${provider.name}` : `Connect ${template.name}`;
+    $('connect-description').textContent = template.local
+        ? `${template.name} runs on this computer. Check the address of its server.`
+        : `Enter your ${template.name} API key to use ${template.name} models in this app.`;
+    $('connect-base-url').value = provider?.base_url || template.base_url;
+    $('connect-base-url-field').hidden = !template.local && !provider;
+    const systemOption = $('connect-key-source').querySelector('option[value="system"]');
+    systemOption.disabled = state.secretStore.available === false;
+    const defaultSource = template.local ? 'none' : (state.secretStore.available === false ? 'environment' : 'system');
+    $('connect-key-source').value = provider?.api_key_source || defaultSource;
+    $('connect-env').value = provider?.api_key_env || template.env?.[0] || '';
+    $('connect-api-key-label').textContent = `${template.name} API key`;
+    $('connect-api-key').placeholder = provider ? 'Leave empty to keep the stored key' : 'API key';
+    $('connect-api-key-help').textContent = 'Saved in the operating system credential store, never in config files.';
+    $('connect-docs').hidden = !template.doc;
+    $('connect-docs-link').href = template.doc || '#';
+    $('connect-submit').textContent = provider ? 'Save' : 'Connect';
+    updateConnectKeyFields();
+    $('connect-dialog').showModal();
+    ($('connect-key-source').value === 'system' ? $('connect-api-key') : $('connect-key-source')).focus();
+}
+
+async function submitConnect(event) {
+    event.preventDefault();
+    if (!connectTarget) return;
+    const { template, provider } = connectTarget;
+    const source = $('connect-key-source').value;
+    const payload = {
+        api_key_source: source,
+        base_url: $('connect-base-url').value.trim() || template.base_url,
+    };
+    if (source === 'system' && $('connect-api-key').value.trim()) payload.api_key = $('connect-api-key').value.trim();
+    if (source === 'environment') payload.api_key_env = $('connect-env').value.trim();
+    if (!provider) payload.template = template.id;
+    $('connect-submit').disabled = true;
+    try {
+        if (provider) {
+            await requestJson(`/api/ai/providers/${encodeURIComponent(provider.id)}`, jsonOptions('PATCH', payload));
         } else {
-            result.textContent = error.name === 'AbortError' ? 'Test cancelled.' : error.message;
+            await requestJson('/api/ai/providers', jsonOptions('POST', payload));
         }
-        if (error.technicalError) result.title = error.technicalError;
-    } finally {
-        window.clearInterval(progressTimer);
-        window.clearTimeout(deadlineTimer);
-        activeTests.delete(profile.id);
-        button.textContent = originalLabel;
-    }
-}
-
-let _deleteInFlight = false;
-async function deleteProfile(profile) {
-    if (_deleteInFlight) return;
-    _deleteInFlight = true;
-    try {
-        const confirmed = await customConfirm(
-            'Delete Profile',
-            `Delete the profile “${profile.name}” and its stored API key?`,
-        );
-        if (!confirmed) return;
-        await requestJson(`/api/ai/profiles/${profile.id}`, { method: 'DELETE' });
-        await loadProfiles();
-        showToast(`Deleted “${profile.name}”.`);
+        $('connect-dialog').close();
+        showToast(provider ? `${template.name} updated.` : `${template.name} connected.`);
+        if (provider) state.checks.delete(provider.id);
+        afterProvidersChanged();
     } catch (error) {
-        showToast(error.message, true);
+        $('connect-error').textContent = error.message;
+        $('connect-error').hidden = false;
     } finally {
-        _deleteInFlight = false;
+        $('connect-submit').disabled = false;
     }
 }
 
-function authenticationLabel(authentication) {
-    const labels = {
-        available: 'Authorization available',
-        missing: 'Authorization missing',
-        error: 'Authorization error',
-        unknown: 'Authorization not verified',
-        unavailable: 'Not installed',
+/* --- custom provider dialog --- */
+
+let customTarget = null;
+
+function addCustomModelRow(model = { id: '', name: '' }) {
+    const row = el('div', 'custom-model-row');
+    const field = (value, placeholder, role) => {
+        const input = el('input');
+        input.value = value || '';
+        input.placeholder = placeholder;
+        input.spellcheck = false;
+        input.dataset.role = role;
+        const wrap = el('label', 'field');
+        wrap.append(input);
+        return wrap;
     };
-    return labels[authentication?.status] || 'Status unknown';
+    const remove = el('button', '', '×');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', 'Remove model');
+    remove.addEventListener('click', () => row.remove());
+    row.append(field(model.id, 'model-id', 'id'), field(model.name === model.id ? '' : model.name, 'Display name', 'name'), remove);
+    $('custom-models').append(row);
 }
+
+function openCustomDialog(provider = null) {
+    customTarget = provider;
+    $('custom-form').reset();
+    $('custom-error').hidden = true;
+    $('custom-models').replaceChildren();
+    $('custom-title').textContent = provider ? `Edit ${provider.name}` : 'Custom provider';
+    $('custom-id').value = provider?.id || '';
+    $('custom-id').disabled = Boolean(provider);
+    $('custom-name').value = provider?.name || '';
+    $('custom-base-url').value = provider?.base_url || '';
+    $('custom-api-key').placeholder = provider?.api_key_source === 'system' ? 'Leave empty to keep the stored key' : 'API key';
+    $('custom-api-key-help').textContent = provider?.api_key_source === 'system'
+        ? 'Leave empty to keep the stored key.'
+        : 'Leave empty for a server that needs no key.';
+    (provider?.models || []).forEach(model => addCustomModelRow(model));
+    $('custom-submit').textContent = provider ? 'Save' : 'Connect';
+    $('custom-dialog').showModal();
+    (provider ? $('custom-name') : $('custom-id')).focus();
+}
+
+async function submitCustom(event) {
+    event.preventDefault();
+    const models = [...$('custom-models').querySelectorAll('.custom-model-row')]
+        .map(row => ({
+            id: row.querySelector('[data-role="id"]').value.trim(),
+            name: row.querySelector('[data-role="name"]').value.trim(),
+        }))
+        .filter(model => model.id);
+    const apiKey = $('custom-api-key').value.trim();
+    const payload = {
+        name: $('custom-name').value.trim(),
+        base_url: $('custom-base-url').value.trim(),
+        models: models.map(model => ({ id: model.id, name: model.name || model.id })),
+    };
+    if (customTarget) {
+        if (apiKey) {
+            payload.api_key_source = 'system';
+            payload.api_key = apiKey;
+        }
+    } else {
+        payload.id = $('custom-id').value.trim();
+        payload.api_key_source = apiKey ? 'system' : 'none';
+        if (apiKey) payload.api_key = apiKey;
+    }
+    $('custom-submit').disabled = true;
+    try {
+        if (customTarget) {
+            await requestJson(`/api/ai/providers/${encodeURIComponent(customTarget.id)}`, jsonOptions('PATCH', payload));
+            state.checks.delete(customTarget.id);
+        } else {
+            await requestJson('/api/ai/providers', jsonOptions('POST', payload));
+        }
+        $('custom-dialog').close();
+        showToast(customTarget ? `${payload.name} updated.` : `${payload.name} connected.`);
+        afterProvidersChanged();
+    } catch (error) {
+        $('custom-error').textContent = error.message;
+        $('custom-error').hidden = false;
+    } finally {
+        $('custom-submit').disabled = false;
+    }
+}
+
+/* --- all providers dialog --- */
+
+function renderAllProviders() {
+    const query = $('all-providers-search').value.trim().toLocaleLowerCase();
+    const list = $('all-providers-list');
+    list.replaceChildren();
+    const matches = item => !query || item.name.toLocaleLowerCase().includes(query) || item.id.includes(query);
+    const item = (iconId, name, meta, onClick) => {
+        const row = el('button', 'all-providers-item');
+        row.type = 'button';
+        row.append(providerIcon(iconId), el('span', 'settings-provider-name', name));
+        if (meta) row.append(el('span', 'all-providers-meta', meta));
+        row.addEventListener('click', onClick);
+        return row;
+    };
+    const close = () => $('all-providers-dialog').close();
+    const custom = { id: 'custom', name: 'Custom OpenAI-compatible provider' };
+    if (matches(custom)) {
+        list.append(item('custom', custom.name, 'Any address', () => { close(); openCustomDialog(); }));
+    }
+    const tools = state.tools.filter(tool => !tool.connected && matches({ id: tool.type, name: tool.label }));
+    const connectedTemplates = new Set(state.providers.map(provider => provider.template));
+    const templates = state.templates.filter(template => matches(template));
+    const popular = templates.filter(template => template.popular);
+    const other = templates.filter(template => !template.popular);
+    const section = (label, rows) => {
+        if (!rows.length) return;
+        list.append(el('div', 'all-providers-group', label), ...rows);
+    };
+    section('Local tools', tools.map(tool => item(tool.icon, tool.label, tool.installed ? 'Disconnected' : 'Not installed', () => {
+        close();
+        if (tool.installed) reconnectTool(tool);
+        else openToolDialog(tool);
+    })));
+    const templateRow = template => item(
+        template.id,
+        template.name,
+        connectedTemplates.has(template.id) ? 'Connected' : (template.local ? 'This computer' : `${template.models || 0} models`),
+        () => { close(); openConnectDialog(template); },
+    );
+    section('Popular', popular.map(templateRow));
+    section('Other', other.map(templateRow));
+    if (!list.children.length) list.append(el('div', 'settings-provider-empty', 'No providers found'));
+}
+
+function openAllProviders() {
+    $('all-providers-search').value = '';
+    renderAllProviders();
+    $('all-providers-dialog').showModal();
+    $('all-providers-search').focus();
+}
+
+/* --- local tool dialog --- */
+
+let toolTarget = null;
 
 function currentOs() {
     const ua = navigator.userAgent;
@@ -524,46 +591,41 @@ function currentOs() {
     return 'linux';
 }
 
-function copyCommand(command, button) {
-    const done = () => {
-        button.textContent = 'Copied';
-        window.setTimeout(() => { button.textContent = 'Copy'; }, 1600);
-    };
-    if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(command).then(done, () => showToast('Copy failed', true));
-    } else {
-        const helper = createElement('textarea');
-        helper.value = command;
-        document.body.append(helper);
-        helper.select();
-        try {
-            document.execCommand('copy');
-            done();
-        } catch {
-            showToast('Copy failed', true);
-        }
-        helper.remove();
-    }
+function copyCommand(command, copyButton) {
+    navigator.clipboard?.writeText(command).then(() => {
+        copyButton.textContent = 'Copied';
+        window.setTimeout(() => { copyButton.textContent = 'Copy'; }, 1600);
+    }, () => showToast('Copy failed', true));
 }
 
-function buildInstallBlock(install) {
-    const block = createElement('div', 'cli-install');
-    block.append(createElement('p', 'cli-install-title', 'Install the CLI with a terminal command:'));
-    const osKeys = ['windows', 'macos', 'linux'];
+function installBlock(tool, install) {
+    const block = el('div', 'cli-install');
+    if (!install) {
+        block.append(el('p', 'cli-install-title', `${tool.label} is not installed.`));
+        const link = el('a', '', 'Download from the official site');
+        link.href = TOOL_DOWNLOADS[tool.type];
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        const note = el('p', 'cli-install-note');
+        note.append(link, '. After installing, press Check again.');
+        block.append(note);
+        return block;
+    }
+    block.append(el('p', 'cli-install-title', 'Install the CLI with a terminal command:'));
     const detected = currentOs();
-    osKeys
+    ['windows', 'macos', 'linux']
         .sort((a, b) => (a === detected ? -1 : b === detected ? 1 : 0))
         .forEach(osKey => {
             const entry = install[osKey];
             if (!entry) return;
-            const row = createElement('div', `cli-install-os${osKey === detected ? ' current' : ''}`);
-            row.append(createElement('span', 'cli-install-label', entry.label));
+            const row = el('div', `cli-install-os${osKey === detected ? ' current' : ''}`);
+            row.append(el('span', 'cli-install-label', entry.label));
             if (entry.command) {
-                row.append(createElement('code', '', entry.command));
-                const copy = actionButton('Copy', () => copyCommand(entry.command, copy), 'cli-copy');
+                row.append(el('code', '', entry.command));
+                const copy = button('Copy', () => copyCommand(entry.command, copy), 'cli-copy');
                 row.append(copy);
             } else if (entry.url) {
-                const link = createElement('a', '', 'Download from the official site');
+                const link = el('a', '', 'Download from the official site');
                 link.href = entry.url;
                 link.target = '_blank';
                 link.rel = 'noopener noreferrer';
@@ -571,11 +633,9 @@ function buildInstallBlock(install) {
             }
             block.append(row);
         });
-    const note = createElement('p', 'cli-install-note');
-    note.append('If the command is not on PATH afterwards, run ');
-    note.append(createElement('code', '', install.path_setup_command));
-    note.append(`. ${install.note} `);
-    const docs = createElement('a', '', 'CLI installation docs');
+    const note = el('p', 'cli-install-note');
+    note.append('If the command is not on PATH afterwards, run ', el('code', '', install.path_setup_command), `. ${install.note} `);
+    const docs = el('a', '', 'Installation docs');
     docs.href = install.docs_url;
     docs.target = '_blank';
     docs.rel = 'noopener noreferrer';
@@ -584,1270 +644,340 @@ function buildInstallBlock(install) {
     return block;
 }
 
-function cliStatusBadge(integration) {
-    const status = integration.authentication?.status || 'unknown';
-    if (status === 'available') return { className: 'available', text: integration.version || 'Installed' };
-    if (status === 'error') return { className: 'error', text: integration.version || 'Installed' };
-    if (status === 'missing') return { className: 'warning', text: integration.version || 'Installed' };
-    return { className: 'neutral', text: integration.version || 'Installed' };
+function authenticationLabel(authentication) {
+    const labels = {
+        available: 'Signed in',
+        missing: 'Not signed in',
+        error: 'Sign-in error',
+        unknown: 'Sign-in not verified',
+        unavailable: 'Not installed',
+    };
+    return labels[authentication?.status] || 'Status unknown';
 }
 
-function renderCliCard(entry) {
-    const integration = cliProbes.get(entry.type);
-    const pending = cliPending.has(entry.type);
-    const card = createElement('article', `cli-card${integration || pending ? '' : ' unchecked'}`);
-    card.dataset.cliType = entry.type;
-
-    const top = createElement('div', 'cli-topline');
-    const heading = createElement('div');
-    heading.append(createElement('h3', '', entry.label));
-    const subtitle = integration
-        ? (integration.executable || 'Executable not found in PATH')
-        : 'Not checked yet';
-    heading.append(createElement('p', 'cli-path', subtitle));
-    top.append(heading);
-
-    let badge;
-    if (pending) {
-        badge = { className: 'neutral', text: 'Checking…' };
-    } else if (!integration) {
-        badge = { className: 'neutral', text: 'Not checked' };
-    } else if (integration.installed) {
-        badge = cliStatusBadge(integration);
-    } else if (integration.ide?.installed) {
-        badge = { className: 'warning', text: 'CLI not installed' };
-    } else {
-        badge = { className: 'neutral', text: 'Not installed' };
-    }
-    top.append(createElement('span', `cli-status ${badge.className}`, badge.text));
-    card.append(top);
-
-    const message = createElement('p', 'cli-message');
-    card.append(message);
-
-    if (!integration && !pending) {
-        message.textContent = 'Press Connect to probe this tool. Nothing runs until then.';
-        const actions = createElement('div', 'card-actions');
-        actions.append(actionButton('Connect', () => connectCli(entry.type), 'btn btn-primary'));
-        card.append(actions);
-        return card;
-    }
-
-    message.textContent = pending
-        ? 'Probing PATH and checking status…'
-        : (integration?.authentication?.message || authenticationLabel(integration?.authentication));
-
-    const badges = createElement('div', 'badge-row');
-    if (integration?.installed) {
-        appendBadge(badges, authenticationLabel(integration.authentication),
-            integration.authentication?.status === 'available' ? 'vision' : '');
-        if (integration.multimodal) appendBadge(badges, 'Image attachment', 'vision');
-        (integration.installations || []).forEach(item => appendBadge(badges, item.label));
-        if (integration.experimental) appendBadge(badges, 'Experimental adapter');
-    }
-    card.append(badges);
-
-    if (integration && !integration.installed && integration.install) {
-        card.append(buildInstallBlock(integration.install));
-    }
-
-    const actions = createElement('div', 'card-actions');
-    if (integration?.installed && integration.provider !== false) {
-        const createBtn = actionButton('Create profile', () => prepareCliProfile(integration, message));
-        if (pending) createBtn.disabled = true;
-        actions.append(createBtn);
-    }
-    const recheckBtn = actionButton(pending ? 'Checking…' : 'Re-check', () => connectCli(entry.type));
-    if (pending) recheckBtn.disabled = true;
-    actions.append(recheckBtn);
-    card.append(actions);
-    return card;
-}
-
-function renderIntegrations() {
-    elements.cliGrid.replaceChildren();
-    cliCatalog.forEach(entry => elements.cliGrid.append(renderCliCard(entry)));
-    updateRailCounts();
-}
-
-async function connectCli(cliType) {
-    if (cliPending.has(cliType)) return;
-    cliPending.add(cliType);
-    renderIntegrations();
+async function probeTool() {
+    const tool = toolTarget;
+    if (!tool) return;
+    const body = $('tool-body');
+    body.replaceChildren(el('p', 'tool-status-line', 'Checking the installation and sign-in…'));
+    $('tool-recheck').disabled = true;
     try {
-        const data = await requestJson(`/api/ai/cli-integrations/${cliType}`);
-        cliProbes.set(cliType, data.integration);
-        writeStoredCliProbes();
-        connectedCliTypes.add(cliType);
-        writeConnectedCliTypes();
-    } catch (error) {
-        showToast(error.message, true);
-    } finally {
-        cliPending.delete(cliType);
-        renderIntegrations();
-    }
-}
-
-async function prepareCliProfile(integration, message) {
-    if (integration.type === 'opencode') {
-        message.textContent = 'Choose a visible provider, then load only its model list.';
-        openProfileDialog(null, integration);
-        return;
-    }
-    let models = discoveredCatalogModels.get(integration.type) || [];
-    if (integration.model_discovery && !models.length) {
-        message.textContent = 'Loading models from the CLI…';
-        try {
-            const data = await requestJson(`/api/ai/cli-integrations/${integration.type}/models`);
-            models = data.models || [];
-            discoveredCatalogModels.set(integration.type, models);
-            message.textContent = models.length
-                ? `Loaded ${models.length} model IDs. Choose one in the profile form.`
-                : (data.message || 'No models were reported. Enter an ID manually.');
-        } catch (error) {
-            message.textContent = `Model discovery failed: ${error.message}`;
-        }
-    } else if (models.length) {
-        message.textContent = `${models.length} model IDs loaded for ${integration.label}.`;
-    }
-    openProfileDialog(null, integration, models);
-}
-
-function updateKeyFields() {
-    const source = elements.keySource.value;
-    elements.apiKeyField.hidden = source !== 'system';
-    elements.apiKeyEnvField.hidden = source !== 'environment';
-}
-
-function modelChoiceParts(model) {
-    const separator = model.indexOf('/');
-    if (separator <= 0 || separator === model.length - 1) {
-        return { provider: 'Other models', name: model };
-    }
-    return {
-        provider: model.slice(0, separator),
-        name: model.slice(separator + 1),
-    };
-}
-
-function closeModelOptions() {
-    elements.modelOptions.hidden = true;
-    elements.model.setAttribute('aria-expanded', 'false');
-    elements.modelToggle.setAttribute('aria-expanded', 'false');
-    elements.model.removeAttribute('aria-activedescendant');
-    activeModelOptionIndex = -1;
-}
-
-function visibleModelOptions() {
-    return [...elements.modelOptions.querySelectorAll('.model-option')];
-}
-
-function setActiveModelOption(index) {
-    const options = visibleModelOptions();
-    if (!options.length) return;
-    options.forEach(option => option.classList.remove('active'));
-    activeModelOptionIndex = (index + options.length) % options.length;
-    const active = options[activeModelOptionIndex];
-    active.classList.add('active');
-    elements.model.setAttribute('aria-activedescendant', active.id);
-    active.scrollIntoView({ block: 'nearest' });
-}
-
-function renderModelOptions(query = '') {
-    if (!modelChoices.length) {
-        closeModelOptions();
-        return;
-    }
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    const matches = modelChoices.filter(model => (
-        !normalizedQuery || model.toLocaleLowerCase().includes(normalizedQuery)
-    ));
-    elements.modelOptions.replaceChildren();
-    activeModelOptionIndex = -1;
-
-    if (!matches.length) {
-        elements.modelOptions.append(createElement(
-            'p',
-            'model-options-empty',
-            'No matching models. You can still enter an exact ID manually.',
-        ));
-    } else {
-        const groups = new Map();
-        matches.forEach(model => {
-            const parts = modelChoiceParts(model);
-            if (!groups.has(parts.provider)) groups.set(parts.provider, []);
-            groups.get(parts.provider).push({ id: model, name: parts.name });
-        });
-        let optionIndex = 0;
-        groups.forEach((models, provider) => {
-            const group = createElement('div', 'model-option-group');
-            group.setAttribute('role', 'group');
-            group.setAttribute('aria-label', provider);
-            group.append(createElement('div', 'model-option-provider', provider));
-            models.forEach(model => {
-                const option = createElement('div', 'model-option');
-                option.id = `profile-model-option-${optionIndex}`;
-                option.dataset.value = model.id;
-                option.setAttribute('role', 'option');
-                option.setAttribute('aria-selected', String(elements.model.value === model.id));
-                option.append(createElement('span', 'model-option-name', model.name));
-                if (model.name !== model.id) {
-                    option.append(createElement('span', 'model-option-id', model.id));
-                }
-                group.append(option);
-                optionIndex += 1;
-            });
-            elements.modelOptions.append(group);
-        });
-    }
-    elements.modelOptions.hidden = false;
-    elements.model.setAttribute('aria-expanded', 'true');
-    elements.modelToggle.setAttribute('aria-expanded', 'true');
-}
-
-function selectModelOption(option) {
-    elements.model.value = option.dataset.value;
-    closeModelOptions();
-    elements.model.focus();
-}
-
-function setModelChoices(models) {
-    modelChoices = [...new Set(
-        models
-            .filter(model => typeof model === 'string' && model.trim())
-            .map(model => model.trim()),
-    )].slice(0, 2000);
-    closeModelOptions();
-    elements.modelToggle.hidden = modelChoices.length === 0;
-}
-
-function createPicker(prefix, combobox, input, toggle, options) {
-    return {
-        prefix,
-        combobox,
-        input,
-        toggle,
-        options,
-        choices: [],
-        activeIndex: -1,
-        onCommit: null,
-    };
-}
-
-const providerPicker = createPicker(
-    'profile-provider',
-    elements.modelProviderCombobox,
-    elements.modelProvider,
-    elements.modelProviderToggle,
-    elements.modelProviderOptions,
-);
-const modelNamePicker = createPicker(
-    'profile-model-name',
-    elements.modelNameCombobox,
-    elements.modelName,
-    elements.modelNameToggle,
-    elements.modelNameOptions,
-);
-
-function closePicker(picker) {
-    picker.options.hidden = true;
-    picker.input.setAttribute('aria-expanded', 'false');
-    picker.toggle.setAttribute('aria-expanded', 'false');
-    picker.input.removeAttribute('aria-activedescendant');
-    picker.activeIndex = -1;
-}
-
-function pickerOptionElements(picker) {
-    return [...picker.options.querySelectorAll('.model-option')];
-}
-
-function setPickerActiveOption(picker, index) {
-    const options = pickerOptionElements(picker);
-    if (!options.length) return;
-    options.forEach(option => option.classList.remove('active'));
-    picker.activeIndex = (index + options.length) % options.length;
-    const active = options[picker.activeIndex];
-    active.classList.add('active');
-    picker.input.setAttribute('aria-activedescendant', active.id);
-    active.scrollIntoView({ block: 'nearest' });
-}
-
-function renderPickerOptions(picker, query = '') {
-    if (!picker.choices.length) {
-        closePicker(picker);
-        return;
-    }
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    const matches = picker.choices.filter(choice => (
-        !normalizedQuery
-        || choice.value.toLocaleLowerCase().includes(normalizedQuery)
-        || choice.label.toLocaleLowerCase().includes(normalizedQuery)
-    ));
-    picker.options.replaceChildren();
-    picker.activeIndex = -1;
-    if (!matches.length) {
-        picker.options.append(createElement(
-            'p',
-            'model-options-empty',
-            'No matching entries. You can still enter an exact ID manually.',
-        ));
-    } else {
-        matches.forEach((choice, index) => {
-            const option = createElement('div', 'model-option');
-            option.id = `${picker.prefix}-option-${index}`;
-            option.dataset.value = choice.value;
-            option.setAttribute('role', 'option');
-            option.setAttribute('aria-selected', String(picker.input.value === choice.value));
-            option.append(createElement('span', 'model-option-name', choice.label));
-            if (choice.detail && choice.detail !== choice.label) {
-                option.append(createElement('span', 'model-option-id', choice.detail));
-            }
-            picker.options.append(option);
-        });
-    }
-    picker.options.hidden = false;
-    picker.input.setAttribute('aria-expanded', 'true');
-    picker.toggle.setAttribute('aria-expanded', 'true');
-}
-
-function selectPickerOption(picker, option) {
-    picker.input.value = option.dataset.value;
-    closePicker(picker);
-    picker.input.focus();
-    if (picker.onCommit) picker.onCommit(picker.input.value);
-}
-
-function setPickerChoices(picker, choices) {
-    const seen = new Set();
-    picker.choices = choices.filter(choice => {
-        if (!choice?.value || seen.has(choice.value)) return false;
-        seen.add(choice.value);
-        return true;
-    });
-    closePicker(picker);
-    picker.options.replaceChildren();
-    picker.toggle.hidden = picker.choices.length === 0;
-}
-
-function bindPicker(picker) {
-    picker.input.addEventListener('focus', () => renderPickerOptions(picker));
-    picker.input.addEventListener('input', () => renderPickerOptions(picker, picker.input.value));
-    picker.input.addEventListener('keydown', event => {
-        if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            if (picker.options.hidden) renderPickerOptions(picker);
-            setPickerActiveOption(picker, picker.activeIndex + 1);
-        } else if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            if (picker.options.hidden) renderPickerOptions(picker);
-            setPickerActiveOption(picker, picker.activeIndex - 1);
-        } else if (event.key === 'Enter' && !picker.options.hidden) {
-            const option = pickerOptionElements(picker)[picker.activeIndex];
-            if (option) {
-                event.preventDefault();
-                selectPickerOption(picker, option);
-            } else if (picker.onCommit && picker.input.value.trim()) {
-                event.preventDefault();
-                closePicker(picker);
-                picker.onCommit(picker.input.value.trim());
-            }
-        } else if (event.key === 'Escape' || event.key === 'Tab') {
-            closePicker(picker);
-        }
-    });
-    picker.toggle.addEventListener('click', () => {
-        if (!picker.options.hidden) {
-            closePicker(picker);
+        const { integration } = await requestJson(`/api/ai/cli-integrations/${tool.type}`);
+        if (toolTarget !== tool) return;
+        body.replaceChildren();
+        $('tool-path').textContent = integration.executable || 'Not found on this computer';
+        if (!integration.installed) {
+            body.append(installBlock(tool, integration.install));
             return;
         }
-        picker.input.focus();
-        renderPickerOptions(picker);
-    });
-    picker.options.addEventListener('pointerdown', event => event.preventDefault());
-    picker.options.addEventListener('click', event => {
-        const option = event.target.closest('.model-option');
-        if (option) selectPickerOption(picker, option);
-    });
-}
-
-function splitOpenCodeModel(model) {
-    const separator = model.indexOf('/');
-    if (separator <= 0 || separator === model.length - 1) {
-        return { provider: '', model };
+        const tags = el('div', 'badge-row');
+        if (integration.version) tags.append(tag(integration.version));
+        tags.append(tag(authenticationLabel(integration.authentication),
+            integration.authentication?.status === 'available' ? 'accent' : 'warning'));
+        (integration.installations || []).forEach(item => tags.append(tag(item.label)));
+        body.append(tags);
+        if (integration.authentication?.message) {
+            body.append(el('p', 'tool-status-line', integration.authentication.message));
+        }
+        const known = state.tools.find(item => item.type === tool.type);
+        if (known && !known.installed) loadProviders();
+        if (known && known.installed && !known.connected) {
+            body.append(button('Connect', () => { $('tool-dialog').close(); reconnectTool(known); }, 'btn btn-primary'));
+        }
+    } catch (error) {
+        body.replaceChildren(el('p', 'tool-status-line', error.message));
+    } finally {
+        $('tool-recheck').disabled = false;
     }
-    return {
-        provider: model.slice(0, separator),
-        model: model.slice(separator + 1),
-    };
 }
 
-function visibleProviderChoices(currentProvider = '') {
-    const providers = Object.keys(visibleOpenCodeCatalog);
-    if (currentProvider && !providers.includes(currentProvider)) providers.push(currentProvider);
-    return providers.sort((left, right) => left.localeCompare(right)).map(provider => ({
-        value: provider,
-        label: formatOpenCodeProviderLabel(provider),
-        detail: provider,
-    }));
+function openToolDialog(tool) {
+    toolTarget = tool;
+    setIcon($('tool-icon'), tool.icon);
+    $('tool-title').textContent = tool.label;
+    $('tool-path').textContent = tool.executable || '';
+    $('tool-dialog').showModal();
+    probeTool();
 }
 
-function modelTags(info) {
-    if (!info) return '';
+/* ------------------------------------------------------------------ */
+/* Models                                                              */
+/* ------------------------------------------------------------------ */
+
+async function loadModels(refresh = false) {
+    if (state.catalogLoading) return;
+    state.catalogLoading = true;
+    state.catalogError = '';
+    const refreshButton = $('models-refresh');
+    refreshButton.disabled = true;
+    refreshButton.classList.add('is-busy');
+    if (!state.catalog) renderModels();
+    try {
+        state.catalog = await requestJson(`/api/ai/models${refresh ? '?refresh=1' : ''}`);
+        state.defaultModel = state.catalog.default_model || null;
+        if (refresh) markModelsChanged();
+    } catch (error) {
+        state.catalogError = error.message;
+    } finally {
+        state.catalogLoading = false;
+        refreshButton.disabled = false;
+        refreshButton.classList.remove('is-busy');
+    }
+    renderModels();
+}
+
+// Seeing photos is the norm; only the exceptions and free models get a mark.
+function modelTags(group, model) {
     const tags = [];
-    if (info.free) tags.push('free');
-    if (info.vision === true) tags.push('sees images');
-    if (info.vision === false) tags.push('text only');
-    return tags.join(' · ');
+    if (model.vision === false) tags.push(tag('Text only', 'subtle'));
+    if (model.free) tags.push(tag('Free', 'subtle'));
+    if (group.kind === 'api' && model.manual) tags.push(tag('Added', 'subtle'));
+    return tags;
 }
 
-function wantsVisionRole() {
-    return Boolean(elements.roleVision?.checked && !elements.roleVision.disabled);
-}
-
-function setOpenCodeModelChoices(provider, models, infoById = new Map()) {
-    const prefix = `${provider}/`;
-    opencodeProviderModels = models.map(model => {
-        const fullId = model.startsWith(prefix) ? model : `${prefix}${model}`;
-        return { fullId, name: fullId.slice(prefix.length), info: infoById.get(fullId) || null };
-    });
-    renderOpenCodeModelChoices();
-}
-
-function renderOpenCodeModelChoices() {
-    // The Vision role needs a model that sees images; any model can serve the text roles.
-    const vision = wantsVisionRole();
-    const usable = opencodeProviderModels.filter(model => !vision || model.info?.vision !== false);
-    setPickerChoices(modelNamePicker, usable.map(model => {
-        const tags = modelTags(model.info);
-        return {
-            value: model.name,
-            label: model.name,
-            detail: tags ? `${model.fullId} · ${tags}` : model.fullId,
-        };
-    }));
-    updateOpenCodeCapability();
-}
-
-function selectedOpenCodeModel() {
-    const provider = elements.modelProvider.value.trim();
-    const name = elements.modelName.value.trim();
-    if (!name) return null;
-    const fullId = name.startsWith(`${provider}/`) ? name : `${provider}/${name}`;
-    return opencodeProviderModels.find(model => model.fullId === fullId) || null;
-}
-
-function updateOpenCodeCapability() {
-    const line = elements.opencodeModelCapability;
-    if (!line) return;
-    const model = selectedOpenCodeModel();
-    line.classList.remove('is-error');
-    if (!model?.info) {
-        line.hidden = true;
-        line.textContent = '';
-        return;
-    }
-    line.hidden = false;
-    if (model.info.vision === false && wantsVisionRole()) {
-        line.textContent = 'This model is text only. Choose a model that sees images for the Vision role, or clear Vision.';
-        line.classList.add('is-error');
-        return;
-    }
-    const parts = [model.info.vision === false ? 'Text only' : model.info.vision ? 'Sees images' : 'Image support unknown'];
-    parts.push(model.info.free ? 'free, no account or key needed' : 'uses your provider account');
-    line.textContent = parts.join(' · ');
-}
-
-function preferredFreeModel(models) {
-    const families = ['muse-spark', 'mimo', 'exo', 'longcat', 'space-bunny', 'step'];
-    const rank = model => {
-        const family = families.findIndex(prefix => model.name.startsWith(prefix));
-        return (model.info?.vision ? 0 : 100) + (family < 0 ? families.length : family);
-    };
-    return models.filter(model => model.info?.free).sort((left, right) => rank(left) - rank(right))[0] || null;
-}
-
-function selectedInstallation() {
-    return elements.opencodeInstall?.value || elements.executable.value || '';
-}
-
-async function loadOpenCodeProviderModels(provider, { preserveModel = false } = {}) {
-    const providerId = provider.trim();
-    if (!providerId) {
-        opencodeProviderModels = [];
-        setPickerChoices(modelNamePicker, []);
-        updateOpenCodeCapability();
-        return;
-    }
-    const currentToken = ++modelProviderLoadingToken;
-    if (!preserveModel) elements.modelName.value = '';
-    const executable = selectedInstallation();
-    const cacheKey = `${executable}::${providerId}`;
-    const show = data => {
-        const infoById = new Map((data.model_info || []).map(item => [item.id, item]));
-        const selected = visibleOpenCodeCatalog[providerId];
-        const models = selected?.length
-            ? (data.models || []).filter(model => selected.includes(model))
-            : (data.models || []);
-        setOpenCodeModelChoices(providerId, models, infoById);
-        if (opencodeAutoPickModel && !elements.modelName.value) {
-            const pick = preferredFreeModel(opencodeProviderModels);
-            if (pick) elements.modelName.value = pick.name;
-            opencodeAutoPickModel = false;
-        }
-        updateOpenCodeCapability();
-        const free = opencodeProviderModels.filter(model => model.info?.free).length;
-        elements.modelCatalogHint.textContent = (
-            `${models.length} models for ${providerId}${free ? `, ${free} free` : ''}.`
-        );
-    };
-    if (opencodeModelCache.has(cacheKey)) {
-        show(opencodeModelCache.get(cacheKey));
-        return;
-    }
-    elements.modelCatalogHint.textContent = `Loading models for ${providerId}…`;
-    opencodeProviderModels = [];
-    setPickerChoices(modelNamePicker, []);
-    try {
-        const query = new URLSearchParams({ provider: providerId });
-        if (executable) query.set('executable', executable);
-        const data = await requestJson(`/api/ai/cli-integrations/opencode/models?${query}`);
-        if (currentToken !== modelProviderLoadingToken) return;
-        opencodeModelCache.set(cacheKey, data);
-        discoveredCatalogModels.set(providerId, data.models || []);
-        show(data);
-    } catch (error) {
-        if (currentToken !== modelProviderLoadingToken) return;
-        elements.modelCatalogHint.textContent = `Could not load ${providerId}: ${error.message}`;
-    }
-}
-
-async function configureOpenCodeInstallations(profile, integration) {
-    let probe = integration || cliProbes.get('opencode');
-    if (!probe?.installations) {
-        try {
-            probe = (await requestJson('/api/ai/cli-integrations/opencode')).integration;
-            cliProbes.set('opencode', probe);
-            writeStoredCliProbes();
-        } catch {
-            probe = null;
-        }
-    }
-    const installations = probe?.installations || [];
-    const select = elements.opencodeInstall;
-    select.replaceChildren();
-    installations.forEach((item, index) => {
-        const label = index === 0 ? `${item.label} (newest)` : item.label;
-        select.append(new Option(label, item.executable));
-    });
-    const saved = profile?.executable || '';
-    const known = installations.some(item => item.executable === saved);
-    if (saved && !known) select.append(new Option(`Custom: ${saved}`, saved));
-    select.value = saved || installations[0]?.executable || '';
-    elements.executable.value = select.value;
-    elements.opencodeInstallField.hidden = select.options.length === 0;
-}
-
-function chooseOpenCodeProvider(provider, options) {
-    const providerId = provider.trim();
-    if (providerId === elements.modelProvider.dataset.committedProvider) return;
-    elements.modelProvider.dataset.committedProvider = providerId;
-    elements.modelProvider.value = providerId;
-    closePicker(providerPicker);
-    loadOpenCodeProviderModels(providerId, options);
-}
-
-function configureOpenCodeModelFields(savedModel = '') {
-    const saved = splitOpenCodeModel(savedModel);
-    const providerIds = Object.keys(visibleOpenCodeCatalog);
-    const provider = saved.provider
-        || (providerIds.length === 1 ? providerIds[0] : '')
-        || (savedModel ? '' : 'opencode');
-    elements.modelProvider.value = provider;
-    elements.modelProvider.dataset.committedProvider = provider;
-    elements.modelName.value = saved.model;
-    setPickerChoices(providerPicker, visibleProviderChoices(provider));
-    if (!providerIds.length && !provider) {
-        elements.modelCatalogHint.textContent = (
-            'No providers are visible yet. Add one in Display settings or enter its ID manually.'
-        );
-        setPickerChoices(modelNamePicker, []);
-    } else if (provider) {
-        loadOpenCodeProviderModels(provider, { preserveModel: Boolean(saved.model) });
-    } else {
-        elements.modelCatalogHint.textContent = `${providerIds.length} providers are available.`;
-        setPickerChoices(modelNamePicker, []);
-    }
-}
-
-function catalogModelsByProvider(models) {
-    const groups = new Map();
-    models.forEach(model => {
-        if (typeof model !== 'string') return;
-        const parts = splitOpenCodeModel(model);
-        if (!parts.provider) return;
-        if (!groups.has(parts.provider)) groups.set(parts.provider, []);
-        groups.get(parts.provider).push(model);
-    });
-    return groups;
-}
-
-function ensureCatalogDraftProvider(provider, enabled = false) {
-    if (!catalogDraft.has(provider)) {
-        catalogDraft.set(provider, {
-            enabled,
-            mode: 'all',
-            models: new Set(),
-        });
-    }
-    return catalogDraft.get(provider);
-}
-
-const DEFAULT_OPENCODE_PROVIDERS = ['opencode', 'opencode-go'];
-
-function resetCatalogDraft() {
-    catalogDraft = new Map();
-    Object.entries(visibleOpenCodeCatalog).forEach(([provider, models]) => {
-        catalogDraft.set(provider, {
-            enabled: true,
-            mode: models.length ? 'selected' : 'all',
-            models: new Set(models),
-        });
-    });
-    DEFAULT_OPENCODE_PROVIDERS.forEach(provider => {
-        if (!catalogDraft.has(provider)) {
-            catalogDraft.set(provider, {
-                enabled: false,
-                mode: 'all',
-                models: new Set(),
-            });
-        }
-    });
-    discoveredCatalogModels.forEach((_models, provider) => {
-        ensureCatalogDraftProvider(provider);
-    });
-}
-
-function catalogRadio(provider, index, value, checked, label) {
-    const wrapper = createElement('label', 'catalog-radio');
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = `catalog-mode-${index}`;
-    input.value = value;
-    input.dataset.role = 'catalog-mode';
-    input.dataset.provider = provider;
+function modelSwitch(checked, label, onChange) {
+    const wrap = el('label', 'settings-switch');
+    wrap.title = label;
+    const input = el('input');
+    input.type = 'checkbox';
     input.checked = checked;
-    wrapper.append(input, createElement('span', '', label));
-    return wrapper;
+    input.setAttribute('aria-label', label);
+    input.addEventListener('change', () => onChange(input.checked, input));
+    const control = el('span', 'settings-switch-control');
+    control.append(el('span', 'settings-switch-thumb'));
+    wrap.append(input, control);
+    return wrap;
 }
 
-function renderCatalogSettings() {
-    elements.catalogProviders.replaceChildren();
-    const providers = [...catalogDraft.keys()].sort((left, right) => left.localeCompare(right));
-    if (!providers.length) {
-        elements.catalogProviders.append(createElement(
-            'p',
-            'catalog-empty',
-            'Add a provider ID to avoid loading the complete catalog, or discover all providers once.',
-        ));
+function matchesQuery(group, model, query) {
+    if (!query) return true;
+    return [model.name, model.id, group.label].some(value => String(value || '').toLocaleLowerCase().includes(query));
+}
+
+function renderModels() {
+    const container = $('models-groups');
+    const status = $('models-status');
+    container.replaceChildren();
+    renderDefaultModelSelect();
+    if (!state.catalog) {
+        status.hidden = false;
+        status.replaceChildren(el('span', '', state.catalogError || 'Asking the connected providers for their models…'));
         return;
     }
-    providers.forEach((provider, index) => {
-        const state = catalogDraft.get(provider);
-        const knownModels = [...new Set([
-            ...(discoveredCatalogModels.get(provider) || []),
-            ...state.models,
-        ])];
-        const card = createElement('section', `catalog-provider${state.enabled ? ' enabled' : ''}`);
-        card.dataset.provider = provider;
-        const header = createElement('div', 'catalog-provider-header');
-        const providerLabel = createElement('label', 'catalog-provider-check');
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = state.enabled;
-        checkbox.dataset.role = 'catalog-provider';
-        checkbox.dataset.provider = provider;
-        providerLabel.append(checkbox, createElement('strong', '', formatOpenCodeProviderLabel(provider)));
-        header.append(providerLabel);
-        header.append(createElement(
-            'span',
-            'catalog-model-count',
-            knownModels.length ? `${knownModels.length} known` : 'Not loaded',
-        ));
-        card.append(header);
+    const query = $('models-search').value.trim().toLocaleLowerCase();
+    let shownGroups = 0;
+    state.catalog.groups.forEach(group => {
+        const models = group.models.filter(model => matchesQuery(group, model, query));
+        if (query && !models.length) return;
+        shownGroups += 1;
+        const expanded = Boolean(query) || !state.collapsed[group.id];
+        const section = el('section', 'settings-models-group');
+        section.dataset.expanded = String(expanded);
 
-        if (state.enabled) {
-            const controls = createElement('div', 'catalog-provider-controls');
-            const modes = createElement('div', 'catalog-mode-row');
-            modes.append(
-                catalogRadio(provider, index, 'all', state.mode === 'all', 'Show all models'),
-                catalogRadio(provider, index, 'selected', state.mode === 'selected', 'Only selected models'),
-            );
-            controls.append(modes);
-
-            if (state.mode === 'selected' && knownModels.length) {
-                const search = document.createElement('input');
-                search.className = 'catalog-model-search';
-                search.type = 'search';
-                search.placeholder = `Filter ${provider} models`;
-                search.dataset.role = 'catalog-search';
-                search.dataset.provider = provider;
-                controls.append(search);
-                const list = createElement('div', 'catalog-model-list');
-                knownModels.forEach(model => {
-                    const parts = splitOpenCodeModel(model);
-                    const option = createElement('label', 'catalog-model-option');
-                    option.dataset.search = model.toLocaleLowerCase();
-                    const modelCheckbox = document.createElement('input');
-                    modelCheckbox.type = 'checkbox';
-                    modelCheckbox.checked = state.models.has(model);
-                    modelCheckbox.dataset.role = 'catalog-model';
-                    modelCheckbox.dataset.provider = provider;
-                    modelCheckbox.value = model;
-                    option.append(modelCheckbox, createElement('span', '', parts.model));
-                    list.append(option);
-                });
-                controls.append(list);
-            } else if (state.mode === 'selected') {
-                controls.append(createElement(
-                    'p', 'catalog-provider-note', 'Load this provider to choose individual models.',
-                ));
-            } else {
-                controls.append(createElement(
-                    'p',
-                    'catalog-provider-note',
-                    'The model list will be requested only for this provider when it is selected.',
-                ));
-            }
-            const load = createElement(
-                'button',
-                'btn btn-secondary catalog-load-provider',
-                'Refresh provider models',
-            );
-            load.type = 'button';
-            load.dataset.action = 'load-provider';
-            load.dataset.provider = provider;
-            controls.append(load);
-            card.append(controls);
+        const header = el('div', 'settings-models-group-header');
+        const trigger = el('button', 'settings-models-group-trigger');
+        trigger.type = 'button';
+        trigger.setAttribute('aria-expanded', String(expanded));
+        const chevron = el('span', 'settings-models-group-chevron');
+        chevron.append(svgIcon('<path d="m6 9 6 6 6-6"/>'));
+        const label = el('span', 'settings-models-group-label');
+        label.append(providerIcon(group.icon), el('span', 'settings-models-group-title', group.label));
+        if (group.source) label.append(tag(group.source));
+        trigger.append(chevron, label);
+        trigger.addEventListener('click', () => {
+            if (query) return;
+            state.collapsed[group.id] = !state.collapsed[group.id];
+            if (!state.collapsed[group.id]) delete state.collapsed[group.id];
+            writeCollapsed();
+            renderModels();
+        });
+        const actions = el('div', 'settings-models-group-actions');
+        const visible = group.models.filter(model => model.visible).length;
+        actions.append(el('span', '', `${visible} of ${group.models.length} shown`));
+        if (group.models.length) {
+            const all = visible === group.models.length;
+            actions.append(button(all ? 'Hide all' : 'Show all', () => setGroupVisibility(group, !all)));
         }
-        elements.catalogProviders.append(card);
+        header.append(trigger, actions);
+        section.append(header);
+
+        if (expanded) {
+            const list = el('div', 'settings-list');
+            list.dataset.variant = 'catalog';
+            if (group.error) list.append(el('p', 'settings-models-group-error', group.error));
+            models.forEach(model => {
+                const row = el('div', 'settings-row');
+                row.title = model.id;
+                const copy = el('div', 'settings-row-copy');
+                const line = el('div', 'settings-model-line');
+                line.append(el('span', 'settings-row-title', model.name), ...modelTags(group, model));
+                copy.append(line);
+                row.append(copy,
+                    modelSwitch(model.visible, `Show ${model.name}`, (checked, input) => toggleModel(model, checked, input)));
+                list.append(row);
+            });
+            if (!group.error && !models.length) list.append(el('p', 'settings-provider-empty', 'This provider lists no models.'));
+            section.append(list);
+        }
+        container.append(section);
     });
+    status.hidden = shownGroups > 0;
+    if (!shownGroups) {
+        status.replaceChildren();
+        if (query) {
+            status.append(el('span', '', 'No models match'), el('strong', '', `“${$('models-search').value.trim()}”`));
+        } else {
+            status.append(el('span', '', 'No connected provider offers models yet.'));
+            const link = el('a', 'settings-link-button', 'Connect a provider');
+            link.href = '#providers';
+            status.append(link);
+        }
+    }
 }
 
-function openCatalogSettings() {
-    resetCatalogDraft();
-    elements.catalogError.hidden = true;
-    elements.catalogError.textContent = '';
-    elements.catalogStatus.textContent = (
-        'The complete catalog is requested only when you press Scan providers.'
-    );
-    renderCatalogSettings();
-    elements.catalogDialog.showModal();
+async function saveVisibility(changes) {
+    const data = await requestJson('/api/ai/models/visibility', jsonOptions('PATCH', { changes }));
+    markModelsChanged();
+    return data.visibility;
 }
 
-async function loadCatalogProvider(provider) {
-    elements.catalogStatus.textContent = `Loading only ${provider} models…`;
+async function toggleModel(model, visible, input) {
+    const previous = model.visible;
+    model.visible = visible;
     try {
-        const query = new URLSearchParams({ provider });
-        const data = await requestJson(`/api/ai/cli-integrations/opencode/models?${query}`);
-        discoveredCatalogModels.set(provider, data.models || []);
-        const draft = ensureCatalogDraftProvider(provider, true);
-        draft.enabled = true;
-        draft.mode = 'selected';
-        elements.catalogStatus.textContent = (
-            `${data.models?.length || 0} models loaded for ${provider}; other providers were not requested.`
-        );
-        renderCatalogSettings();
-    } catch (error) {
-        elements.catalogStatus.textContent = `Could not load ${provider}: ${error.message}`;
-    }
-}
-
-async function discoverCatalogProviders() {
-    elements.catalogDiscover.disabled = true;
-    elements.catalogStatus.textContent = 'Discovering the complete OpenCode catalog…';
-    try {
-        const data = await requestJson('/api/ai/cli-integrations/opencode/models');
-        const groups = catalogModelsByProvider(data.models || []);
-        groups.forEach((models, provider) => {
-            discoveredCatalogModels.set(provider, models);
-            ensureCatalogDraftProvider(provider);
-        });
-        elements.catalogStatus.textContent = (
-            `${groups.size} providers discovered. Select only the ones you want to display.`
-        );
-        renderCatalogSettings();
-    } catch (error) {
-        elements.catalogStatus.textContent = `Catalog discovery failed: ${error.message}`;
-    } finally {
-        elements.catalogDiscover.disabled = false;
-    }
-}
-
-function saveCatalogSettings(event) {
-    event.preventDefault();
-    const next = Object.create(null);
-    for (const [provider, state] of catalogDraft) {
-        if (!state.enabled) continue;
-        if (state.mode === 'selected' && !state.models.size) {
-            elements.catalogError.textContent = (
-                `Select at least one ${provider} model, or choose Show all models.`
-            );
-            elements.catalogError.hidden = false;
-            return;
-        }
-        next[provider] = state.mode === 'selected' ? [...state.models] : [];
-    }
-    if (!Object.keys(next).length) {
-        elements.catalogError.textContent = 'Select at least one provider to display.';
-        elements.catalogError.hidden = false;
-        return;
-    }
-    visibleOpenCodeCatalog = next;
-    writeModelCatalogSettings();
-    setPickerChoices(providerPicker, visibleProviderChoices(elements.modelProvider.value));
-    elements.catalogDialog.close();
-    const currentProvider = elements.modelProvider.value.trim();
-    if (currentProvider) {
-        loadOpenCodeProviderModels(currentProvider, {
-            preserveModel: Boolean(elements.modelName.value),
-        });
-    } else {
-        elements.modelCatalogHint.textContent = `${Object.keys(next).length} providers are visible.`;
-    }
-}
-
-function resetProfileForm() {
-    elements.form.reset();
-    elements.id.value = '';
-    elements.kind.value = 'openai_compatible';
-    elements.cliType.value = '';
-    elements.executable.value = '';
-    elements.timeout.value = '60';
-    elements.extraBody.value = '';
-    elements.modelProvider.value = '';
-    elements.modelProvider.dataset.committedProvider = '';
-    elements.modelName.value = '';
-    setModelChoices([]);
-    setPickerChoices(providerPicker, []);
-    setPickerChoices(modelNamePicker, []);
-    elements.modelOptions.replaceChildren();
-    elements.formError.hidden = true;
-    elements.formError.textContent = '';
-}
-
-function openProfileDialog(profile = null, integration = null, models = []) {
-    resetProfileForm();
-    const isCli = Boolean(integration || profile?.kind === 'cli');
-    const cliType = integration?.type || profile?.cli_type || '';
-    const isOpenCode = isCli && cliType === 'opencode';
-    elements.kind.value = isCli ? 'cli' : 'openai_compatible';
-    elements.cliType.value = cliType;
-    elements.executable.value = integration?.executable || profile?.executable || '';
-    elements.openaiFields.hidden = isCli;
-    elements.extraBodyField.hidden = isCli;
-    elements.standardModelField.hidden = isOpenCode;
-    elements.opencodeModelFields.hidden = !isOpenCode;
-    elements.model.required = !isOpenCode;
-    elements.modelProvider.required = isOpenCode;
-    elements.modelName.required = isOpenCode;
-    elements.dialogKicker.textContent = isCli
-        ? (integration?.label || profileKindLabel(profile))
-        : 'OpenAI-compatible';
-    elements.dialogTitle.textContent = profile ? 'Edit provider profile' : 'Add provider profile';
-    elements.saveProfile.textContent = profile ? 'Save changes' : 'Save profile';
-
-    const visionSupported = isCli ? (integration?.multimodal !== false) : true;
-    if (elements.roleVision) {
-        elements.roleVision.disabled = !visionSupported;
-    }
-
-    if (profile) {
-        elements.id.value = profile.id;
-        elements.name.value = profile.name;
-        if (!isOpenCode) elements.model.value = profile.model;
-        elements.timeout.value = String(profile.timeout_seconds);
-        const roles = profile.roles || (profile.multimodal ? ['vision'] : ['text', 'translator']);
-        if (elements.roleText) elements.roleText.checked = roles.includes('text');
-        if (elements.roleTranslator) elements.roleTranslator.checked = roles.includes('translator');
-        if (elements.roleVision) elements.roleVision.checked = visionSupported && roles.includes('vision');
-        if (!isCli) {
-            elements.baseUrl.value = profile.base_url;
-            elements.keySource.value = profile.api_key_source;
-            elements.apiKeyEnv.value = profile.api_key_env || '';
-            elements.extraBody.value = Object.keys(profile.extra_body || {}).length
-                ? JSON.stringify(profile.extra_body, null, 2)
-                : '';
-            elements.apiKey.placeholder = 'Leave blank to keep the stored key';
-            elements.apiKeyHelp.textContent = 'Leave blank to preserve the current key.';
-        }
-    } else if (!isCli) {
-        elements.keySource.value = secretStore.available ? 'system' : 'environment';
-        elements.apiKey.placeholder = 'Stored securely after save';
-        elements.apiKeyHelp.textContent = 'Required for a new system-stored profile.';
-        if (elements.roleText) elements.roleText.checked = true;
-        if (elements.roleTranslator) elements.roleTranslator.checked = false;
-        if (elements.roleVision) elements.roleVision.checked = false;
-    } else {
-        elements.name.value = integration.label;
-        if (elements.roleText) elements.roleText.checked = true;
-        if (elements.roleTranslator) elements.roleTranslator.checked = false;
-        if (elements.roleVision) elements.roleVision.checked = visionSupported && Boolean(integration.multimodal);
-    }
-    elements.opencodeInstallField.hidden = true;
-    elements.opencodeModelCapability.hidden = true;
-    opencodeProviderModels = [];
-    opencodeAutoPickModel = isOpenCode && !profile;
-    if (isOpenCode) {
-        if (!profile && elements.roleVision && !elements.roleVision.disabled) elements.roleVision.checked = true;
-        configureOpenCodeInstallations(profile, integration)
-            .then(() => configureOpenCodeModelFields(profile?.model || ''));
-    } else {
-        setModelChoices(models);
-    }
-    updateKeyFields();
-    elements.dialog.showModal();
-    elements.name.focus();
-}
-
-function profilePayload() {
-    let model = elements.model.value.trim();
-    if (elements.kind.value === 'cli' && elements.cliType.value === 'opencode') {
-        const provider = elements.modelProvider.value.trim();
-        const modelName = elements.modelName.value.trim();
-        model = modelName.startsWith(`${provider}/`)
-            ? modelName
-            : `${provider}/${modelName}`;
-    }
-    const roles = [];
-    if (elements.roleText?.checked) roles.push('text');
-    if (elements.roleTranslator?.checked) roles.push('translator');
-    if (elements.roleVision?.checked && !elements.roleVision.disabled) roles.push('vision');
-
-    const payload = {
-        kind: elements.kind.value,
-        name: elements.name.value.trim(),
-        model,
-        timeout_seconds: Number(elements.timeout.value),
-        multimodal: elements.multimodal.checked,
-        roles,
-    };
-    if (payload.kind === 'cli') {
-        payload.cli_type = elements.cliType.value;
-        payload.executable = elements.executable.value || null;
-        return payload;
-    }
-    payload.base_url = elements.baseUrl.value.trim();
-    payload.api_key_source = elements.keySource.value;
-    payload.api_key = elements.apiKey.value.trim();
-    payload.api_key_env = elements.apiKeyEnv.value.trim() || null;
-    const extra = elements.extraBody.value.trim();
-    payload.extra_body = extra ? JSON.parse(extra) : {};
-    return payload;
-}
-
-async function submitProfile(event) {
-    event.preventDefault();
-    elements.formError.hidden = true;
-    elements.saveProfile.disabled = true;
-
-    try {
-        const selectedRoles = [];
-        if (elements.roleText?.checked) selectedRoles.push('text');
-        if (elements.roleTranslator?.checked) selectedRoles.push('translator');
-        if (elements.roleVision?.checked && !elements.roleVision.disabled) selectedRoles.push('vision');
-
-        if (selectedRoles.length === 0) {
-            elements.formError.textContent = 'Please select at least one profile role (Text, Translator, or Vision).';
-            elements.formError.hidden = false;
-            elements.saveProfile.disabled = false;
-            return;
-        }
-        const isOpenCodeForm = elements.kind.value === 'cli' && elements.cliType.value === 'opencode';
-        if (isOpenCodeForm && selectedRoles.includes('vision') && selectedOpenCodeModel()?.info?.vision === false) {
-            elements.formError.textContent = 'The Vision role needs a model that sees images; this model is text only.';
-            elements.formError.hidden = false;
-            elements.saveProfile.disabled = false;
-            return;
-        }
-
-        const basePayload = profilePayload();
-        const profileId = elements.id.value;
-
-        if (profileId) {
-            const patchPayload = {
-                ...basePayload,
-                multimodal: selectedRoles.includes('vision'),
-                roles: selectedRoles,
-            };
-            await requestJson(`/api/ai/profiles/${profileId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(patchPayload),
-            });
-            elements.dialog.close();
-            await loadProfiles();
-            showToast('Provider profile updated.');
-            return;
-        }
-
-        const baseName = basePayload.name;
-        const newDefaults = { ...defaults };
-        const roleLabels = { text: 'Text', translator: 'Translator', vision: 'Vision' };
-        let createdCount = 0;
-
-        for (const role of selectedRoles) {
-            const roleName = selectedRoles.length > 1
-                ? `${baseName} (${roleLabels[role]})`
-                : baseName;
-            const rolePayload = {
-                ...basePayload,
-                name: roleName,
-                multimodal: (role === 'vision'),
-                roles: [role],
-            };
-            // eslint-disable-next-line no-await-in-loop, no-restricted-syntax -- profiles must be created sequentially to maintain exact defaults mapping
-            const created = await requestJson('/api/ai/profiles', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(rolePayload),
-            });
-            createdCount += 1;
-            const newProfile = created.profile;
-            if (newProfile?.id) {
-                if (role === 'text') newDefaults.text_profile_id = newProfile.id;
-                if (role === 'translator') newDefaults.translator_profile_id = newProfile.id;
-                if (role === 'vision') newDefaults.multimodal_profile_id = newProfile.id;
-            }
-        }
-
-        try {
-            const defaultRes = await requestJson('/api/ai/defaults', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newDefaults),
-            });
-            defaults = defaultRes.defaults;
-        } catch {
-            // Ignore default assignment failure if any
-        }
-
-        elements.dialog.close();
-        await loadProfiles();
-        showToast(
-            createdCount > 1
-                ? `${createdCount} provider profiles created for selected sections.`
-                : 'Provider profile created.'
-        );
-    } catch (error) {
-        elements.formError.textContent = error instanceof SyntaxError
-            ? 'Additional request parameters contain invalid JSON.'
-            : error.message;
-        elements.formError.hidden = false;
-    } finally {
-        elements.saveProfile.disabled = false;
-    }
-}
-
-const DEFAULT_CLI_CATALOG = [
-    { type: 'opencode', label: 'OpenCode', multimodal: true, experimental: false, model_discovery: true },
-    { type: 'claude', label: 'Claude Code', multimodal: true, experimental: false, model_discovery: false },
-    { type: 'antigravity', label: 'Antigravity CLI', multimodal: true, experimental: true, model_discovery: true },
-    { type: 'codex', label: 'Codex CLI', multimodal: true, experimental: false, model_discovery: false },
-    { type: 'civitai', label: 'Civitai CLI', multimodal: false, experimental: false, model_discovery: false, provider: false },
-];
-
-async function loadProfiles() {
-    try {
-        const prevDataRaw = { profiles, defaults, secretStore };
-        
-        const data = await requestJson('/api/ai/profiles');
-        profiles = data.profiles || [];
-        defaults = data.defaults || defaults;
-        secretStore = data.secret_store || secretStore;
-        writeProfilesCache();
-        
-        // Sort keys before stringifying to avoid ordering issues causing unnecessary re-renders
-        const sortKeys = (obj) => {
-            if (obj === null || typeof obj !== 'object') return obj;
-            if (Array.isArray(obj)) return obj.map(sortKeys);
-            return Object.keys(obj).sort().reduce((acc, key) => {
-                acc[key] = sortKeys(obj[key]);
-                return acc;
-            }, {});
-        };
-        
-        const prevDataSorted = JSON.stringify(sortKeys(prevDataRaw));
-        const newDataSorted = JSON.stringify(sortKeys({ profiles, defaults, secretStore }));
-        
-        if (newDataSorted !== prevDataSorted) {
-            renderSecretStore();
-            renderProfiles();
-        }
-    } catch (error) {
+        await saveVisibility({ [model.key]: visible === model.default_visible ? null : visible });
+        renderModels();
+        } catch (error) {
+        model.visible = previous;
+        input.checked = previous;
         showToast(error.message, true);
     }
 }
 
-async function loadCliCatalog() {
-    const prevCatalog = JSON.stringify(cliCatalog);
+async function setGroupVisibility(group, visible) {
+    const changes = {};
+    group.models.forEach(model => { changes[model.key] = visible === model.default_visible ? null : visible; });
     try {
-        const data = await requestJson('/api/ai/cli-integrations?probe=0');
-        cliCatalog = data.integrations || DEFAULT_CLI_CATALOG;
-    } catch {
-        cliCatalog = DEFAULT_CLI_CATALOG;
-    }
-    
-    // Sort keys before stringifying to avoid ordering issues causing unnecessary re-renders
-    const sortKeys = (obj) => {
-        if (obj === null || typeof obj !== 'object') return obj;
-        if (Array.isArray(obj)) return obj.map(sortKeys);
-        return Object.keys(obj).sort().reduce((acc, key) => {
-            acc[key] = sortKeys(obj[key]);
-            return acc;
-        }, {});
-    };
-    
-    const prevCatalogSorted = JSON.stringify(sortKeys(JSON.parse(prevCatalog)));
-    const newCatalogSorted = JSON.stringify(sortKeys(cliCatalog));
-    
-    if (newCatalogSorted !== prevCatalogSorted) {
-        renderIntegrations();
-    }
-}
-
-async function refreshProfiles() {
-    try {
-        await loadProfiles();
-        showToast('Provider status refreshed.');
-    } catch (error) {
+        await saveVisibility(changes);
+        group.models.forEach(model => { model.visible = visible; });
+        renderModels();
+        } catch (error) {
         showToast(error.message, true);
     }
 }
 
-document.getElementById('add-provider').addEventListener('click', () => openProfileDialog());
-document.getElementById('empty-add-provider').addEventListener('click', () => openProfileDialog());
-document.getElementById('empty-goto-cli').addEventListener('click', () => {
-    activatePane('cli');
-    if (window.location.hash !== '#cli') window.location.hash = 'cli';
-});
-document.getElementById('refresh-all').addEventListener('click', refreshProfiles);
-document.getElementById('close-profile-dialog').addEventListener('click', () => elements.dialog.close());
-document.getElementById('cancel-profile').addEventListener('click', () => elements.dialog.close());
-elements.keySource.addEventListener('change', updateKeyFields);
-elements.model.addEventListener('focus', () => renderModelOptions());
-elements.model.addEventListener('input', () => renderModelOptions(elements.model.value));
-elements.model.addEventListener('keydown', event => {
-    if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        if (elements.modelOptions.hidden) renderModelOptions();
-        setActiveModelOption(activeModelOptionIndex + 1);
-    } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        if (elements.modelOptions.hidden) renderModelOptions();
-        setActiveModelOption(activeModelOptionIndex - 1);
-    } else if (event.key === 'Enter' && !elements.modelOptions.hidden) {
-        const option = visibleModelOptions()[activeModelOptionIndex];
-        if (option) {
-            event.preventDefault();
-            selectModelOption(option);
-        }
-    } else if (event.key === 'Escape' || event.key === 'Tab') {
-        closeModelOptions();
+function shortModelName(model) {
+    return String(model || '').split('/').pop();
+}
+
+function modelValue(ref) {
+    return ref ? JSON.stringify({ host: ref.host, model: ref.model }) : '';
+}
+
+function findCatalogModel(value) {
+    if (!value) return null;
+    const ref = JSON.parse(value);
+    for (const group of state.catalog?.groups || []) {
+        if (group.host !== ref.host) continue;
+        const model = group.models.find(item => item.id === ref.model);
+        if (model) return { group, model };
     }
-});
-elements.modelToggle.addEventListener('click', () => {
-    if (!elements.modelOptions.hidden) {
-        closeModelOptions();
-        return;
-    }
-    elements.model.focus();
-    renderModelOptions();
-});
-elements.modelOptions.addEventListener('pointerdown', event => event.preventDefault());
-elements.modelOptions.addEventListener('click', event => {
-    const option = event.target.closest('.model-option');
-    if (option) selectModelOption(option);
-});
-providerPicker.onCommit = provider => chooseOpenCodeProvider(provider);
-modelNamePicker.onCommit = () => updateOpenCodeCapability();
-elements.modelName.addEventListener('input', () => updateOpenCodeCapability());
-elements.roleVision?.addEventListener('change', () => {
-    if (!elements.opencodeModelFields.hidden) renderOpenCodeModelChoices();
-});
-elements.opencodeInstall.addEventListener('change', () => {
-    elements.executable.value = elements.opencodeInstall.value;
-    const provider = elements.modelProvider.value.trim();
-    if (provider) loadOpenCodeProviderModels(provider, { preserveModel: true });
-});
-bindPicker(providerPicker);
-bindPicker(modelNamePicker);
-elements.modelProvider.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && elements.modelProviderOptions.hidden) {
-        event.preventDefault();
-        chooseOpenCodeProvider(elements.modelProvider.value);
-    }
-});
-elements.modelProvider.addEventListener('change', () => {
-    chooseOpenCodeProvider(elements.modelProvider.value);
-});
-document.getElementById('open-model-catalog').addEventListener('click', openCatalogSettings);
-document.getElementById('close-model-catalog').addEventListener('click', () => {
-    elements.catalogDialog.close();
-});
-document.getElementById('cancel-model-catalog').addEventListener('click', () => {
-    elements.catalogDialog.close();
-});
-elements.catalogDiscover.addEventListener('click', discoverCatalogProviders);
-elements.catalogProviders.addEventListener('change', event => {
-    const target = event.target;
-    const provider = target.dataset.provider;
-    if (!provider) return;
-    const state = ensureCatalogDraftProvider(provider);
-    if (target.dataset.role === 'catalog-provider') {
-        state.enabled = target.checked;
-        renderCatalogSettings();
-    } else if (target.dataset.role === 'catalog-mode') {
-        state.mode = target.value;
-        renderCatalogSettings();
-    } else if (target.dataset.role === 'catalog-model') {
-        if (target.checked) state.models.add(target.value);
-        else state.models.delete(target.value);
-    }
-});
-elements.catalogProviders.addEventListener('input', event => {
-    if (event.target.dataset.role !== 'catalog-search') return;
-    const query = event.target.value.trim().toLocaleLowerCase();
-    const card = event.target.closest('.catalog-provider');
-    card.querySelectorAll('.catalog-model-option').forEach(option => {
-        option.hidden = Boolean(query) && !option.dataset.search.includes(query);
+    return null;
+}
+
+function renderDefaultModelSelect() {
+    const select = $('default-model');
+    const current = modelValue(state.defaultModel);
+    select.replaceChildren(new Option('Automatic (free OpenCode model)', ''));
+    let found = !current;
+    (state.catalog?.groups || []).forEach(group => {
+        const models = group.models.filter(model => model.visible);
+        if (!models.length) return;
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = group.source ? `${group.label} · ${group.source}` : group.label;
+        models.forEach(model => {
+            const value = modelValue({ host: group.host, model: model.id });
+            if (value === current) found = true;
+            optgroup.append(new Option(model.vision === false ? `${model.name} (text only)` : model.name, value));
+        });
+        select.append(optgroup);
     });
-});
-elements.catalogProviders.addEventListener('click', event => {
-    const button = event.target.closest('[data-action="load-provider"]');
-    if (button) loadCatalogProvider(button.dataset.provider);
-});
-elements.catalogForm.addEventListener('submit', saveCatalogSettings);
-document.addEventListener('pointerdown', event => {
-    if (!elements.modelCombobox.contains(event.target)) closeModelOptions();
-    if (!providerPicker.combobox.contains(event.target)) closePicker(providerPicker);
-    if (!modelNamePicker.combobox.contains(event.target)) closePicker(modelNamePicker);
-});
-elements.dialog.addEventListener('close', () => {
-    closeModelOptions();
-    closePicker(providerPicker);
-    closePicker(modelNamePicker);
-});
-elements.form.addEventListener('submit', submitProfile);
-elements.defaultText.addEventListener('change', saveDefaults);
-elements.defaultTranslator?.addEventListener('change', saveDefaults);
-elements.defaultMultimodal.addEventListener('change', saveDefaults);
+    if (!found) {
+        // A default the pickers no longer show still runs; keep it selectable.
+        const name = shortModelName(state.defaultModel.model);
+        select.append(new Option(state.catalog ? `${name} (hidden)` : name, current));
+    }
+    select.value = current;
+    renderDefaultReasoning(state.defaultModel?.variant || null);
+}
 
-readProfilesCache();
-cliCatalog = DEFAULT_CLI_CATALOG;
-initPaneRouting();
-renderSecretStore();
-renderProfiles();
-renderIntegrations();
+/** The reasoning levels of the chosen default model; hidden when it has none. */
+function renderDefaultReasoning(variant) {
+    const select = $('default-reasoning');
+    const picked = findCatalogModel($('default-model').value);
+    const choices = picked ? reasoningChoices(picked.group, picked.model) : [];
+    select.replaceChildren(...choices.map(choice => new Option(choice.label, choice.value)));
+    select.hidden = !choices.length;
+    if (!choices.length) return;
+    select.value = choices.some(choice => choice.value === (variant || ''))
+        ? variant || ''
+        : defaultReasoning(picked.group, choices);
+}
 
-loadProfiles();
-loadCliCatalog();
+async function saveDefaultModel() {
+    const value = $('default-model').value;
+    const reasoning = $('default-reasoning');
+    const model = value ? { ...JSON.parse(value), variant: !reasoning.hidden && reasoning.value ? reasoning.value : null } : null;
+    try {
+        const data = await requestJson('/api/ai/default-model', jsonOptions('PUT', { model }));
+        state.defaultModel = data.default_model;
+        markModelsChanged();
+        showToast(state.defaultModel ? 'Default model saved.' : 'The default model is chosen automatically.');
+    } catch (error) {
+        showToast(error.message, true);
+        renderDefaultModelSelect();
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Wiring                                                              */
+/* ------------------------------------------------------------------ */
+
+function wireDialogs() {
+    document.querySelectorAll('dialog.settings-dialog').forEach(dialog => {
+        dialog.querySelectorAll('[data-close]').forEach(closeButton => {
+            closeButton.addEventListener('click', () => dialog.close());
+        });
+        dialog.addEventListener('click', event => {
+            if (event.target === dialog) dialog.close();
+        });
+    });
+    $('connect-key-source').addEventListener('change', updateConnectKeyFields);
+    $('connect-form').addEventListener('submit', submitConnect);
+    $('custom-form').addEventListener('submit', submitCustom);
+    $('custom-add-model').addEventListener('click', () => addCustomModelRow());
+    $('all-providers-search').addEventListener('input', renderAllProviders);
+    $('tool-recheck').addEventListener('click', probeTool);
+    $('tool-dialog').addEventListener('close', () => { toolTarget = null; });
+}
+
+function init() {
+    LEGACY_KEYS.forEach(key => { try { localStorage.removeItem(key); } catch { /* nothing kept */ } });
+    $('show-all-providers').addEventListener('click', openAllProviders);
+    $('models-refresh').addEventListener('click', () => loadModels(true));
+    $('models-search').addEventListener('input', renderModels);
+    $('default-model').addEventListener('change', () => {
+        renderDefaultReasoning(null);
+        saveDefaultModel();
+    });
+    $('default-reasoning').addEventListener('change', saveDefaultModel);
+    wireDialogs();
+    window.addEventListener('hashchange', () => {
+        activatePane(currentPane());
+        window.scrollTo({ top: 0, behavior: 'instant' });
+    });
+    activatePane(currentPane());
+    return Promise.all([loadIconIds(), loadProviders()]).then(renderProviders);
+}
+
+await init();

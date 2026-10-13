@@ -18,12 +18,12 @@ from rich.text import Text
 
 from ..config_store import ConfigStoreError
 from ..paths import PathValidationError, build_runtime_paths, normalize_path
+from . import agents
 from .execution import (
     DirectPromptExecutionError,
     DirectPromptExecutionResult,
     DirectPromptExecutor,
 )
-from .profiles import AIProfileStore, AIProfileStoreError
 from .prompting import (
     CapabilityStatus,
     PromptFamily,
@@ -33,6 +33,7 @@ from .prompting import (
     PromptScenario,
     PromptTask,
 )
+from .providers import AIProviderError, AIProviderStore
 from .secrets import SecretStoreError
 
 SmokeStatus = Literal["pass", "warn", "fail"]
@@ -238,76 +239,45 @@ def scenario_by_id(scenario_id: str) -> SmokeScenario:
 
 
 def resolve_smoke_profile(
-    store: AIProfileStore,
+    store: AIProviderStore,
     *,
     selector: str | None,
     requires_image: bool,
 ) -> ResolvedSmokeProfile:
-    listing = store.list()
-    profiles = [
-        profile
-        for profile in listing["profiles"]
-        if profile.get("kind") == "openai_compatible"
-    ]
-    if not profiles:
-        raise SmokeRunnerError(
-            "No OpenAI-compatible profiles are configured.", code="profile_not_found"
-        )
-
-    selected: dict[str, Any] | None = None
-    selected_by = ""
+    """An API provider model (``provider/model``), else the default model when it is one."""
     if selector:
-        selected = next(
-            (profile for profile in profiles if profile["id"] == selector), None
-        )
-        if selected is not None:
-            selected_by = "explicit id"
-        else:
-            matches = [
-                profile
-                for profile in profiles
-                if str(profile.get("name", "")).casefold() == selector.casefold()
-            ]
-            if len(matches) > 1:
-                raise SmokeRunnerError(
-                    "More than one direct profile has this name; use its ID.",
-                    code="ambiguous_profile",
-                )
-            if matches:
-                selected = matches[0]
-                selected_by = "explicit name"
+        provider_id, _, model = selector.partition("/")
+        if not model:
+            raise SmokeRunnerError("Use --model provider/model.", code="model_not_found")
+        ref = {"host": f"api:{provider_id}", "model": model, "variant": None}
+        selected_by = "explicit model"
     else:
-        default_key = "multimodal_profile_id" if requires_image else "text_profile_id"
-        default_id = listing["defaults"].get(default_key)
-        selected = next(
-            (profile for profile in profiles if profile["id"] == default_id), None
-        )
-        selected_by = default_key
-
-    if selected is None:
-        expected = "multimodal" if requires_image else "text"
+        ref = store.default_model()
+        selected_by = "default model"
+        if not ref or not ref["host"].startswith("api:"):
+            raise SmokeRunnerError(
+                "The default model is not an API provider model. Use --model provider/model.",
+                code="model_not_found",
+            )
+    try:
+        profile = agents.resolve(store, ref)
+    except agents.AgentError as exc:
+        raise SmokeRunnerError(str(exc), code=exc.code) from exc
+    if requires_image and not agents.sees_images(profile):
         raise SmokeRunnerError(
-            f"No matching {expected} direct profile was selected. Use --profile ID-or-name.",
-            code="profile_not_found",
-        )
-    if requires_image and selected.get("multimodal") is not True:
-        raise SmokeRunnerError(
-            "The selected profile is not marked as multimodal.",
+            "The selected model does not see photos.",
             code="incompatible_profile",
         )
-    if selected.get("has_credentials") is False:
-        detail = selected.get("credential_error") or "No credential is available."
-        raise SmokeRunnerError(str(detail), code="missing_credentials")
-
-    private_profile = store.get(selected["id"])
     try:
-        api_key = store.resolve_api_key(private_profile)
+        api_key = store.resolve_api_key(profile)
     except SecretStoreError as exc:
         raise SmokeRunnerError(
             f"Cannot read the credential store: {exc}", code="credential_store_error"
         ) from exc
+    except AIProviderError as exc:
+        raise SmokeRunnerError(str(exc), code=exc.code) from exc
     return ResolvedSmokeProfile(
-        profile=private_profile,
+        profile=profile,
         api_key=api_key,
         selected_by=selected_by,
     )
@@ -448,7 +418,7 @@ def evaluate_smoke_checks(
 
 def run_smoke_scenario(
     *,
-    store: AIProfileStore,
+    store: AIProviderStore,
     scenario: SmokeScenario,
     selector: str | None,
     user_input: str | None = None,
@@ -548,33 +518,23 @@ def _print_scenarios(console: Console) -> None:
     console.print(table)
 
 
-def _print_profiles(console: Console, store: AIProfileStore) -> None:
+def _print_providers(console: Console, store: AIProviderStore) -> None:
     listing = store.list()
-    defaults = listing["defaults"]
-    table = Table(title=f"AI profiles · {store.config.path}")
+    table = Table(title=f"API providers · {store.config.path}")
     table.add_column("ID", style="cyan")
     table.add_column("Name", style="bold")
-    table.add_column("Kind")
-    table.add_column("Model")
-    table.add_column("Vision")
+    table.add_column("Base URL")
     table.add_column("Credentials")
-    table.add_column("Default")
-    for profile in listing["profiles"]:
-        default_labels: list[str] = []
-        if defaults.get("text_profile_id") == profile["id"]:
-            default_labels.append("text")
-        if defaults.get("multimodal_profile_id") == profile["id"]:
-            default_labels.append("vision")
+    for provider in listing["providers"]:
         table.add_row(
-            profile["id"],
-            profile["name"],
-            profile["kind"],
-            profile["model"],
-            "yes" if profile.get("multimodal") else "no",
-            "available" if profile.get("has_credentials", True) else "missing",
-            ", ".join(default_labels) or "—",
+            provider["id"],
+            provider["name"],
+            provider["base_url"],
+            "available" if provider.get("has_credentials", True) else "missing",
         )
     console.print(table)
+    default = listing.get("default_model")
+    console.print(f"Default model: {default['host']} · {default['model']}" if default else "Default model: none")
     secret_status = listing.get("secret_store", {})
     console.print(
         f"Secret store: {secret_status.get('backend') or 'unavailable'} · "
@@ -709,16 +669,16 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("list", help="List built-in smoke scenarios.")
 
-    profiles = subparsers.add_parser(
-        "profiles", help="List configured AI profiles without secrets."
+    providers = subparsers.add_parser(
+        "providers", help="List connected API providers without secrets."
     )
-    profiles.add_argument("--config", help="Override the application config.json path.")
+    providers.add_argument("--config", help="Override the application config.json path.")
 
     run = subparsers.add_parser("run", help="Run one real-provider scenario.")
     run.add_argument("scenario", choices=tuple(SCENARIOS))
     run.add_argument(
-        "--profile",
-        help="Direct profile ID or exact profile name. Defaults to app settings.",
+        "--model",
+        help="API provider model as provider/model. Defaults to the default model.",
     )
     run.add_argument("--config", help="Override the application config.json path.")
     input_group = run.add_mutually_exclusive_group()
@@ -757,9 +717,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config_path = _config_path(getattr(args, "config", None))
-        store = AIProfileStore(config_path)
-        if args.command == "profiles":
-            _print_profiles(console, store)
+        store = AIProviderStore(config_path)
+        if args.command == "providers":
+            _print_providers(console, store)
             return 0
 
         scenario = scenario_by_id(args.scenario)
@@ -767,7 +727,7 @@ def main(argv: list[str] | None = None) -> int:
         image = load_smoke_image(args.image) if args.image else None
         resolved = resolve_smoke_profile(
             store,
-            selector=args.profile,
+            selector=args.model,
             requires_image=scenario.requires_image,
         )
         _print_run_header(
@@ -782,7 +742,7 @@ def main(argv: list[str] | None = None) -> int:
             report = run_smoke_scenario(
                 store=store,
                 scenario=scenario,
-                selector=args.profile,
+                selector=args.model,
                 user_input=user_input,
                 checkpoint_profile=args.checkpoint_profile,
                 timeout_seconds=args.timeout,
@@ -804,7 +764,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except (
         SmokeRunnerError,
-        AIProfileStoreError,
+        AIProviderError,
         ConfigStoreError,
         SecretStoreError,
         PathValidationError,

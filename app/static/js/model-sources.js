@@ -1,7 +1,7 @@
 // Integrations › Model sources: the Civitai API key for model downloads here and on Colab.
 import { customConfirm } from './utils.js';
 
-const PANE = 'models';
+const PANE = 'sources';
 const CIVITAI_KEYS_URL = 'https://civitai.com/user/account';
 
 let civitai = null;

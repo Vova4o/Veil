@@ -4,11 +4,12 @@ import base64
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from app.ai import agents
 from app.ai.execution import DirectPromptExecutionResult
-from app.ai.profiles import AIProfileStore
 from app.ai.prompting import PromptCompiler, PromptResult
+from app.ai.providers import AIProviderStore
 from app.ai.secrets import SecretStoreStatus
 from app.ai.smoke import (
     SCENARIOS,
@@ -45,18 +46,21 @@ class MemorySecretStore:
         self.values.pop(profile_id, None)
 
 
-def direct_payload(name: str, *, multimodal: bool) -> dict:
+def provider_payload(provider_id: str) -> dict:
     return {
-        "kind": "openai_compatible",
-        "name": name,
+        "id": provider_id,
+        "name": provider_id.title(),
         "base_url": "https://provider.example/v1",
         "api_key_source": "system",
-        "api_key": f"secret-{name}",
-        "model": f"model-{name}",
-        "timeout_seconds": 30,
-        "multimodal": multimodal,
-        "extra_body": {"temperature": 0.1},
+        "api_key": f"secret-{provider_id}",
     }
+
+
+# The models.dev cards the provider's /models list is matched with.
+CARDS = {
+    "text-model": {"id": "text-model", "name": "Text model", "vision": False},
+    "vision-model": {"id": "vision-model", "name": "Vision model", "vision": True},
+}
 
 
 class AISmokeRunnerTest(unittest.TestCase):
@@ -65,7 +69,16 @@ class AISmokeRunnerTest(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.config_path = Path(self.temp_dir.name) / "config.json"
         self.secrets = MemorySecretStore()
-        self.store = AIProfileStore(self.config_path, secret_store=self.secrets)
+        self.store = AIProviderStore(self.config_path, secret_store=self.secrets)
+        self.store.create(provider_payload("acme"))
+        agents._provider_models_cache.clear()
+        self.addCleanup(agents._provider_models_cache.clear)
+        for patcher in (
+            patch("app.ai.agents.list_openai_compatible_models", return_value=list(CARDS)),
+            patch("app.ai.agents.provider_catalog.model_cards", return_value=CARDS),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_registry_contains_text_and_multimodal_scenarios(self) -> None:
         self.assertEqual(len(SCENARIOS), 4)
@@ -78,50 +91,28 @@ class AISmokeRunnerTest(unittest.TestCase):
         with self.assertRaises(SmokeRunnerError):
             scenario_by_id("not-a-scenario")
 
-    def test_profile_resolution_uses_separate_text_and_vision_defaults(self) -> None:
-        text_profile = self.store.create(direct_payload("Text", multimodal=False))
-        vision_profile = self.store.create(direct_payload("Vision", multimodal=True))
-        self.store.set_defaults({
-            "text_profile_id": text_profile["id"],
-            "multimodal_profile_id": vision_profile["id"],
-        })
+    def test_model_resolution_uses_the_default_api_model(self) -> None:
+        with self.assertRaisesRegex(SmokeRunnerError, "not an API provider model"):
+            resolve_smoke_profile(self.store, selector=None, requires_image=False)
+        self.store.set_default_model({"host": "api:acme", "model": "vision-model"})
 
-        text = resolve_smoke_profile(
-            self.store,
-            selector=None,
-            requires_image=False,
-        )
-        vision = resolve_smoke_profile(
-            self.store,
-            selector=None,
-            requires_image=True,
-        )
+        resolved = resolve_smoke_profile(self.store, selector=None, requires_image=True)
 
-        self.assertEqual(text.profile["id"], text_profile["id"])
-        self.assertEqual(text.api_key, "secret-Text")
-        self.assertEqual(text.selected_by, "text_profile_id")
-        self.assertEqual(vision.profile["id"], vision_profile["id"])
-        self.assertEqual(vision.api_key, "secret-Vision")
-        self.assertEqual(vision.selected_by, "multimodal_profile_id")
+        self.assertEqual(resolved.profile["model"], "vision-model")
+        self.assertEqual(resolved.profile["base_url"], "https://provider.example/v1")
+        self.assertEqual(resolved.api_key, "secret-acme")
+        self.assertEqual(resolved.selected_by, "default model")
 
-    def test_profile_can_be_selected_by_exact_name(self) -> None:
-        profile = self.store.create(direct_payload("Budget Vision", multimodal=True))
-        resolved = resolve_smoke_profile(
-            self.store,
-            selector="budget vision",
-            requires_image=True,
-        )
-        self.assertEqual(resolved.profile["id"], profile["id"])
-        self.assertEqual(resolved.selected_by, "explicit name")
+    def test_model_can_be_selected_as_provider_and_model(self) -> None:
+        resolved = resolve_smoke_profile(self.store, selector="acme/text-model", requires_image=False)
+        self.assertEqual(resolved.profile["model"], "text-model")
+        self.assertEqual(resolved.selected_by, "explicit model")
+        with self.assertRaisesRegex(SmokeRunnerError, "no model"):
+            resolve_smoke_profile(self.store, selector="acme/missing", requires_image=False)
 
-    def test_multimodal_scenario_rejects_text_profile(self) -> None:
-        self.store.create(direct_payload("Text", multimodal=False))
-        with self.assertRaisesRegex(SmokeRunnerError, "not marked as multimodal"):
-            resolve_smoke_profile(
-                self.store,
-                selector="Text",
-                requires_image=True,
-            )
+    def test_multimodal_scenario_rejects_text_only_model(self) -> None:
+        with self.assertRaisesRegex(SmokeRunnerError, "does not see photos"):
+            resolve_smoke_profile(self.store, selector="acme/text-model", requires_image=True)
 
     def test_image_loader_builds_local_data_url_and_hash(self) -> None:
         image_path = Path(self.temp_dir.name) / "test.png"

@@ -1,6 +1,7 @@
 import { showImageContextMenu } from './components/image-context-menu.js';
 import { clearScrollReturn, initScrollTopButton } from './components/scroll-top-button.js';
 import { isSupportedMediaFile } from './media-files.js';
+import { pickedAgent, populateModelPicker } from './model-picker.js';
 import { createTrailingThrottle } from './throttle.js';
 
 const dom = {
@@ -2048,17 +2049,11 @@ async function loadAiRating(imageId) {
     return data.rating || null;
 }
 
+/** Models that see photos, as Integrations › Models shows them; the default model is first. */
 async function loadAiRatingProfiles() {
-    const data = await fetchJson('/api/ai/profiles');
-    const profiles = (data.profiles || []).filter(profile => profile.multimodal === true);
-    dom.aiRatingProfile.innerHTML = profiles.length
-        ? profiles.map(profile => (
-            `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`
-        )).join('')
-        : '<option value="">No multimodal profiles configured</option>';
-    const defaultId = data.defaults?.multimodal_profile_id;
-    if (profiles.some(profile => profile.id === defaultId)) dom.aiRatingProfile.value = defaultId;
-    dom.aiRatingRun.disabled = profiles.length === 0;
+    const data = await fetchJson('/api/ai/models?visible=1');
+    populateModelPicker(dom.aiRatingProfile, data.groups || [], { needsPhotos: true });
+    dom.aiRatingRun.disabled = false;
 }
 
 async function openAiRatingDialog() {
@@ -2066,7 +2061,7 @@ async function openAiRatingDialog() {
     if (!asset || asset.media_type !== 'image') return;
     dom.aiRatingDialog.dataset.imageId = String(asset.id);
     dom.aiRatingDialog.dataset.fileName = asset.file_name;
-    dom.aiRatingSummary.textContent = 'Loading rating and profiles…';
+    dom.aiRatingSummary.textContent = 'Loading rating and models…';
     dom.aiRatingResult.hidden = true;
     dom.aiRatingDelete.hidden = true;
     dom.aiRatingDialog.showModal();
@@ -2469,7 +2464,7 @@ async function initialize() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         image_id: imageId,
-                        profile_id: dom.aiRatingProfile.value,
+                        ...pickedAgent(dom.aiRatingProfile),
                         prompt_text: detail.prompt_parameters?.positive_prompt || '',
                     }),
                 });

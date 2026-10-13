@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import database as db
-from .ai.profiles import AIProfileStore
+from .ai.providers import AIProviderStore
 from .ai.secrets import SecretStore
 from .config_store import ConfigStore, ConfigStoreError
 from .indexing import index_source_directory
@@ -110,7 +110,7 @@ def reset_application_index(
         sources = [] if factory_reset else store.sources()
         if factory_reset:
             # Do this before deleting config so failed keyring cleanup cannot orphan keys.
-            AIProfileStore(
+            AIProviderStore(
                 paths.config, secret_store=secret_store
             ).delete_all_secrets()
             clear_civitai_token(store)

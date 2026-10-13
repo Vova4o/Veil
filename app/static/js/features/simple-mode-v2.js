@@ -73,12 +73,11 @@ const DENOISE_ZONES = [
 // Modes where the agent must see the photo to describe it.
 const VISION_MODES = new Set(['reference', 'variation']);
 const AGENT_HOSTS = { opencode: 'OpenCode', codex: 'Codex', claude: 'Claude Code', antigravity: 'Antigravity' };
-// Integrations › Local AI tools › Display settings: which OpenCode providers and models to list.
-const MODEL_CATALOG_KEY = 'cmv_ai_model_catalog_v1';
-const AGENT_CATALOG_KEY = 'cmv_create_agent_catalog_v1';
+const AGENT_HOST_RE = /^(?:opencode|claude|codex|antigravity|api:[a-z0-9][a-z0-9_-]{0,47})$/;
+// The models Integrations › Models shows; Integrations stamps every change here.
+const AGENT_CATALOG_KEY = 'cmv_create_agent_catalog_v2';
+const MODELS_CHANGED_KEY = 'cmv_ai_models_changed_at';
 const AGENT_CATALOG_TTL = 10 * 60 * 1000;
-const DEFAULT_MODEL_CATALOG = { opencode: [], 'opencode-go': [] };
-const OPENCODE_PROVIDER_NAMES = { opencode: 'Zen', 'opencode-go': 'Go' };
 
 const state = {
     models: [],
@@ -98,10 +97,9 @@ const state = {
     slotFocus: 'main',
     refineFrom: null,
     agentStatus: null,
-    // The agent picked in Create's agent menu, or null for the Integrations defaults.
+    // The model picked in Create's agent menu, or null for the default model.
     agentChoice: null,
     agents: null,
-    agentProvider: null,
     canvasWidth: null,
     ambient: [],
     ambientDeck: [],
@@ -157,10 +155,7 @@ function restore() {
         const mode = localStorage.getItem('cmv_create_mode');
         if (MODE_COPY[mode]) state.mode = mode;
         const choice = JSON.parse(localStorage.getItem('cmv_create_agent') || 'null');
-        if (choice?.agentKind === 'opencode' && choice.model) state.agentChoice = choice;
-        if (choice?.agentKind === 'profile' && choice.id) state.agentChoice = choice;
-        if (choice?.agentKind === 'antigravity' && choice.model) state.agentChoice = choice;
-        if (['codex', 'claude'].includes(choice?.agentKind) && choice.model) state.agentChoice = choice;
+        if (AGENT_HOST_RE.test(choice?.agentKind || '') && choice.model) state.agentChoice = choice;
         const ratio = localStorage.getItem('cmv_simple_ratio');
         if (RATIOS.includes(ratio)) state.ratio = ratio;
         const photoRatio = localStorage.getItem('cmv_create_photo_ratio');
@@ -594,13 +589,13 @@ async function pasteFromClipboard(slot) {
 
 // --- agent ---------------------------------------------------------------------------
 
-/** The agent Create runs with: the one picked in the agent menu, else the Integrations default. */
+/** The agent Create runs with: the model picked in the agent menu, else the default model. */
 function currentAgent() {
     const choice = state.agentChoice;
-    if (choice) return { label: agentLabel(choice), sees_images: choice.vision === true, choice };
+    if (choice) return { label: agentLabel(choice), sees_images: choice.vision !== false, choice };
     if (!state.agentStatus) return null;
     const agent = state.mode === 'text' ? state.agentStatus.text : state.agentStatus.photo;
-    return agent ? { ...agent, label: agentLabel({ cli_type: agent.cli_type, kind: agent.kind, model: agent.model }) } : null;
+    return agent ? { ...agent, label: agent.name || shortModel(agent.model) } : null;
 }
 
 function shortModel(model) {
@@ -608,23 +603,21 @@ function shortModel(model) {
     return value.includes('/') ? value.slice(value.indexOf('/') + 1) : value;
 }
 
-/** "OpenCode · Exo Free · high", "Codex · gpt-5.5" */
+/** "OpenCode · Exo Free", "Codex · GPT-6"; the reasoning chip beside it shows the level. */
 function agentLabel(choice) {
-    if (choice.agentKind === 'opencode') return ['OpenCode', choice.name || shortModel(choice.model), choice.variant].filter(Boolean).join(' · ');
-    if (choice.agentKind === 'antigravity') return ['Antigravity', choice.name || choice.model, choice.level].filter(Boolean).join(' · ');
-    if (['codex', 'claude'].includes(choice.agentKind)) return [AGENT_HOSTS[choice.agentKind], choice.name || choice.model, choice.variant].filter(Boolean).join(' · ');
-    const host = AGENT_HOSTS[choice.cli_type] || (choice.kind === 'openai_compatible' ? 'API' : 'Agent');
-    return [host, choice.cli_type === 'opencode' ? shortModel(choice.model) : choice.model].filter(Boolean).join(' · ');
+    const host = AGENT_HOSTS[choice.agentKind] || choice.groupLabel || 'API';
+    return [host, choice.name || shortModel(choice.model)].filter(Boolean).join(' · ');
 }
 
-/** What the agent call needs to run the picked agent. */
+/** What the agent call needs to run the picked model. */
 function agentRequestFields() {
     const choice = state.agentChoice;
-    if (choice?.agentKind === 'opencode') return { agent_model: choice.model, agent_variant: choice.variant || null };
-    if (choice?.agentKind === 'antigravity') return { agent_host: 'antigravity', agent_model: choice.model };
-    if (['codex', 'claude'].includes(choice?.agentKind)) return { agent_host: choice.agentKind, agent_model: choice.model, agent_variant: choice.variant || null };
-    if (choice?.agentKind === 'profile') return { agent_profile_id: choice.id };
-    return {};
+    if (!choice) return {};
+    return {
+        agent_host: choice.agentKind,
+        agent_model: choice.model,
+        agent_variant: choice.agentKind === 'antigravity' ? null : choice.variant || null,
+    };
 }
 
 async function loadAgentStatus() {
@@ -642,6 +635,7 @@ function paintAgentLine() {
     const text = $('agent-text');
     if (!line || !text) return;
     line.classList.remove('is-missing');
+    paintAgentReasoning();
     // An open menu follows the mode: models that cannot see photos dim in photo modes.
     if (!$('agent-menu').hidden) paintAgentMenu();
     if (!state.agentStatus && !state.agentChoice) {
@@ -651,35 +645,21 @@ function paintAgentLine() {
     const agent = currentAgent();
     if (!agent) {
         line.classList.add('is-missing');
-        text.textContent = VISION_MODES.has(state.mode) ? 'Choose an agent that sees photos' : 'No agent: your text goes to the model as is';
-        line.title = 'Choose an agent';
+        text.textContent = VISION_MODES.has(state.mode) ? 'Choose a model that sees photos' : 'No agent: your text goes to the model as is';
+        line.title = 'Choose a model';
         return;
     }
     if (VISION_MODES.has(state.mode) && !agent.sees_images) {
         line.classList.add('is-missing');
-        text.textContent = `${agent.label} · ${agent.choice && agent.choice.vision == null ? 'photo support unknown' : 'cannot see photos'}`;
+        text.textContent = `${agent.label} · cannot see photos`;
         line.title = 'This mode needs a model that sees photos: choose one here';
         return;
     }
     text.textContent = agent.label;
-    line.title = state.mode !== 'text' && agent.sees_images ? 'Sees the photo · change the agent' : 'Change the agent';
+    line.title = state.mode !== 'text' && agent.sees_images ? 'Sees the photo · change the model' : 'Change the model';
 }
 
 // --- agent menu --------------------------------------------------------------------------
-
-/** OpenCode models the Integrations display settings list (Zen and Go by default). */
-function visibleOpenCodeModels(models) {
-    let catalog = DEFAULT_MODEL_CATALOG;
-    try {
-        const providers = JSON.parse(localStorage.getItem(MODEL_CATALOG_KEY) || '{}')?.opencode?.providers;
-        if (providers && typeof providers === 'object' && !Array.isArray(providers) && Object.keys(providers).length) catalog = providers;
-    } catch {}
-    return models.filter(model => {
-        const allowed = catalog[model.provider];
-        if (!Array.isArray(allowed)) return false;
-        return !allowed.length || allowed.includes(model.id) || allowed.includes(shortModel(model.id));
-    });
-}
 
 function saveAgentChoice() {
     try {
@@ -692,10 +672,7 @@ function saveAgentChoice() {
 function restoreAgentCatalog() {
     try {
         const saved = JSON.parse(localStorage.getItem(AGENT_CATALOG_KEY) || 'null');
-        if (saved?.version !== 1 || !saved.payload || typeof saved.payload !== 'object') return;
-        const hosts = ['opencode', 'antigravity', 'codex', 'claude'];
-        if (hosts.some(host => saved.payload[host] && !Array.isArray(saved.payload[host].models))) return;
-        if (!Array.isArray(saved.payload.agents)) return;
+        if (saved?.version !== 2 || !Array.isArray(saved.payload?.groups)) return;
         state.agents = saved.payload;
         state.agentsSavedAt = Number(saved.savedAt) || 0;
     } catch {}
@@ -703,19 +680,35 @@ function restoreAgentCatalog() {
 
 function saveAgentCatalog(payload) {
     const savedAt = Date.now();
-    try { localStorage.setItem(AGENT_CATALOG_KEY, JSON.stringify({ version: 1, savedAt, payload })); } catch {}
+    try { localStorage.setItem(AGENT_CATALOG_KEY, JSON.stringify({ version: 2, savedAt, payload })); } catch {}
     state.agentsSavedAt = savedAt;
 }
 
+/** Integrations › Models changed which models are shown after this list was saved. */
+function agentCatalogStale() {
+    let changedAt = 0;
+    try { changedAt = Number(localStorage.getItem(MODELS_CHANGED_KEY)) || 0; } catch {}
+    const savedAt = state.agentsSavedAt || 0;
+    return Date.now() - savedAt >= AGENT_CATALOG_TTL || changedAt > savedAt;
+}
+
 function mergeAgentCatalog(previous, next) {
-    const merged = { ...next };
-    for (const host of ['opencode', 'antigravity', 'codex', 'claude']) {
-        // Discovery errors retain the last good cards, with their original capabilities.
-        if (next[host]?.error && previous?.[host]?.models?.length) {
-            merged[host] = { ...next[host], models: previous[host].models };
-        }
+    const before = new Map((previous?.groups || []).map(group => [group.id, group]));
+    // A host error keeps the last good models of that host, with their original cards.
+    const groups = next.groups.map(group => (group.error && before.get(group.id)?.models?.length
+        ? { ...group, models: before.get(group.id).models }
+        : group));
+    return { ...next, groups };
+}
+
+function findAgentModel(choice) {
+    for (const group of state.agents?.groups || []) {
+        if (group.host !== choice.agentKind) continue;
+        const id = choice.agentKind === 'antigravity' ? choice.base : choice.model;
+        const model = group.models.find(item => item.id === id);
+        if (model) return { group, model };
     }
-    return merged;
+    return null;
 }
 
 async function loadAgents(refresh = false) {
@@ -724,9 +717,9 @@ async function loadAgents(refresh = false) {
     state.agentsError = '';
     $('agent-refresh').disabled = true;
     if (state.agents) paintAgentMenu();
-    else $('agent-menu-body').innerHTML = '<p class="agent-menu-note" role="status">Asking the installed agents for their models…</p>';
+    else $('agent-menu-body').innerHTML = '<p class="agent-menu-note" role="status">Asking the connected providers for their models…</p>';
     try {
-        const next = await json(`/api/simple/agents${refresh ? '?refresh=1' : ''}`);
+        const next = await json(`/api/ai/models?visible=1${refresh ? '&refresh=1' : ''}`);
         state.agents = mergeAgentCatalog(state.agents, next);
         saveAgentCatalog(state.agents);
     } catch (err) {
@@ -739,52 +732,76 @@ async function loadAgents(refresh = false) {
         $('agent-refresh').disabled = false;
     }
     // A picked model keeps its card up to date (vision, name, reasoning levels).
-    const choice = state.agentChoice;
-    if (choice?.agentKind === 'opencode') {
-        const model = (state.agents.opencode?.models || []).find(item => item.id === choice.model);
-        if (model) {
-            Object.assign(choice, { name: model.name, vision: model.vision, variants: model.variants || [] });
-            if (choice.variant && !choice.variants.includes(choice.variant)) choice.variant = null;
-            saveAgentChoice();
-        }
-    }
-    if (choice?.agentKind === 'antigravity') {
-        const model = (state.agents.antigravity?.models || []).find(item => item.id === choice.base);
-        if (model) {
-            Object.assign(choice, antigravityChoice(model, choice.level));
-            saveAgentChoice();
-        }
-    }
-    if (['codex', 'claude'].includes(choice?.agentKind)) {
-        const model = (state.agents[choice.agentKind]?.models || []).find(item => item.id === choice.model);
-        if (model) {
-            Object.assign(choice, { name: model.name, vision: model.vision, variants: model.variants || [] });
-            if (choice.variant && !choice.variants.includes(choice.variant)) choice.variant = null;
-            saveAgentChoice();
-        }
+    const found = state.agentChoice ? findAgentModel(state.agentChoice) : null;
+    if (found) {
+        state.agentChoice = agentChoiceFor(found.group, found.model, state.agentChoice);
+        saveAgentChoice();
     }
     paintAgentMenu();
 }
 
-/** An Antigravity model at a reasoning level: the level's own id, else the model's. */
-function antigravityChoice(model, previousLevel) {
-    const levels = model.levels || [];
-    const level = levels.find(item => item.level === previousLevel)
-        || levels.find(item => item.level === 'medium')
-        || levels[0];
-    return {
-        agentKind: 'antigravity', base: model.id, name: model.name, vision: model.vision,
-        levels, model: level ? level.id : model.model || model.id, level: level ? level.level : null,
+/** The choice for one model of a group, keeping the reasoning level picked before when it exists. */
+function agentChoiceFor(group, model, previous = null) {
+    const base = {
+        agentKind: group.host, groupLabel: group.label, model: model.id, name: model.name, vision: model.vision,
     };
+    if (group.host === 'antigravity') {
+        const levels = model.levels || [];
+        const level = levels.find(item => item.level === previous?.level)
+            || levels.find(item => item.level === 'medium')
+            || levels[0];
+        return { ...base, base: model.id, levels, model: level ? level.id : model.model || model.id, level: level ? level.level : null };
+    }
+    const variants = model.variants || [];
+    return { ...base, variants, variant: previous?.variant && variants.includes(previous.variant) ? previous.variant : null };
 }
 
-function agentTags(vision, free, source) {
-    const title = source === 'family' ? ' title="Photo support is inferred from the known model family; the CLI does not report image inputs"' : '';
+// Seeing photos is the norm; only the exceptions and free models get a mark.
+function agentTags(model) {
     return [
-        vision === true ? `<span class="agent-tag is-vision"${title}>Photos${source === 'family' ? '*' : ''}</span>`
-            : vision === false ? `<span class="agent-tag"${title}>Text only</span>` : '<span class="agent-tag">Photos unknown</span>',
-        free ? '<span class="agent-tag">Free</span>' : '',
+        model.vision === false ? '<span class="agent-tag">Text only</span>' : '',
+        model.free ? '<span class="agent-tag">Free</span>' : '',
     ].join('');
+}
+
+const REASONING_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+
+/** Reasoning levels from the lightest to the deepest; unknown names keep their place at the end. */
+function sortedLevels(items, name = item => item) {
+    const rank = item => {
+        const index = REASONING_ORDER.indexOf(name(item));
+        return index < 0 ? REASONING_ORDER.length : index;
+    };
+    return [...items].sort((a, b) => rank(a) - rank(b));
+}
+
+/** The levels the picked model offers: [value, label]; Antigravity has no "Default". */
+function agentReasoningChoices(choice) {
+    if (!choice) return [];
+    if (choice.agentKind === 'antigravity') return sortedLevels(choice.levels || [], item => item.level).map(item => [item.id, item.level]);
+    const variants = sortedLevels(choice.variants || []);
+    return variants.length ? [['', 'Default'], ...variants.map(variant => [variant, variant])] : [];
+}
+
+/** The reasoning chip beside the agent line, for a model picked in Create that offers levels. */
+function paintAgentReasoning() {
+    const wrap = $('agent-reasoning-wrap');
+    const select = $('agent-reasoning');
+    if (!wrap || !select) return;
+    const choices = agentReasoningChoices(state.agentChoice);
+    wrap.hidden = !choices.length;
+    if (!choices.length) return;
+    select.innerHTML = choices.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+    select.value = state.agentChoice.agentKind === 'antigravity' ? state.agentChoice.model : state.agentChoice.variant || '';
+}
+
+function agentReasoning(group, model, choice) {
+    if (group.host === 'antigravity') {
+        if (!model.levels?.length) return '';
+        return `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${sortedLevels(model.levels, item => item.level).map(item => `<button type="button" aria-pressed="${choice.model === item.id}" class="agent-variant${choice.model === item.id ? ' active' : ''}" data-agent-level="${esc(item.id)}">${esc(item.level)}</button>`).join('')}</div></div>`;
+    }
+    if (!model.variants?.length) return '';
+    return `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...sortedLevels(model.variants)].map(variant => `<button type="button" aria-pressed="${(choice.variant || '') === variant}" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-agent-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>`;
 }
 
 function paintAgentMenu() {
@@ -793,80 +810,27 @@ function paintAgentMenu() {
     const focused = document.activeElement;
     const focusData = focused && body.contains(focused) ? { ...focused.dataset } : null;
     const choice = state.agentChoice;
+    const picked = choice ? findAgentModel(choice) : null;
     const needsVision = VISION_MODES.has(state.mode);
     const parts = [];
     if (state.agentsError) parts.push(`<p class="agent-menu-note is-error">${esc(state.agentsError)} · Showing the saved model list.</p>`);
-    const opencode = state.agents.opencode;
-    if (opencode) {
-        const models = visibleOpenCodeModels(opencode.models || []);
-        const providers = [...new Set(models.map(model => model.provider))];
-        const preferred = choice?.agentKind === 'opencode' ? choice.provider : null;
-        if (!providers.includes(state.agentProvider)) state.agentProvider = providers.includes(preferred) ? preferred : providers[0] || null;
-        const shown = models
-            .filter(model => model.provider === state.agentProvider)
-            .sort((a, b) => Number(b.vision === true) - Number(a.vision === true) || a.name.localeCompare(b.name));
-        const tabs = providers.length > 1
-            ? `<div class="agent-providers">${providers.map(provider => `<button type="button" class="agent-provider${provider === state.agentProvider ? ' active' : ''}" data-agent-provider="${esc(provider)}">${esc(OPENCODE_PROVIDER_NAMES[provider] || provider)}</button>`).join('')}</div>`
-            : '';
-        const rows = shown.map(model => {
-            const active = choice?.agentKind === 'opencode' && choice.model === model.id;
-            const blocked = needsVision && model.vision !== true;
-            return `<button type="button" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agent-model="${esc(model.id)}" title="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model.vision, model.free)}</button>`;
-        }).join('');
-        const picked = choice?.agentKind === 'opencode' ? (opencode.models || []).find(model => model.id === choice.model) : null;
-        let reasoning = '';
-        if (picked?.variants?.length) {
-            reasoning = `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...picked.variants].map(variant => `<button type="button" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-agent-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>`;
-        }
-        parts.push(`<section class="agent-group"><header><strong>OpenCode</strong><small>${esc(opencode.label || '')}</small></header>${tabs}`
-            + (opencode.error ? `<p class="agent-menu-note is-error">${esc(opencode.error)}</p>` : '')
-            + (rows ? `<div class="agent-options">${rows}</div>` : '<p class="agent-menu-note">No models are listed. Choose providers in Integrations › Local AI tools.</p>')
+    for (const group of state.agents.groups || []) {
+        const rows = group.models
+            .slice()
+            .sort((a, b) => Number(b.vision === true) - Number(a.vision === true) || a.name.localeCompare(b.name))
+            .map(model => {
+                const active = picked?.group.id === group.id && picked.model.id === model.id;
+                const blocked = needsVision && model.vision === false;
+                return `<button type="button" aria-pressed="${active}" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agent-group="${esc(group.id)}" data-agent-model="${esc(model.id)}" title="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model)}</button>`;
+            }).join('');
+        const reasoning = picked?.group.id === group.id ? agentReasoning(group, picked.model, choice) : '';
+        parts.push(`<section class="agent-group"><header><strong>${esc(group.label)}</strong>${group.source ? `<small>${esc(group.source)}</small>` : ''}</header>`
+            + (group.error ? `<p class="agent-menu-note is-error">${esc(group.error)}</p>` : '')
+            + (rows ? `<div class="agent-options">${rows}</div>` : '')
             + reasoning + '</section>');
     }
-    const antigravity = state.agents.antigravity;
-    if (antigravity) {
-        const rows = (antigravity.models || []).map(model => {
-            const active = choice?.agentKind === 'antigravity' && choice.base === model.id;
-            const blocked = needsVision && model.vision !== true;
-            return `<button type="button" aria-pressed="${active}" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agy-model="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model.vision, false, model.vision_source)}</button>`;
-        }).join('');
-        const picked = choice?.agentKind === 'antigravity' ? (antigravity.models || []).find(model => model.id === choice.base) : null;
-        const levels = picked?.levels?.length
-            ? `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${picked.levels.map(item => `<button type="button" class="agent-variant${choice.model === item.id ? ' active' : ''}" data-agy-level="${esc(item.id)}">${esc(item.level)}</button>`).join('')}</div></div>`
-            : '';
-        parts.push(`<section class="agent-group"><header><strong>Antigravity</strong><small>Photos* inferred from model family</small></header>`
-            + (antigravity.error ? `<p class="agent-menu-note is-error">${esc(antigravity.error)}</p>` : '')
-            + (rows ? `<div class="agent-options">${rows}</div>` : '')
-            + levels + '</section>');
-    }
-    for (const host of ['codex', 'claude']) {
-        const section = state.agents[host];
-        if (!section) continue;
-        const models = section.models || [];
-        const rows = models.map(model => {
-            const active = choice?.agentKind === host && choice.model === model.id;
-            const blocked = needsVision && model.vision !== true;
-            return `<button type="button" aria-pressed="${active}" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-native-host="${host}" data-native-model="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model.vision, false, model.vision_source)}</button>`;
-        }).join('');
-        const picked = choice?.agentKind === host ? models.find(model => model.id === choice.model) : null;
-        const reasoning = picked?.variants?.length
-            ? `<div class="agent-reasoning"><span>Reasoning</span><div class="agent-variants">${['', ...picked.variants].map(variant => `<button type="button" aria-pressed="${(choice.variant || '') === variant}" class="agent-variant${(choice.variant || '') === variant ? ' active' : ''}" data-native-variant="${esc(variant)}">${esc(variant || 'Default')}</button>`).join('')}</div></div>` : '';
-        const note = models.some(model => model.vision_source === 'family') ? '<small>Photos* inferred from model family</small>' : '';
-        parts.push(`<section class="agent-group"><header><strong>${esc(section.label || AGENT_HOSTS[host])}</strong>${note}</header>`
-            + (section.error ? `<p class="agent-menu-note is-error">${esc(section.error)}</p>` : '')
-            + (rows ? `<div class="agent-options">${rows}</div>` : '') + reasoning + '</section>');
-    }
-    const others = state.agents.agents || [];
-    if (others.length) {
-        const rows = others.map(agent => {
-            const active = choice?.agentKind === 'profile' && choice.id === agent.id;
-            const blocked = needsVision && !agent.sees_images;
-            return `<button type="button" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agent-profile="${esc(agent.id)}"><span class="agent-option-name">${esc(agentLabel({ cli_type: agent.cli_type, kind: agent.kind, model: agent.model }))}</span>${agentTags(agent.sees_images, false)}</button>`;
-        }).join('');
-        parts.push(`<section class="agent-group"><header><strong>Other agents</strong><small>from Integrations</small></header><div class="agent-options">${rows}</div></section>`);
-    }
-    if (choice) parts.push('<button type="button" class="agent-menu-link agent-reset" data-agent-reset>Use the Integrations defaults</button>');
-    if (!parts.length) parts.push('<p class="agent-menu-note">No agent was found. Install OpenCode or connect an agent in Integrations.</p>');
+    if (choice) parts.push('<button type="button" class="agent-menu-link agent-reset" data-agent-reset>Use the default model</button>');
+    if (!parts.length) parts.push('<p class="agent-menu-note">No model is shown. Connect a provider or show its models in Integrations.</p>');
     body.innerHTML = parts.join('');
     if (focusData) {
         const replacement = [...body.querySelectorAll('button')].find(button =>
@@ -906,7 +870,7 @@ function openAgentMenu() {
     $('agent-refresh').focus({ preventScroll: true });
     if (state.agents) {
         paintAgentMenu();
-        if (Date.now() - (state.agentsSavedAt || 0) >= AGENT_CATALOG_TTL) loadAgents();
+        if (agentCatalogStale()) loadAgents();
     } else loadAgents();
 }
 
@@ -918,53 +882,33 @@ function closeAgentMenu() {
 function wireAgentMenu() {
     $('agent-line').onclick = () => ($('agent-menu').hidden ? openAgentMenu() : closeAgentMenu());
     $('agent-refresh').onclick = () => loadAgents(true);
+    $('agent-reasoning').addEventListener('change', event => {
+        const choice = state.agentChoice;
+        if (!choice) return;
+        if (choice.agentKind === 'antigravity') {
+            const level = (choice.levels || []).find(item => item.id === event.target.value);
+            if (level) Object.assign(choice, { model: level.id, level: level.level });
+        } else choice.variant = event.target.value || null;
+        saveAgentChoice();
+    });
     $('agent-menu-body').addEventListener('click', event => {
         const target = event.target.closest('button');
         if (!target) return;
-        if (target.dataset.agentProvider) {
-            state.agentProvider = target.dataset.agentProvider;
-            paintAgentMenu();
-        } else if (target.dataset.agentModel) {
-            const model = (state.agents?.opencode?.models || []).find(item => item.id === target.dataset.agentModel);
+        const choice = state.agentChoice;
+        if (target.dataset.agentModel) {
+            const group = (state.agents?.groups || []).find(item => item.id === target.dataset.agentGroup);
+            const model = group?.models.find(item => item.id === target.dataset.agentModel);
             if (!model) return;
-            const previous = state.agentChoice?.agentKind === 'opencode' ? state.agentChoice.variant : null;
-            state.agentChoice = {
-                agentKind: 'opencode', model: model.id, provider: model.provider, name: model.name,
-                vision: model.vision, variants: model.variants || [],
-                variant: previous && (model.variants || []).includes(previous) ? previous : null,
-            };
+            state.agentChoice = agentChoiceFor(group, model, choice?.agentKind === group.host ? choice : null);
             saveAgentChoice();
-        } else if ('agentVariant' in target.dataset && state.agentChoice?.agentKind === 'opencode') {
-            state.agentChoice.variant = target.dataset.agentVariant || null;
+        } else if ('agentVariant' in target.dataset && choice && choice.agentKind !== 'antigravity') {
+            choice.variant = target.dataset.agentVariant || null;
             saveAgentChoice();
-        } else if (target.dataset.agyModel) {
-            const model = (state.agents?.antigravity?.models || []).find(item => item.id === target.dataset.agyModel);
-            if (!model) return;
-            const previous = state.agentChoice?.agentKind === 'antigravity' ? state.agentChoice.level : null;
-            state.agentChoice = antigravityChoice(model, previous);
-            saveAgentChoice();
-        } else if (target.dataset.agyLevel && state.agentChoice?.agentKind === 'antigravity') {
-            const level = (state.agentChoice.levels || []).find(item => item.id === target.dataset.agyLevel);
+        } else if (target.dataset.agentLevel && choice?.agentKind === 'antigravity') {
+            const level = (choice.levels || []).find(item => item.id === target.dataset.agentLevel);
             if (!level) return;
-            Object.assign(state.agentChoice, { model: level.id, level: level.level });
+            Object.assign(choice, { model: level.id, level: level.level });
             saveAgentChoice();
-        } else if (target.dataset.nativeModel) {
-            const host = target.dataset.nativeHost;
-            const model = (state.agents?.[host]?.models || []).find(item => item.id === target.dataset.nativeModel);
-            if (!model) return;
-            const previous = state.agentChoice?.agentKind === host ? state.agentChoice.variant : null;
-            state.agentChoice = { agentKind: host, model: model.id, name: model.name, vision: model.vision,
-                variants: model.variants || [], variant: previous && (model.variants || []).includes(previous) ? previous : null };
-            saveAgentChoice();
-        } else if ('nativeVariant' in target.dataset && ['codex', 'claude'].includes(state.agentChoice?.agentKind)) {
-            state.agentChoice.variant = target.dataset.nativeVariant || null;
-            saveAgentChoice();
-        } else if (target.dataset.agentProfile) {
-            const agent = (state.agents?.agents || []).find(item => item.id === target.dataset.agentProfile);
-            if (!agent) return;
-            state.agentChoice = { agentKind: 'profile', id: agent.id, kind: agent.kind, cli_type: agent.cli_type, model: agent.model, vision: Boolean(agent.sees_images) };
-            saveAgentChoice();
-            closeAgentMenu();
         } else if ('agentReset' in target.dataset) {
             state.agentChoice = null;
             saveAgentChoice();

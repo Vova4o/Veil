@@ -20,14 +20,15 @@ from pydantic import ValidationError
 
 from app import database
 
+from . import agents, opencode_host, provider_catalog
 from .adaptation import PromptAdaptationError, PromptAdaptationService
+from .agents import AgentError
 from .cli import (
     CLI_SPECS,
     CLIIntegrationError,
     cli_catalog,
     discover_cli_integrations,
-    list_cli_models,
-    opencode_executable_choice,
+    find_executable,
     probe_cli,
 )
 from .enhancement import (
@@ -36,7 +37,6 @@ from .enhancement import (
 )
 from .execution import ExecutionRouter, ExecutionRouterError
 from .job_store import AIJobStatus, AIJobStore, AIJobStoreError
-from .profiles import AIProfileStore, AIProfileStoreError
 from .prompting import (
     PromptFamily,
     PromptOperation,
@@ -44,6 +44,7 @@ from .prompting import (
     SceneSpec,
 )
 from .prompting.registry import FAMILY_PROFILES, SCENARIO_MANIFESTS
+from .providers import LOCAL_TOOLS, AIProviderError, AIProviderStore, validate_model_ref
 from .ranking import AIRankingError, AIRankingService, AIRatingStore
 from .reconstruction import (
     PromptReconstructionError,
@@ -61,14 +62,14 @@ from .resources import (
 )
 from .secrets import SecretStoreError
 from .translation import PromptText, PromptTranslationError, PromptTranslationService
-from .transport import AIProviderRequestError, test_profile
+from .transport import AIProviderRequestError
 
 ai_blueprint = Blueprint("ai", __name__)
 MAX_RECONSTRUCTION_IMAGE_BYTES = 20 * 1024 * 1024
 
 
-def _store() -> AIProfileStore:
-    return AIProfileStore(
+def _store() -> AIProviderStore:
+    return AIProviderStore(
         Path(current_app.config["CONFIG_FILE"]),
         secret_store=current_app.config.get("AI_SECRET_STORE"),
     )
@@ -77,7 +78,7 @@ def _store() -> AIProfileStore:
 def _json_object() -> dict:
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        raise AIProfileStoreError("A JSON object is required.")
+        raise AIProviderError("A JSON object is required.")
     return payload
 
 
@@ -85,32 +86,18 @@ def _job_store() -> AIJobStore:
     return AIJobStore()
 
 
-def _resolved_text_profile(payload: dict) -> tuple[AIProfileStore, dict]:
-    profile_store = _store()
-    profile_id = payload.get("profile_id")
-    if profile_id is None:
-        defaults = profile_store.list()["defaults"]
-        profile_id = defaults.get("text_profile_id") or defaults.get("translator_profile_id")
-    if not isinstance(profile_id, str) or not profile_id.strip():
-        raise AIProfileStoreError(
-            "Choose an AI text or translator profile before running this operation.",
-            code="missing_profile",
+def _resolved_agent(payload: dict, *, wants_image: bool = False) -> tuple[AIProviderStore, dict]:
+    """The model picked for this operation (``agent``), else the default model."""
+    store = _store()
+    raw = payload.get("agent")
+    ref = validate_model_ref(raw) if raw is not None else None
+    profile = agents.profile_for_request(store, ref, wants_image=wants_image)
+    if wants_image and not agents.sees_images(profile):
+        raise AgentError(
+            f"{profile.get('name') or 'This model'} cannot see photos. Choose a model that sees photos.",
+            code="vision_required",
         )
-    return profile_store, profile_store.get(profile_id)
-
-
-def _resolved_translator_profile(payload: dict) -> tuple[AIProfileStore, dict]:
-    profile_store = _store()
-    profile_id = payload.get("profile_id")
-    if profile_id is None:
-        defaults = profile_store.list()["defaults"]
-        profile_id = defaults.get("translator_profile_id") or defaults.get("text_profile_id")
-    if not isinstance(profile_id, str) or not profile_id.strip():
-        raise AIProfileStoreError(
-            "Choose an AI translator or text profile before running this operation.",
-            code="missing_profile",
-        )
-    return profile_store, profile_store.get(profile_id)
+    return store, profile
 
 
 def _asset_image_data_url(asset_id: int) -> str:
@@ -152,15 +139,30 @@ def _asset_image_data_url(asset_id: int) -> str:
     return f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
 
 
-@ai_blueprint.errorhandler(AIProfileStoreError)
-def profile_error(error: AIProfileStoreError):
-    if error.code == "profile_not_found":
+@ai_blueprint.errorhandler(AIProviderError)
+def provider_error(error: AIProviderError):
+    if error.code == "provider_not_found":
         status = 404
-    elif error.code == "missing_credentials":
+    elif error.code in {"missing_credentials", "provider_exists"}:
         status = 409
     else:
         status = 400
     return jsonify({"error": str(error), "code": error.code}), status
+
+
+@ai_blueprint.errorhandler(AgentError)
+def agent_error(error: AgentError):
+    return jsonify({
+        "error": str(error),
+        "code": error.code,
+        "technical_error": error.technical_error,
+    }), error.status
+
+
+@ai_blueprint.errorhandler(AIProviderRequestError)
+def provider_request_error(error: AIProviderRequestError):
+    status = 504 if error.code == "timeout" else 422
+    return jsonify({"error": str(error), "code": error.code, "technical_error": error.technical_error}), status
 
 
 @ai_blueprint.errorhandler(AIRankingError)
@@ -248,49 +250,101 @@ def ai_settings_page():
     return render_template("ai_settings.html")
 
 
-@ai_blueprint.route("/api/ai/profiles", methods=["GET", "POST"])
-def ai_profiles():
+LOCAL_TOOL_NOTES = {
+    "opencode": "Free models right after install, no account or key",
+    "claude": "Claude models through your Claude subscription",
+    "codex": "GPT models through your ChatGPT plan",
+    "antigravity": "Gemini models through your Google account",
+}
+
+
+def _local_tools(store: AIProviderStore) -> list[dict]:
+    """Installed tools are connected unless the user disconnected them; nothing is run here."""
+    disconnected = store.disconnected_tools()
+    tools = []
+    for tool in LOCAL_TOOLS:
+        executable = opencode_host.resolve_executable() if tool == "opencode" else find_executable(tool)
+        tools.append({
+            "type": tool,
+            "label": agents.HOST_LABELS[tool],
+            "icon": agents.HOST_ICONS[tool],
+            "note": LOCAL_TOOL_NOTES[tool],
+            "installed": executable is not None,
+            "executable": executable,
+            "connected": executable is not None and tool not in disconnected,
+        })
+    return tools
+
+
+@ai_blueprint.route("/api/ai/providers", methods=["GET", "POST"])
+def ai_providers():
     store = _store()
-    if request.method == "GET":
-        return jsonify(store.list())
-    return jsonify({"profile": store.create(_json_object())}), 201
+    if request.method == "POST":
+        return jsonify({"provider": store.create(_json_object())}), 201
+    return jsonify({
+        **store.list(),
+        "local_tools": _local_tools(store),
+        "templates": provider_catalog.templates(),
+    })
 
 
-@ai_blueprint.route("/api/ai/profiles/<profile_id>", methods=["PATCH", "DELETE"])
-def ai_profile(profile_id: str):
+@ai_blueprint.route("/api/ai/providers/<provider_id>", methods=["PATCH", "DELETE"])
+def ai_provider(provider_id: str):
     store = _store()
     if request.method == "DELETE":
-        store.delete(profile_id)
+        store.delete(provider_id)
         return jsonify({"ok": True})
-    return jsonify({"profile": store.update(profile_id, _json_object())})
+    return jsonify({"provider": store.update(provider_id, _json_object())})
 
 
-@ai_blueprint.route("/api/ai/defaults", methods=["PATCH"])
-def ai_defaults():
-    return jsonify({"defaults": _store().set_defaults(_json_object())})
-
-
-@ai_blueprint.route("/api/ai/profiles/<profile_id>/test", methods=["POST"])
-def ai_profile_test(profile_id: str):
+@ai_blueprint.route("/api/ai/providers/<provider_id>/check", methods=["POST"])
+def ai_provider_check(provider_id: str):
+    """List the provider's models: proves the address and the key without a prompt."""
     store = _store()
-    profile = store.get(profile_id)
-    payload = request.get_json(silent=True) or {}
-    if not isinstance(payload, dict):
-        raise AIProfileStoreError("A JSON object is required.")
-    try:
-        result = test_profile(
-            store,
-            profile,
-            multimodal=payload.get("multimodal") is True,
-        )
-    except AIProviderRequestError as exc:
-        status = 504 if exc.code == "timeout" else 422
-        return jsonify({
-            "error": str(exc),
-            "code": exc.code,
-            "technical_error": exc.technical_error,
-        }), status
-    return jsonify(result)
+    models, error = agents.provider_models(store, store.get(provider_id), refresh=True)
+    if error:
+        return jsonify({"ok": False, "error": error, "models": len(models)}), 422
+    return jsonify({"ok": True, "models": len(models)})
+
+
+@ai_blueprint.route("/api/ai/local-tools/<tool>", methods=["PATCH"])
+def ai_local_tool(tool: str):
+    payload = _json_object()
+    if not isinstance(payload.get("connected"), bool):
+        raise AIProviderError("connected must be true or false.")
+    store = _store()
+    store.set_tool_connected(tool, payload["connected"])
+    return jsonify({"local_tools": _local_tools(store)})
+
+
+@ai_blueprint.route("/api/ai/models", methods=["GET"])
+def ai_models():
+    """Every model of the connected providers; ``visible=1`` keeps the ones pickers show."""
+    return jsonify(agents.catalog(
+        _store(),
+        refresh=request.args.get("refresh") == "1",
+        visible_only=request.args.get("visible") == "1",
+    ))
+
+
+@ai_blueprint.route("/api/ai/models/visibility", methods=["PATCH"])
+def ai_models_visibility():
+    changes = _json_object().get("changes")
+    if not isinstance(changes, dict) or len(changes) > 5000:
+        raise AIProviderError("changes must map model keys to true, false or null.", code="invalid_model")
+    return jsonify({"visibility": _store().set_visibility(changes)})
+
+
+@ai_blueprint.route("/api/ai/default-model", methods=["GET", "PUT"])
+def ai_default_model():
+    store = _store()
+    if request.method == "PUT":
+        ref = _json_object().get("model")
+        if ref is not None:
+            ref = validate_model_ref(ref)
+            agents.resolve(store, ref)
+        return jsonify({"default_model": store.set_default_model(ref)})
+    return jsonify({"default_model": store.default_model()})
 
 
 @ai_blueprint.route("/api/ai/cli-integrations", methods=["GET"])
@@ -307,17 +361,6 @@ def ai_cli_integration(cli_type: str):
             "Unsupported CLI integration.", code="cli_unavailable"
         )
     return jsonify({"integration": probe_cli(cli_type)})
-
-
-@ai_blueprint.route("/api/ai/cli-integrations/<cli_type>/models", methods=["GET"])
-def ai_cli_models(cli_type: str):
-    executable = None
-    if cli_type == "opencode":
-        # Only a detected installation may be chosen; the path is never run as given.
-        executable = opencode_executable_choice(request.args.get("executable"))
-    return jsonify(list_cli_models(
-        cli_type, executable, provider=request.args.get("provider")
-    ))
 
 
 @ai_blueprint.route("/api/ai/jobs/<int:job_id>", methods=["GET"])
@@ -401,10 +444,10 @@ def ai_prompt_capabilities():
 @ai_blueprint.route("/api/ai/generate", methods=["POST"])
 def ai_generate():
     payload = _json_object()
-    profile_store, profile = _resolved_text_profile(payload)
+    profile_store, profile = _resolved_agent(payload)
     task_data = payload.get("task") or {}
     if not isinstance(task_data, dict):
-        raise AIProfileStoreError("task dictionary is required.")
+        raise AIProviderError("task dictionary is required.")
     task = PromptTask.model_validate({**task_data, "operation": "generate"})
     user_input = payload.get("user_input", "")
 
@@ -473,10 +516,10 @@ def _stream_prompt_operation(runner) -> Response:
 @ai_blueprint.route("/api/ai/translate", methods=["POST"])
 def ai_translate():
     payload = _json_object()
-    profile_store, profile = _resolved_translator_profile(payload)
+    profile_store, profile = _resolved_agent(payload)
     task_data = payload.get("task") or {}
     if not isinstance(task_data, dict):
-        raise AIProfileStoreError("task dictionary is required.")
+        raise AIProviderError("task dictionary is required.")
     task = PromptTask.model_validate({**task_data, "operation": "translate"})
     source_data = payload.get("source") or {}
     source = PromptText.model_validate(source_data)
@@ -525,10 +568,10 @@ def ai_translate():
 @ai_blueprint.route("/api/ai/adapt", methods=["POST"])
 def ai_adapt():
     payload = _json_object()
-    profile_store, profile = _resolved_text_profile(payload)
+    profile_store, profile = _resolved_agent(payload)
     task_data = payload.get("task") or {}
     if not isinstance(task_data, dict):
-        raise AIProfileStoreError("task dictionary is required.")
+        raise AIProviderError("task dictionary is required.")
     task = PromptTask.model_validate({**task_data, "operation": "adapt"})
     source_data = payload.get("source") or {}
     source = PromptText.model_validate(source_data)
@@ -570,10 +613,10 @@ def ai_adapt():
 @ai_blueprint.route("/api/ai/enhance", methods=["POST"])
 def ai_enhance():
     payload = _json_object()
-    profile_store, profile = _resolved_text_profile(payload)
+    profile_store, profile = _resolved_agent(payload)
     task_data = payload.get("task") or {}
     if not isinstance(task_data, dict):
-        raise AIProfileStoreError("task dictionary is required.")
+        raise AIProviderError("task dictionary is required.")
     task = PromptTask.model_validate({**task_data, "operation": "enhance"})
     source_data = payload.get("source") or {}
     source = PromptText.model_validate(source_data)
@@ -665,10 +708,10 @@ def _adaptation_checkpoint_resource(
 @ai_blueprint.route("/api/ai/reconstruct", methods=["POST"])
 def ai_reconstruct():
     payload = _json_object()
-    profile_store, profile = _resolved_text_profile(payload)
+    profile_store, profile = _resolved_agent(payload)
     task_data = payload.get("task") or {}
     if not isinstance(task_data, dict):
-        raise AIProfileStoreError("task dictionary is required.")
+        raise AIProviderError("task dictionary is required.")
     task = PromptTask.model_validate({**task_data, "operation": "reconstruct"})
 
     scene_spec_data = payload.get("scene_spec")
@@ -724,23 +767,14 @@ def ai_reconstruct():
 @ai_blueprint.route("/api/ai/reconstruct/analyze", methods=["POST"])
 def ai_reconstruct_analyze():
     payload = _json_object()
-    profile_store = _store()
-    profile_id = payload.get("profile_id") or profile_store.list()["defaults"].get(
-        "multimodal_profile_id"
-    )
-    if not isinstance(profile_id, str) or not profile_id.strip():
-        raise AIProfileStoreError(
-            "Choose a multimodal AI profile before analyzing an image.",
-            code="missing_profile",
-        )
-    profile = profile_store.get(profile_id)
+    profile_store, profile = _resolved_agent(payload, wants_image=True)
     asset_id = payload.get("asset_id")
     if isinstance(asset_id, bool) or not isinstance(asset_id, int):
         raise AIJobStoreError("asset_id must be an integer.")
     image_data_url = _asset_image_data_url(asset_id)
     task_data = payload.get("task") or {}
     if not isinstance(task_data, dict):
-        raise AIProfileStoreError("task dictionary is required.")
+        raise AIProviderError("task dictionary is required.")
     task = PromptTask.model_validate({**task_data, "operation": "reconstruct"})
     outcome = SceneAnalysisService().analyze(
         profile=profile,
@@ -831,18 +865,7 @@ def ai_resources_resolve():
 @ai_blueprint.route("/api/ai/evaluate", methods=["POST"])
 def ai_evaluate():
     payload = _json_object()
-    profile_store = _store()
-    profile_id = payload.get("profile_id") or profile_store.list()["defaults"].get(
-        "multimodal_profile_id"
-    )
-    if not isinstance(profile_id, str) or not profile_id.strip():
-        raise AIProfileStoreError(
-            "Choose a multimodal AI profile before rating an asset.",
-            code="missing_profile",
-        )
-    profile = profile_store.get(profile_id)
-    if profile.get("multimodal") is not True:
-        raise AIProfileStoreError("AI rating requires a multimodal profile.")
+    profile_store, profile = _resolved_agent(payload, wants_image=True)
     image_id = payload.get("image_id")
     if isinstance(image_id, bool) or not isinstance(image_id, int):
         raise AIRankingError("image_id integer is required.")

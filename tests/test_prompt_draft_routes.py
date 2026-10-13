@@ -157,18 +157,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
             "extra_body": {},
         }
 
-        class StubProfileStore:
-            @staticmethod
-            def list():
-                return {
-                    "profiles": [],
-                    "defaults": {"text_profile_id": profile["id"]},
-                }
+        class StubProviderStore:
 
-            @staticmethod
-            def get(profile_id):
-                self.assertEqual(profile_id, profile["id"])
-                return profile
 
             @staticmethod
             def resolve_api_key(resolved_profile):
@@ -207,7 +197,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
                 return SimpleNamespace(job_id=job.id)
 
         with (
-            patch("app.ai.routes._store", return_value=StubProfileStore()),
+            patch("app.ai.routes._store", return_value=StubProviderStore()),
+            patch("app.ai.routes.agents.profile_for_request", return_value=profile),
             patch("app.ai.routes.ExecutionRouter", return_value=StubRouter()),
         ):
             generated = self.client.post(
@@ -349,18 +340,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
             "model": "translation-model",
         }
 
-        class StubProfileStore:
-            @staticmethod
-            def list():
-                return {
-                    "profiles": [],
-                    "defaults": {"text_profile_id": profile["id"]},
-                }
+        class StubProviderStore:
 
-            @staticmethod
-            def get(profile_id):
-                self.assertEqual(profile_id, profile["id"])
-                return profile
 
             @staticmethod
             def resolve_api_key(resolved_profile):
@@ -413,7 +394,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
                 )
 
         with (
-            patch("app.ai.routes._store", return_value=StubProfileStore()),
+            patch("app.ai.routes._store", return_value=StubProviderStore()),
+            patch("app.ai.routes.agents.profile_for_request", return_value=profile),
             patch(
                 "app.ai.routes.PromptTranslationService",
                 return_value=StubTranslationService(),
@@ -499,18 +481,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
             "model": "adaptation-model",
         }
 
-        class StubProfileStore:
-            @staticmethod
-            def list():
-                return {
-                    "profiles": [],
-                    "defaults": {"text_profile_id": profile["id"]},
-                }
+        class StubProviderStore:
 
-            @staticmethod
-            def get(profile_id):
-                self.assertEqual(profile_id, profile["id"])
-                return profile
 
             @staticmethod
             def resolve_api_key(resolved_profile):
@@ -579,7 +551,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
         ))
 
         with (
-            patch("app.ai.routes._store", return_value=StubProfileStore()),
+            patch("app.ai.routes._store", return_value=StubProviderStore()),
+            patch("app.ai.routes.agents.profile_for_request", return_value=profile),
             patch(
                 "app.ai.routes.PromptAdaptationService",
                 return_value=StubAdaptationService(),
@@ -676,23 +649,8 @@ class PromptDraftRoutesTest(unittest.TestCase):
         )
         captured = {"analysis_calls": 0, "render_calls": 0}
 
-        class StubProfileStore:
-            @staticmethod
-            def list():
-                return {
-                    "profiles": [vision_profile, text_profile],
-                    "defaults": {
-                        "text_profile_id": text_profile["id"],
-                        "multimodal_profile_id": vision_profile["id"],
-                    },
-                }
+        class StubProviderStore:
 
-            @staticmethod
-            def get(profile_id):
-                return {
-                    vision_profile["id"]: vision_profile,
-                    text_profile["id"]: text_profile,
-                }[profile_id]
 
             @staticmethod
             def resolve_api_key(profile):
@@ -769,7 +727,11 @@ class PromptDraftRoutesTest(unittest.TestCase):
                 return SimpleNamespace(job_id=job.id)
 
         with (
-            patch("app.ai.routes._store", return_value=StubProfileStore()),
+            patch("app.ai.routes._store", return_value=StubProviderStore()),
+            patch(
+                "app.ai.routes.agents.profile_for_request",
+                side_effect=lambda store, ref, *, wants_image: vision_profile if wants_image else text_profile,
+            ),
             patch(
                 "app.ai.routes.SceneAnalysisService",
                 return_value=StubAnalysisService(),
@@ -846,7 +808,11 @@ class PromptDraftRoutesTest(unittest.TestCase):
         )
 
         with (
-            patch("app.ai.routes._store", return_value=StubProfileStore()),
+            patch("app.ai.routes._store", return_value=StubProviderStore()),
+            patch(
+                "app.ai.routes.agents.profile_for_request",
+                side_effect=lambda store, ref, *, wants_image: vision_profile if wants_image else text_profile,
+            ),
             patch(
                 "app.ai.routes.PromptReconstructionService",
                 return_value=StubReconstructionService(),
