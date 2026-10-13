@@ -464,6 +464,51 @@ def compile_simple_workflow(
     return workflow
 
 
+# Variation (image to image): how much of the photo is repainted. 0 keeps it, 1 ignores it.
+DEFAULT_VARIATION_DENOISE = 0.65
+VARIATION_STEP = 16
+
+
+def has_variation_workflow(profile: ApprovedProfile) -> bool:
+    return "variation" in profile.modes and (profile.directory / "variation.workflow.json").is_file()
+
+
+def variation_dimensions(source_size: tuple[int, int]) -> tuple[int, int]:
+    """The size ComfyUI's ImageScaleToTotalPixels gives the photo: about 1 MP, multiples of 16."""
+    width, height = source_size
+    scale = math.sqrt(TARGET_PIXELS / (width * height))
+    return (
+        max(VARIATION_STEP, round(width * scale / VARIATION_STEP) * VARIATION_STEP),
+        max(VARIATION_STEP, round(height * scale / VARIATION_STEP) * VARIATION_STEP),
+    )
+
+
+def compile_variation_workflow(
+    profile: ApprovedProfile,
+    *,
+    positive_prompt: str,
+    source_image: str,
+    seed: int = -1,
+    denoise: float = DEFAULT_VARIATION_DENOISE,
+) -> dict[str, Any]:
+    """Compile the image-to-image graph: the photo is the starting point and ``denoise`` sets
+    how much of it is repainted from the prompt. The output keeps the photo's proportions."""
+    if not has_variation_workflow(profile):
+        raise FileNotFoundError(f"Variation workflow is not prepared for {profile.name}")
+    if not 0.0 <= denoise <= 1.0:
+        raise ValueError("Denoise must be between 0 and 1")
+    workflow = copy.deepcopy(_read_json(profile.directory / "variation.workflow.json"))
+    bindings = _load_bindings(profile, "variation.")
+    effective_positive = positive_prompt.strip()
+    if profile.prompt_prefix and effective_positive:
+        effective_positive = f"{profile.prompt_prefix}, {effective_positive}"
+    _set_binding(workflow, bindings.get("positive_prompt"), effective_positive)
+    _set_binding(workflow, bindings.get("source_image"), source_image)
+    _set_binding(workflow, bindings.get("seed"), seed if seed >= 0 else random.randint(0, 1125899906842624))
+    _set_binding(workflow, bindings.get("denoise"), round(float(denoise), 2))
+    return workflow
+
+
 def has_edit_workflow(profile: ApprovedProfile) -> bool:
     return "edit" in profile.modes and (profile.directory / "edit.workflow.json").is_file()
 

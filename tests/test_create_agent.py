@@ -498,6 +498,23 @@ def test_fetch_image_rejects_bad_links_pages_and_huge_files(monkeypatch):
     assert huge.status_code == 413 and huge.get_json()["code"] == "image_too_large"
 
 
+def test_variation_agent_describes_the_photo_like_reference(monkeypatch):
+    router = FakeRouter(PromptResult(positive_prompt="A woman in a grey sweater on a rocky coast."))
+    monkeypatch.setattr(create_agent, "ExecutionRouter", lambda: router)
+    monkeypatch.setattr(simple_routes, "_ai_profile_store", lambda: FakeStore([VISION]))
+    response = app.test_client().post("/api/simple/agent", json={
+        "mode": "variation", "request": "", "reference_image": _data_url(), "aspect_ratio": "source",
+    })
+    assert response.status_code == 200, response.data
+    data = response.get_json()
+    assert data["mode"] == "variation"
+    assert "MODE: reference" in router.calls[0]["user_input"]
+    assert "faithful reconstruction" in router.calls[0]["user_input"]
+    # The noise level is the user's choice; the agent is never told about it.
+    assert "denoise" not in router.calls[0]["user_input"].casefold()
+    assert data["width"] % 16 == 0
+
+
 # --- agent picked in Create --------------------------------------------------------------
 
 

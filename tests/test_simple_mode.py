@@ -20,7 +20,7 @@ def test_serialize_approved_profile_has_no_quality_presets():
     serialized = serialize_approved_profile(APPROVED_PROFILES["krea2_moody_v40"])
     assert serialized["id"] == "krea2_moody_v40"
     assert "quality_presets" not in serialized
-    assert serialized["modes"] == ["text", "reference", "edit"]
+    assert serialized["modes"] == ["text", "reference", "variation", "edit"]
     assert "aspect_ratios" in serialized
     assert "health" in serialized
 

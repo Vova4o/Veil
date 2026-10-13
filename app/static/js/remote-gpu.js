@@ -12,6 +12,7 @@ let login = null; // { url, busy, error }
 let installTimer = null;
 let newerVersion = null;
 let settingsTimer = null;
+let runtime = null; // CMV's own Colab runtime
 
 function $(id) {
     return document.getElementById(id);
@@ -99,7 +100,30 @@ async function loadStatus() {
         loading = false;
     }
     render();
-    if (status?.account?.signed_in) loadUsage(false);
+    if (status?.account?.signed_in) {
+        loadUsage(false);
+        loadRuntime();
+    }
+}
+
+async function loadRuntime() {
+    try {
+        runtime = await requestJson('/api/remote/colab/runtime');
+    } catch {
+        runtime = null;
+    }
+    render();
+}
+
+async function stopRuntime() {
+    try {
+        runtime = await postJson('/api/remote/colab/runtime/stop');
+        toast('Stopping the Colab runtime.');
+    } catch (error) {
+        toast(error.message, true);
+    }
+    render();
+    window.setTimeout(() => { loadRuntime(); loadUsage(true); }, 4000);
 }
 
 async function loadUsage(refresh) {
@@ -365,7 +389,15 @@ function usageCard() {
         }
         node.append(el('p', 'cli-message', 'Colab updates the balance with a delay; the rate shows what running runtimes spend.'));
     }
-    node.append(actions(button('Refresh', () => loadUsage(true))));
+    const live = ['allocating', 'booting', 'ready'].includes(runtime?.state);
+    if (live) {
+        const where = runtime.gpu_name ? runtime.gpu_name.split(',')[0].replace(/^NVIDIA\s+/, '') : `Colab ${runtime.gpu}`;
+        node.append(el('p', 'cli-message', `Create's runtime is ${runtime.state === 'ready' ? 'running' : 'starting'} on ${where}. It stops by itself after the idle time below.`));
+    }
+    node.append(actions(
+        button('Refresh', () => { loadUsage(true); loadRuntime(); }),
+        live && button('Stop runtime', stopRuntime),
+    ));
     return node;
 }
 

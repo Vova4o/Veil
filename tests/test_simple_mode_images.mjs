@@ -30,7 +30,7 @@ function harness(available = [], delayed = []) {
         };
     };
     const elements = new Map(['studio-layout', 'result', 'generating', 'ambient-a', 'ambient-b',
-        'ambient-backdrop-a', 'ambient-backdrop-b', 'result-thumbnails', 'result-compare'].map(id => [id, element()]));
+        'ambient-backdrop-a', 'ambient-backdrop-b', 'result-thumbnails', 'result-compare', 'result-img'].map(id => [id, element()]));
     elements.get('studio-layout').dataset.view = 'idle';
     const ambient = element();
     const artwork = element();
@@ -113,7 +113,7 @@ test('restoration retains available results and removes missing batch entries', 
     assert.equal(h.elements.get('studio-layout').dataset.view, 'result');
     assert.equal(h.run('state.last.id'), 2);
     assert.equal(h.run('state.lastOutputs.length'), 1);
-    assert.match(h.artwork.innerHTML, /src="\/thumb"/);
+    assert.equal(h.elements.get('result-img').src, '/thumb');
     assert.equal(JSON.parse(h.context.localStorage.getItem('cmv_simple_last_result')).data.outputs.length, 1);
 });
 

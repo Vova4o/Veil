@@ -1,0 +1,18 @@
+{
+  "positive_prompt": {
+    "node": "4",
+    "input": "text"
+  },
+  "source_image": {
+    "node": "13",
+    "input": "image"
+  },
+  "seed": {
+    "node": "7",
+    "input": "seed"
+  },
+  "denoise": {
+    "node": "7",
+    "input": "denoise"
+  }
+}

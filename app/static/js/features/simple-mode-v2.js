@@ -13,9 +13,15 @@ const MODE_COPY = {
     },
     reference: {
         label: 'From photo',
-        hint: 'Add a photo as a reference. The agent describes it and applies your wishes; the photo itself is not changed.',
+        hint: 'Add a photo. The agent describes it and applies your wishes; the photo itself stays as it is.',
         placeholder: 'Optional: what to change, for example "the same scene at night in the rain"',
         button: 'Create from photo',
+    },
+    variation: {
+        label: 'Variation',
+        hint: 'Add a photo. The agent describes it and the model repaints it; the noise sets how much changes.',
+        placeholder: 'Optional: what to change, for example "warmer evening light"',
+        button: 'Create variation',
     },
     edit: {
         label: 'Edit photo',
@@ -24,6 +30,13 @@ const MODE_COPY = {
         button: 'Edit photo',
     },
 };
+// "Edit photo" with a second photo: a person, a garment or a tattoo to bring in.
+const EDIT_REFERENCE_COPY = {
+    label: 'Edit with reference',
+    hint: 'Add the photo and a reference: a person, a garment or a tattoo. Say what to bring in.',
+    placeholder: 'For example: dress her in the red silk dress from the reference',
+    button: 'Edit with reference',
+};
 
 // Titles of the reference blocks per mode; a mode without an entry hides that block.
 const REF_COPY = {
@@ -31,14 +44,37 @@ const REF_COPY = {
         eyebrow: 'PHOTO',
         main: ['Reference photo', 'The agent describes it and applies your text'],
     },
+    variation: {
+        eyebrow: 'PHOTO',
+        main: ['Photo to vary', 'The new image starts from this photo'],
+    },
     edit: {
+        eyebrow: 'PHOTO',
+        main: ['Photo to edit', 'The face, light and scene stay as they are'],
+    },
+    editReference: {
         eyebrow: 'PHOTOS',
-        main: ['Photo to edit', 'Face, light and scene stay as they are'],
-        subject: ['Reference to bring in', 'Optional: a person, a garment or a tattoo'],
+        main: ['Photo to edit', 'The scene to change'],
+        subject: ['Reference', 'A person, a garment or a tattoo to bring in'],
     },
 };
 const LAYOUT_EASING = 'cubic-bezier(.16,1,.3,1)';
 
+// Variation noise: how much of the photo is repainted (0 keeps it, 1 ignores it).
+const DENOISE_DEFAULT = 0.65;
+// The bar's colour along the scale; values in between blend smoothly.
+const DENOISE_COLORS = [
+    [0, '#3b82f6'], [0.3, '#4f8ff0'], [0.45, '#e2a33b'], [0.55, '#e2a33b'],
+    [0.65, '#34c38f'], [0.75, '#34c38f'], [0.88, '#9b7be0'], [1, '#8a93a6'],
+];
+const DENOISE_ZONES = [
+    { id: 'close', below: 0.35, label: 'Close to the photo', text: 'Leans toward the photo: its artifacts carry over to the result.' },
+    { id: 'mixed', below: 0.6, label: 'Partly repainted', text: 'Artifacts of the photo can still carry over, but most of it is repainted.' },
+    { id: 'optimal', below: 0.8, label: 'Optimal', text: 'A new image close to the photo that drops its small artifacts.' },
+    { id: 'far', below: 1, label: 'Far from the photo', text: 'Little of the photo remains.' },
+    { id: 'none', below: Infinity, label: 'Photo not used', text: 'The photo no longer takes part; only its proportions are kept.' },
+];
+// Modes where the agent must see the photo to describe it.
 const VISION_MODES = new Set(['reference', 'variation']);
 const AGENT_HOSTS = { opencode: 'OpenCode', codex: 'Codex', claude: 'Claude Code', antigravity: 'Antigravity' };
 // Integrations › Local AI tools › Display settings: which OpenCode providers and models to list.
@@ -55,16 +91,21 @@ const state = {
     colab: null,
     colabPoll: null,
     mode: 'text',
+    // Edit photo: by text alone, or with a second photo to bring in.
+    editKind: 'text',
     ratio: '1:1',
     photoRatio: 'source',
+    denoise: DENOISE_DEFAULT,
     batch: 1,
     photo: null,
     subject: null,
     slotFocus: 'main',
     refineFrom: null,
     agentStatus: null,
+    // The agent picked in Create's agent menu, or null for the Integrations defaults.
     agentChoice: null,
     agents: null,
+    agentProvider: null,
     canvasWidth: null,
     ambient: [],
     ambientDeck: [],
@@ -119,6 +160,7 @@ function restore() {
     try {
         const mode = localStorage.getItem('cmv_create_mode');
         if (MODE_COPY[mode]) state.mode = mode;
+        if (localStorage.getItem('cmv_create_edit_kind') === 'reference') state.editKind = 'reference';
         const choice = JSON.parse(localStorage.getItem('cmv_create_agent') || 'null');
         if (choice?.agentKind === 'opencode' && choice.model) state.agentChoice = choice;
         if (choice?.agentKind === 'profile' && choice.id) state.agentChoice = choice;
@@ -129,6 +171,8 @@ function restore() {
         const photoRatio = localStorage.getItem('cmv_create_photo_ratio');
         if (photoRatio === 'source' || RATIOS.includes(photoRatio)) state.photoRatio = photoRatio;
         state.batch = Math.max(1, Math.min(4, Number(localStorage.getItem('cmv_simple_batch')) || 1));
+        const denoise = localStorage.getItem('cmv_create_denoise');
+        if (denoise !== null && Number(denoise) >= 0 && Number(denoise) <= 1) state.denoise = roundDenoise(Number(denoise));
         const savedCanvasWidth = Number(localStorage.getItem('cmv_simple_canvas_width'));
         if (Number.isFinite(savedCanvasWidth) && savedCanvasWidth > 0) state.canvasWidth = savedCanvasWidth;
 
@@ -190,20 +234,112 @@ function setMode(mode, { keepRefine = false, quiet = false } = {}) {
         button.classList.toggle('active', active);
         button.setAttribute('aria-checked', String(active));
     });
-    const copy = MODE_COPY[mode];
-    $('mode-hint').textContent = copy.hint;
-    $('prompt').placeholder = copy.placeholder;
-    $('create-label').textContent = copy.button;
+    paintEditKind();
     if (!keepRefine && state.refineFrom && state.refineFrom.mode !== mode) clearRefine();
     animateLayout(paintRefs);
+    // A variation keeps the photo's proportions; the noise level takes the ratio's place.
+    $('ratio-section').hidden = mode === 'variation';
+    $('denoise-section').hidden = mode !== 'variation';
     syncRatio();
     paintAgentLine();
     if (state.health) paintHealth(state.health);
     if (changed && !quiet) hideError();
+    resizePrompt();
+}
+
+function withReference(mode = state.mode) {
+    return mode === 'edit' && state.editKind === 'reference';
+}
+
+function modeCopy(mode = state.mode) {
+    return withReference(mode) ? EDIT_REFERENCE_COPY : MODE_COPY[mode];
+}
+
+function refCopy(mode = state.mode) {
+    return withReference(mode) ? REF_COPY.editReference : REF_COPY[mode];
+}
+
+/** The hint, placeholder and button of the mode, and the edit sub-switch. */
+function paintEditKind() {
+    const copy = modeCopy();
+    $('mode-hint').textContent = copy.hint;
+    $('prompt').placeholder = copy.placeholder;
+    $('create-label').textContent = copy.button;
+    $('edit-kinds').hidden = state.mode !== 'edit';
+    document.querySelectorAll('[data-edit-kind]').forEach(button => {
+        const active = button.dataset.editKind === state.editKind;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-checked', String(active));
+    });
+}
+
+function setEditKind(kind) {
+    if (kind !== 'text' && kind !== 'reference') return;
+    state.editKind = kind;
+    save('cmv_create_edit_kind', kind);
+    paintEditKind();
+    if (state.mode === 'edit') animateLayout(paintRefs);
+    resizePrompt();
 }
 
 function currentRatio() {
+    if (state.mode === 'variation') return 'source';
     return state.mode === 'text' ? state.ratio : state.photoRatio;
+}
+
+// --- variation noise -----------------------------------------------------------------
+
+function roundDenoise(value) {
+    return Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
+}
+
+function denoiseZone(value) {
+    return DENOISE_ZONES.find(zone => roundDenoise(value) < zone.below);
+}
+
+/** The bar's colour for a value: a blend of the two nearest colours of the scale. */
+function denoiseColor(value) {
+    const upper = DENOISE_COLORS.findIndex(([at]) => at >= value);
+    if (upper <= 0) return DENOISE_COLORS[Math.max(0, upper)][1];
+    const [from, low] = DENOISE_COLORS[upper - 1];
+    const [to, high] = DENOISE_COLORS[upper];
+    const share = Math.round(((value - from) / (to - from)) * 100);
+    // OKLab fades through a soft neutral between distant hues instead of sweeping round the colour wheel.
+    return `color-mix(in oklab, ${high} ${share}%, ${low})`;
+}
+
+function paintDenoise() {
+    const value = state.denoise;
+    const zone = denoiseZone(value);
+    const input = $('denoise');
+    input.value = String(value);
+    $('denoise-value').textContent = value.toFixed(2);
+    $('denoise-zone').textContent = zone.label;
+    const section = $('denoise-section');
+    section.dataset.zone = zone.id;
+    section.style.setProperty('--denoise-color', denoiseColor(value));
+    section.style.setProperty('--denoise-fill', `${Math.round(value * 100)}%`);
+    const tip = $('denoise-tip');
+    tip.textContent = `${zone.label}: ${zone.text}`;
+    // The tip follows the thumb; CSS keeps it inside the control.
+    tip.style.setProperty('--tip-at', String(value));
+    input.title = zone.text;
+}
+
+function wireDenoise() {
+    const input = $('denoise');
+    const control = input.closest('.denoise-control');
+    input.oninput = () => {
+        state.denoise = roundDenoise(Number(input.value));
+        save('cmv_create_denoise', state.denoise);
+        paintDenoise();
+    };
+    const show = on => control.classList.toggle('show-tip', on);
+    input.addEventListener('focus', () => show(true));
+    input.addEventListener('blur', () => show(false));
+    control.addEventListener('pointerenter', () => show(true));
+    control.addEventListener('pointerleave', () => { if (document.activeElement !== input) show(false); });
+    paintDenoise();
 }
 
 function ratioValue() {
@@ -307,7 +443,7 @@ function paintRefBlock(slot, photo, copy) {
 /** The left panel: one block for the reference mode, two for edits (scene and donor). */
 function paintRefs() {
     const layout = $('studio-layout');
-    const copy = REF_COPY[state.mode];
+    const copy = refCopy();
     layout.dataset.refs = String(Boolean(copy));
     $('refs-card').hidden = !copy;
     if (copy) {
@@ -426,7 +562,7 @@ async function importImageUrl(url, slot) {
         error('Not an image link', 'Paste a link that starts with http:// or https://.');
         return;
     }
-    const target = slot === 'subject' && state.mode === 'edit' ? 'subject' : 'main';
+    const target = slot === 'subject' && withReference() ? 'subject' : 'main';
     const block = $(`ref-${target}`);
     const loading = block?.querySelector('.ref-loading');
     if (loading) loading.hidden = false;
@@ -451,7 +587,7 @@ function acceptImage(file, slot) {
         setMode('reference');
         showNote('The photo is used as a reference for a new picture. Choose "Edit photo" to change the photo itself.');
     }
-    const target = slot === 'subject' && state.mode === 'edit' ? 'subject' : 'main';
+    const target = slot === 'subject' && withReference() ? 'subject' : 'main';
     return setPhoto(target, file);
 }
 
@@ -477,6 +613,7 @@ async function pasteFromClipboard(slot) {
 
 // --- agent ---------------------------------------------------------------------------
 
+/** The agent Create runs with: the one picked in the agent menu, else the Integrations default. */
 function currentAgent() {
     const choice = state.agentChoice;
     if (choice) return { label: agentLabel(choice), sees_images: choice.vision === true, choice };
@@ -920,10 +1057,7 @@ function paintHealth(health) {
     if (state.backend === 'colab') {
         [className, label, text] = colabStatusLine();
     } else if (state.runtimeBusy) {
-        const seconds = Math.round((Date.now() - state.runtimeStartedAt) / 1000);
-        className = 'is-starting';
-        label = state.runtimeBusy === 'restarting' ? 'Restarting' : 'Starting';
-        text = `Starting ComfyUI… ${seconds} s`;
+        [className, label, text] = ['is-starting', 'Starting', 'Starting ComfyUI'];
     } else if (health?.status === 'ready' && !modeBlocked) {
         [className, label, text] = offline
             ? ['is-idle', 'Not running', 'Components installed · ComfyUI starts with the first run']
@@ -948,7 +1082,11 @@ function paintHealth(health) {
     badge.textContent = label;
     statusText.textContent = text;
     statusText.title = text;
+    // Only what needs the user's action stays in the line; a start shows in the launch toast.
+    const problem = ['is-missing', 'is-pending'].includes(className) || label === 'Not connected';
+    $('model-status').classList.toggle('is-quiet', !problem);
     paintRuntimeAction();
+    paintLaunch();
     $('model-health-message').textContent = resources.length || nodes.length
         ? (offline ? 'Missing on disk:' : 'Missing:')
         : '';
@@ -982,7 +1120,7 @@ function blocking() {
         return 'Sign in to Google in Integrations › Remote GPU, or switch Create to This PC.';
     }
     if (state.backend === 'colab' && health.backend?.civitai_ready === false) {
-        return 'Colab downloads Moody Krea2 from Civitai: add your Civitai API token in the ComfyUI settings (gear icon). It stays on this computer.';
+        return 'Colab downloads Moody Krea2 from Civitai: add your Civitai API key in the ComfyUI settings (gear icon) or in Integrations › Model sources. It stays on this computer.';
     }
     if (health.status === 'not_installed') return 'Download the missing components first.';
     if (health.status === 'workflow_pending') return 'The recipe is not prepared yet.';
@@ -1003,6 +1141,9 @@ async function create() {
     if (mode !== 'text' && !state.photo) {
         return error('Add a photo', 'This mode needs a photo: drop it here, choose a file or paste it with Ctrl+V.');
     }
+    if (withReference(mode) && !state.subject) {
+        return error('Add the reference', 'Add a person, a garment or a tattoo to the second block, or switch to "By text".');
+    }
     if (mode === 'edit' && !request) return error('Nothing to change', 'Describe what to change in the photo.');
     if (mode === 'text' && !request) return error('Nothing to create', 'Describe the picture you want.');
     const why = blocking();
@@ -1010,7 +1151,7 @@ async function create() {
     const agent = currentAgent();
     const useAgent = Boolean(agent) && !(VISION_MODES.has(mode) && !agent.sees_images);
     if (VISION_MODES.has(mode) && !useAgent) {
-        return error('The photo mode needs an agent that sees photos', 'Add a vision agent on the Integrations page, or use "Edit photo".');
+        return error('This mode needs an agent that sees photos', 'Pick a model marked "Photos" in the agent menu under the prompt, or use "Edit photo".');
     }
     hideError();
     hideNote();
@@ -1021,8 +1162,8 @@ async function create() {
     canvas('generating');
     $('generation-stop').hidden = false;
     const photo = mode === 'text' ? null : state.photo;
-    const subject = mode === 'edit' ? state.subject : null;
-    const copy = REF_COPY[mode];
+    const subject = withReference(mode) ? state.subject : null;
+    const copy = refCopy(mode);
     state.resultRefs = [
         photo && { label: copy.main[0], src: photo.dataUrl },
         subject && { label: copy.subject[0], src: subject.dataUrl },
@@ -1081,6 +1222,7 @@ async function create() {
         photo,
         subject,
         ratio,
+        denoise: mode === 'variation' ? state.denoise : null,
     }, job);
 }
 
@@ -1093,9 +1235,13 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
     // An offline ComfyUI is started by the generate request itself; say so instead of "sending".
     const colabCold = state.backend === 'colab' && state.colab?.state !== 'ready';
     const coldStart = state.backend !== 'colab' && state.health?.comfyui_online === false;
-    if (colabCold) setGenerating('Starting a Colab GPU…', 'The first run after a start takes about 2 minutes');
-    else setGenerating(coldStart ? 'Starting ComfyUI…' : state.backend === 'colab' ? 'Sending to Colab…' : 'Sending to ComfyUI…',
-        coldStart ? 'The first run after a start takes longer' : plan.agentName ? `Prompt by ${plan.agentName}` : '');
+    // The start itself shows in the launch toast; the canvas only says the image waits for it.
+    job.launch = colabCold ? 'colab' : coldStart ? 'local' : null;
+    job.launchStartedAt = Date.now();
+    if (job.launch) setGenerating('Queued', launchWaitText(job.launch));
+    else setGenerating(state.backend === 'colab' ? 'Sending to Colab…' : 'Sending to ComfyUI…',
+        plan.agentName ? `Prompt by ${plan.agentName}` : '');
+    paintLaunch();
     createButton(true, 8, 'Queueing…');
     if (plan.note) showNote(plan.note);
     let data;
@@ -1110,6 +1256,7 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
                 user_request: plan.userRequest || '',
                 negative_prompt: plan.mode === 'edit' ? plan.negative || '' : null,
                 edit_profile: plan.mode === 'edit' ? plan.editProfile || null : null,
+                denoise: plan.mode === 'variation' ? (plan.denoise ?? DENOISE_DEFAULT) : undefined,
                 reference_image: plan.mode === 'text' ? null : plan.photo?.dataUrl || null,
                 subject_image: plan.mode === 'edit' ? plan.subject?.dataUrl || null : null,
                 aspect_ratio: plan.ratio,
@@ -1189,9 +1336,19 @@ function runProgress(job) {
         remaining = current + queuedAfter * per;
     } else {
         const elapsed = (Date.now() - job.startedAt) / 1000;
-        const remoteStage = remoteStageText(currentId ? job.remote?.get(currentId) : null);
+        const remote = currentId ? job.remote?.get(currentId) : null;
+        if (remoteLaunching(remote) && (!live || live.state === 'queued')) {
+            // The Colab GPU is still starting or fetching models: the launch toast shows that.
+            return {
+                percent: Math.round(8 + 90 * Math.min(0.97, finished / total)),
+                stage: '',
+                eta: '',
+                elapsed: '',
+                waiting: true,
+            };
+        }
+        const remoteStage = remoteStageText(remote);
         if (remoteStage && (!live || live.state === 'queued')) {
-            // A Colab GPU still starting or downloading models: no honest estimate yet.
             return {
                 percent: Math.round(8 + 90 * Math.min(0.97, finished / total)),
                 stage: remoteStage,
@@ -1238,8 +1395,10 @@ function pollRuns(job) {
         const progress = runProgress(job);
         createButton(true, progress.percent, total > 1 ? `${Math.min(finished, total)} of ${total} ready` : `${progress.percent}%`);
         const detail = [job.plan.editProfileLabel, progress.stage, progress.elapsed, progress.eta].filter(Boolean).join(' · ');
-        if (!outputs.length) setGenerating(total > 1 ? `Creating image ${current} of ${total}…` : 'Creating the image…', detail);
-        paintResultProgress(finished < total ? `Image ${current} of ${total} · ${[progress.stage, progress.eta].filter(Boolean).join(' · ')}` : '');
+        if (!outputs.length && progress.waiting) setGenerating('Queued', launchWaitText('colab'));
+        else if (!outputs.length) setGenerating(total > 1 ? `Creating image ${current} of ${total}…` : 'Creating the image…', detail);
+        paintLaunch();
+        paintResultProgress(finished < total ? [`Image ${current} of ${total}`, progress.stage, progress.eta].filter(Boolean).join(' · ') : '');
         if (finished >= total) finishRuns(job, outputs);
     };
     state.poll = setInterval(tick, 1000);
@@ -1250,6 +1409,7 @@ function finishRuns(job, outputs) {
     clearInterval(state.poll);
     state.poll = null;
     state.job = null;
+    paintLaunch();
     paintRuntimeAction();
     createButton(false);
     $('generation-stop').hidden = true;
@@ -1304,6 +1464,7 @@ function abortJob() {
     clearInterval(state.poll);
     state.poll = null;
     state.job = null;
+    paintLaunch();
     paintRuntimeAction();
     stopAgentTimer();
     createButton(false);
@@ -1400,8 +1561,20 @@ function updateResultView() {
     state.last = current;
     const artwork = document.querySelector('.canvas-artwork-wrap');
     if (artwork) {
-        artwork.innerHTML = `<img id="result-img" class="canvas-result-img" src="${esc(current.preview_url || current.thumbnail_url)}" alt="Result ${index + 1}" decoding="async">`;
-        artwork.onclick = () => openResultFullscreen(state.selectedResultIndex);
+        // Only the picture changes: the next-step toolbar over it stays.
+        let img = $('result-img');
+        if (!img) {
+            img = document.createElement('img');
+            img.id = 'result-img';
+            img.className = 'canvas-result-img';
+            img.decoding = 'async';
+            artwork.prepend(img);
+        }
+        img.src = current.preview_url || current.thumbnail_url;
+        img.alt = `Result ${index + 1}`;
+        artwork.onclick = event => {
+            if (!event.target.closest('#result-next')) openResultFullscreen(state.selectedResultIndex);
+        };
     }
     const strip = $('result-thumbnails');
     if (outputs.length > 1) {
@@ -1417,7 +1590,7 @@ function updateResultView() {
         strip.hidden = true;
         strip.innerHTML = '';
     }
-    for (const id of ['result-refine', 'result-prompt']) {
+    for (const id of ['result-refine', 'result-prompt', 'result-regenerate']) {
         const button = $(id);
         if (button) button.disabled = !state.lastRun;
     }
@@ -1501,7 +1674,30 @@ function hideNote() { $('note').hidden = true; }
 
 // --- result actions ------------------------------------------------------------------
 
-async function editThis() {
+/** Run the last prompt again with a new seed: same mode, photos, edit type and noise. */
+async function regenerate() {
+    const run = state.lastRun;
+    if (!run || state.job) return;
+    const photo = run.mode === 'text' ? null : (run.photo || state.photo);
+    if (run.mode !== 'text' && !photo) {
+        return error('Add the photo again', 'The photo of this run is no longer loaded. Add it, then press Regenerate.');
+    }
+    if (state.mode !== run.mode) setMode(run.mode);
+    if (run.mode === 'edit') setEditKind(run.subject ? 'reference' : 'text');
+    const why = blocking();
+    if (why) return error('Not ready yet', why);
+    hideError();
+    hideNote();
+    await runGeneration({
+        ...run,
+        note: '',
+        photo,
+        subject: run.mode === 'edit' ? (run.subject || state.subject) : null,
+        ratio: run.ratio || currentRatio(),
+    });
+}
+
+async function editThis({ bringReference = false } = {}) {
     const current = state.last;
     if (!current || state.job) return;
     const url = current.id ? `/api/original/${current.id}` : current.preview_url;
@@ -1511,13 +1707,23 @@ async function editThis() {
         const blob = await response.blob();
         const file = new File([blob], current.filename || 'result.png', { type: blob.type || 'image/png' });
         setMode('edit');
+        setEditKind(bringReference ? 'reference' : 'text');
         clearPhoto('subject');
         if (!(await setPhoto('main', file))) return;
         clearRefine();
         $('prompt').value = '';
         $('prompt').dispatchEvent(new Event('input'));
+        if (bringReference) {
+            // The second block takes the reference; a paste or drop goes there too.
+            state.slotFocus = 'subject';
+            const block = $('ref-subject');
+            block?.classList.add('is-wanted');
+            setTimeout(() => block?.classList.remove('is-wanted'), 2400);
+            showNote('This result is now the photo to edit. Add the reference (a person, a garment or a tattoo) to the second block, then describe the change.');
+        } else {
+            showNote('This result is now the photo to edit. Describe the next change.');
+        }
         $('prompt').focus();
-        showNote('This result is now the photo to edit. Describe the next change.');
     } catch (err) {
         error('Could not take this image', err.message);
     }
@@ -1554,9 +1760,10 @@ function openPromptDialog(run = state.lastRun) {
     if (!run) return;
     state.dialogRun = run;
     const parts = [
-        MODE_COPY[run.mode]?.label,
+        runLabel(run),
         run.agentName ? `written by ${run.agentName}` : 'typed by hand',
         run.editProfileLabel ? `edit type: ${run.editProfileLabel}` : '',
+        run.mode === 'variation' ? `noise ${Number(run.denoise ?? DENOISE_DEFAULT).toFixed(2)}` : '',
     ].filter(Boolean);
     $('prompt-dialog-meta').textContent = parts.join(' · ') + (run.userRequest ? `\nRequest: ${run.userRequest}` : '');
     $('prompt-dialog-label').textContent = run.mode === 'edit' ? 'Edit command' : 'Prompt';
@@ -1605,6 +1812,10 @@ async function rerunFromDialog() {
 
 // --- session log ---------------------------------------------------------------------
 
+function runLabel(run) {
+    return run.mode === 'edit' && (run.subject || run.withReference) ? EDIT_REFERENCE_COPY.label : MODE_COPY[run.mode]?.label;
+}
+
 function sessionRecord(run) {
     return {
         key: (run.runIds || []).join(','),
@@ -1615,6 +1826,8 @@ function sessionRecord(run) {
         negative: run.negative || '',
         editProfile: run.editProfile || null,
         editProfileLabel: run.editProfileLabel || '',
+        denoise: run.mode === 'variation' ? (run.denoise ?? DENOISE_DEFAULT) : null,
+        withReference: Boolean(run.subject || run.withReference),
         agentName: run.agentName || null,
         note: run.note || '',
         ratio: run.ratio,
@@ -1659,7 +1872,8 @@ function paintSession() {
     list.innerHTML = state.session.map((entry, index) => {
         const time = new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const took = entry.seconds ? `${formatDuration(entry.seconds)} per image` : '';
-        const meta = [MODE_COPY[entry.mode]?.label, entry.agentName || 'no agent', entry.editProfileLabel, took].filter(Boolean).join(' · ');
+        const noise = entry.mode === 'variation' && entry.denoise != null ? `noise ${Number(entry.denoise).toFixed(2)}` : '';
+        const meta = [runLabel(entry), entry.agentName || 'no agent', entry.editProfileLabel, noise, took].filter(Boolean).join(' · ');
         const thumbs = (entry.outputs || []).map(item => `<img src="${esc(item.thumbnail_url || `/api/thumbnail/${item.id}`)}" alt="" loading="lazy">`).join('');
         return `<article class="session-entry">
             <header><strong>${esc(time)}</strong><span>${esc(meta)}</span></header>
@@ -1696,6 +1910,9 @@ function wire() {
     document.querySelectorAll('[data-mode]').forEach(button => {
         button.onclick = () => setMode(button.dataset.mode);
     });
+    document.querySelectorAll('[data-edit-kind]').forEach(button => {
+        button.onclick = () => setEditKind(button.dataset.editKind);
+    });
     document.querySelectorAll('[data-ratio]').forEach(button => {
         button.onclick = () => {
             const ratio = button.dataset.ratio;
@@ -1717,6 +1934,7 @@ function wire() {
         };
     });
     wirePhotoSlots();
+    wireDenoise();
     wireAgentMenu();
 
     $('prompt').oninput = () => {
@@ -1736,7 +1954,9 @@ function wire() {
     $('note-close').onclick = hideNote;
 
     $('result-download').onclick = downloadResult;
-    $('result-edit-this').onclick = editThis;
+    $('result-regenerate').onclick = regenerate;
+    $('result-edit-text').onclick = () => editThis();
+    $('result-edit-ref').onclick = () => editThis({ bringReference: true });
     $('result-compare').onclick = () => openViewer({ kind: 'result', index: state.selectedResultIndex }, { compare: true });
     $('result-refine').onclick = refine;
     $('result-prompt').onclick = () => openPromptDialog();
@@ -1803,7 +2023,10 @@ function wire() {
             closeContextMenu();
         }
     });
-    addEventListener('resize', () => syncCanvasRowHeight());
+    addEventListener('resize', () => {
+        resizePrompt();
+        syncCanvasRowHeight();
+    });
     document.addEventListener('contextmenu', openStudioContextMenu);
     document.addEventListener('click', event => {
         if (!event.target.closest('.image-context-menu')) closeContextMenu();
@@ -1977,7 +2200,7 @@ function viewerItems() {
             label: all.length > 1 ? `Result ${index + 1}` : 'Result',
             src: item.preview_url || item.thumbnail_url,
         }));
-    const copy = REF_COPY[state.mode];
+    const copy = refCopy();
     const panel = copy ? [
         state.photo && { kind: 'ref', slot: 'main', label: copy.main[0], src: state.photo.objectUrl },
         copy.subject && state.subject && { kind: 'ref', slot: 'subject', label: copy.subject[0], src: state.subject.objectUrl },
@@ -2536,15 +2759,30 @@ function wireCanvasResize() {
     });
 }
 
+/**
+ * The prompt field takes the free height of the card (CSS) and grows with its text while the
+ * card has room below its height limit (stacked: up to 40% of the window); longer text
+ * scrolls inside the field, so the Create button stays in view.
+ */
 function resizePrompt() {
     const textarea = $('prompt');
     if (!textarea) return;
     const minH = 84;
-    const maxH = 220;
-    textarea.style.height = 'auto';
-    const targetH = Math.max(minH, Math.min(textarea.scrollHeight, maxH));
-    textarea.style.height = `${targetH}px`;
-    textarea.style.overflowY = textarea.scrollHeight > maxH ? 'auto' : 'hidden';
+    // Measure the text alone: a field stretched by the card would report its own height.
+    textarea.style.flex = 'none';
+    textarea.style.minHeight = '0px';
+    textarea.style.height = '0px';
+    const content = textarea.scrollHeight;
+    textarea.style.flex = '';
+    textarea.style.height = '';
+    textarea.style.minHeight = `${minH}px`;
+    let maxH = Math.round(window.innerHeight * 0.4);
+    const card = textarea.closest('.studio-controls-card');
+    if (card && !matchMedia('(max-width: 1050px)').matches) {
+        const limit = parseFloat(getComputedStyle(card).maxHeight);
+        if (Number.isFinite(limit)) maxH = Math.min(maxH, textarea.clientHeight + Math.max(0, limit - card.scrollHeight));
+    }
+    textarea.style.minHeight = `${Math.max(minH, Math.min(content, maxH))}px`;
 }
 
 function playSuccessChime() {
@@ -2633,7 +2871,7 @@ function colabStatusLine() {
     const runtime = state.colab || state.health?.backend || {};
     const gpu = runtime.gpu || 'GPU';
     if (state.health?.backend?.signed_in === false) return ['is-missing', 'Colab', 'Sign in to Google to use the Colab GPU'];
-    if (state.health?.backend?.civitai_ready === false) return ['is-missing', 'Colab', 'Needs your Civitai API token to fetch Moody Krea2'];
+    if (state.health?.backend?.civitai_ready === false) return ['is-missing', 'Colab', 'Needs your Civitai API key to fetch Moody Krea2'];
     switch (runtime.state) {
     case 'allocating':
         return ['is-starting', 'Starting', `Colab ${gpu} · getting a GPU…`];
@@ -2655,25 +2893,123 @@ function colabStatusLine() {
     }
 }
 
-/** What a Colab run is waiting for before ComfyUI reports its own progress. */
+/** Whether a Colab run still waits for the runtime to start or for its models. */
+function remoteLaunching(remote) {
+    if (!remote) return false;
+    if (remote.runtime_state === 'allocating') return true;
+    if (remote.runtime_state === 'booting' && ['waiting', 'sent', 'received'].includes(remote.job_state)) return true;
+    return Object.keys(remote.downloads || {}).length > 0;
+}
+
+function downloadsText(remote) {
+    const downloads = Object.values(remote?.downloads || {});
+    if (!downloads.length) return '';
+    const total = downloads.reduce((sum, item) => sum + (item.total || 0), 0);
+    const done = downloads.reduce((sum, item) => sum + (item.done || 0), 0);
+    return total
+        ? `Downloading models · ${Math.round((100 * done) / total)}%`
+        : `Downloading ${downloads.length} model file${downloads.length === 1 ? '' : 's'}`;
+}
+
+/** What a Colab run is doing once the runtime is up, before ComfyUI reports its own progress. */
 function remoteStageText(remote) {
-    if (!remote) return '';
-    const gpu = remote.gpu || 'GPU';
-    if (remote.runtime_state === 'allocating') return `Getting a Colab ${gpu}`;
-    if (remote.runtime_state === 'booting' && ['waiting', 'sent', 'received'].includes(remote.job_state)) {
-        return `Setting up Colab: ${COLAB_BOOT_STAGES[remote.boot_stage] || 'starting'}`;
-    }
-    const downloads = Object.values(remote.downloads || {});
-    if (downloads.length) {
-        const total = downloads.reduce((sum, item) => sum + (item.total || 0), 0);
-        const done = downloads.reduce((sum, item) => sum + (item.done || 0), 0);
-        return total
-            ? `Downloading models · ${Math.round((100 * done) / total)}%`
-            : `Downloading ${downloads.length} model file${downloads.length === 1 ? '' : 's'} on Colab`;
-    }
+    if (!remote || remoteLaunching(remote)) return '';
     if (['waiting', 'sent', 'received', 'preparing'].includes(remote.job_state)) return 'Sending to Colab';
     if (remote.job_state === 'collecting') return 'Fetching the image from Colab';
     return '';
+}
+
+// --- launch toast --------------------------------------------------------------------
+
+const LAUNCH_READY_MS = 2600;
+
+function launchWaitText(kind) {
+    return kind === 'colab' ? 'Starts once the Colab GPU is ready' : 'Starts once ComfyUI is running';
+}
+
+function currentRemote(job) {
+    if (!job?.runIds || !job.remote) return null;
+    const id = job.runIds.find(item => !job.done.has(item));
+    return id ? job.remote.get(id) : null;
+}
+
+function sentenceCase(text) {
+    return text ? text[0].toUpperCase() + text.slice(1) : '';
+}
+
+/** What is starting right now: ComfyUI on this computer or a Colab GPU, or null. */
+function launchStatus() {
+    const job = state.job;
+    if (state.backend === 'colab') {
+        const remote = currentRemote(job);
+        const runtime = state.colab || {};
+        const gpu = remote?.gpu || runtime.gpu || 'GPU';
+        const phase = remote?.runtime_state || runtime.state;
+        if (phase === 'allocating') return { kind: 'colab', title: `Starting Colab ${gpu}`, stage: 'Getting a GPU', since: runtime.started_at };
+        if (phase === 'booting') {
+            const stage = sentenceCase(COLAB_BOOT_STAGES[remote?.boot_stage || runtime.boot_stage] || 'setting up');
+            return { kind: 'colab', title: `Starting Colab ${gpu}`, stage, since: runtime.started_at };
+        }
+        const downloads = downloadsText(remote);
+        if (downloads) return { kind: 'colab', title: `Preparing Colab ${gpu}`, stage: downloads, since: runtime.started_at };
+        if (job?.launch === 'colab' && job.phase === 'queue') {
+            return { kind: 'colab', title: `Starting Colab ${gpu}`, stage: 'Getting a GPU', since: job.launchStartedAt / 1000 };
+        }
+        return null;
+    }
+    if (state.runtimeBusy) {
+        const title = state.runtimeBusy === 'restarting' ? 'Restarting ComfyUI' : 'Starting ComfyUI';
+        return { kind: 'local', title, stage: 'On this computer', since: state.runtimeStartedAt / 1000 };
+    }
+    if (job?.launch === 'local' && job.phase === 'queue') {
+        return { kind: 'local', title: 'Starting ComfyUI', stage: 'On this computer', since: job.launchStartedAt / 1000 };
+    }
+    return null;
+}
+
+function launchSucceeded(kind) {
+    if (kind === 'colab') return state.colab?.state === 'ready' || currentRemote(state.job)?.runtime_state === 'ready';
+    return state.job?.phase === 'running' || runtimeUp(state.runtimeStatus);
+}
+
+/** The small notice while ComfyUI or a Colab GPU starts, then a short "ready". */
+function paintLaunch() {
+    const toast = $('launch-toast');
+    if (!toast) return;
+    const status = launchStatus();
+    const last = state.launch;
+    if (status) {
+        clearTimeout(state.launchHide);
+        state.launch = status;
+        toast.classList.remove('is-done');
+        toast.classList.add('is-visible');
+        toast.setAttribute('aria-hidden', 'false');
+        $('launch-title').textContent = status.title;
+        $('launch-stage').textContent = status.stage;
+        const seconds = status.since ? Math.max(0, Math.round(Date.now() / 1000 - status.since)) : null;
+        $('launch-elapsed').textContent = seconds != null ? formatDuration(seconds) : '';
+        if (!state.launchTick) state.launchTick = setInterval(paintLaunch, 1000);
+        return;
+    }
+    clearInterval(state.launchTick);
+    state.launchTick = null;
+    if (!last) return;
+    state.launch = null;
+    if (launchSucceeded(last.kind)) {
+        toast.classList.add('is-done');
+        $('launch-title').textContent = last.kind === 'colab' ? 'Colab GPU is ready' : 'ComfyUI is running';
+        $('launch-stage').textContent = last.kind === 'colab' ? 'Rendering on Colab' : 'Rendering on this computer';
+        $('launch-elapsed').textContent = '';
+        state.launchHide = setTimeout(hideLaunch, LAUNCH_READY_MS);
+    } else {
+        hideLaunch();
+    }
+}
+
+function hideLaunch() {
+    const toast = $('launch-toast');
+    toast.classList.remove('is-visible');
+    toast.setAttribute('aria-hidden', 'true');
 }
 
 function paintBackendSwitch() {
@@ -2732,20 +3068,6 @@ async function loadColabRuntime() {
     if (delay) state.colabPoll = setTimeout(loadColabRuntime, delay);
 }
 
-async function colabPower(start) {
-    const button = $('runtime-action');
-    button.disabled = true;
-    try {
-        state.colab = await json(`/api/remote/colab/runtime/${start ? 'start' : 'stop'}`, { method: 'POST' });
-    } catch (err) {
-        error(start ? 'Could not start Colab' : 'Could not stop Colab', err.message);
-    } finally {
-        button.disabled = false;
-    }
-    paintHealth(state.health);
-    loadColabRuntime();
-}
-
 function paintRuntimeDot() {
     const dot = $('runtime-settings-dot');
     dot.className = 'runtime-settings-dot';
@@ -2754,30 +3076,26 @@ function paintRuntimeDot() {
 }
 
 const RUNTIME_ACTIONS = {
-    start: { label: 'Start ComfyUI', icon: '<path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>' },
     restart: { label: 'Restart ComfyUI', icon: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path>' },
     settings: { label: 'Set up ComfyUI', icon: '<path d="M12 15V3"></path><path d="m7 10 5 5 5-5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' },
-    'colab-start': { label: 'Start Colab', icon: '<path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>' },
-    'colab-stop': { label: 'Stop Colab', icon: '<rect x="6" y="6" width="12" height="12" rx="2"></rect>' },
     'colab-token': { label: 'Add token', icon: '<circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path>' },
     'colab-sign-in': { label: 'Sign in', icon: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path>' },
 };
 
-/** What the status line offers: start an offline ComfyUI, or restart the one Create started. */
+/** What the status line offers: the next step for a problem, or a restart of the ComfyUI Create started. */
 function runtimeAction() {
     const health = state.health || {};
     if (state.backend === 'colab') {
         if (state.job) return null;
         if (health.backend?.signed_in === false) return 'colab-sign-in';
         if (health.backend?.civitai_ready === false) return 'colab-token';
-        const runtime = state.colab?.state;
-        if (!runtime || runtime === 'off' || runtime === 'error') return 'colab-start';
-        return ['allocating', 'booting', 'ready'].includes(runtime) ? 'colab-stop' : null;
+        return null;
     }
     if (state.runtimeBusy || state.job) return null;
+    // ComfyUI starts by itself with the first run; only a missing Desktop needs the user.
     if (health.comfyui_online === false) {
         if (!state.runtimeConfig) return null;
-        return state.runtimeConfig.install_path ? 'start' : 'settings';
+        return state.runtimeConfig.install_path ? null : 'settings';
     }
     const managed = state.runtimeStatus?.mode === 'managed';
     if ((health.restart_required || state.runtimeStale) && managed && runtimeUp(state.runtimeStatus)) return 'restart';
@@ -2789,6 +3107,9 @@ function paintRuntimeAction() {
     const button = $('runtime-action');
     const action = runtimeAction();
     button.hidden = !action;
+    // Without a problem or a next step the status line takes no room.
+    const line = $('model-status');
+    line.classList.toggle('is-empty', line.classList.contains('is-quiet') && !action);
     if (!action) return;
     button.dataset.action = action;
     button.querySelector('svg').innerHTML = RUNTIME_ACTIONS[action].icon;
@@ -2888,9 +3209,8 @@ function runtimeActionClick() {
         return;
     }
     if (action === 'colab-token') return openRuntimeSettings();
-    if (action === 'colab-start' || action === 'colab-stop') return colabPower(action === 'colab-start');
     if (action === 'settings') return openRuntimeSettings();
-    if (action === 'start' || action === 'restart') return startRuntime(action);
+    if (action === 'restart') return startRuntime(action);
 }
 
 async function runtimePowerClick() {

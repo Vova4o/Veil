@@ -151,7 +151,7 @@ def test_offline_inventory_sees_models_in_desktop_shared_folder(tmp_path):
     assert health["status"] == "ready"
     assert health["comfyui_online"] is False
     assert health["missing_resources"] == []
-    assert health["modes_ready"] == {"text": True, "reference": True, "edit": True}
+    assert health["modes_ready"] == {"text": True, "reference": True, "variation": True, "edit": True}
 
 
 def test_offline_health_without_comfyui_folder_is_unknown_not_missing():

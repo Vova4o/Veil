@@ -50,7 +50,7 @@ def _png_data_url(width=640, height=960) -> str:
 def test_krea2_profile_is_the_only_create_model():
     assert list(APPROVED_PROFILES) == ["krea2_moody_v40"]
     assert PROFILE.max_batch == 4
-    assert PROFILE.modes == ("text", "reference", "edit")
+    assert PROFILE.modes == ("text", "reference", "variation", "edit")
     assert PROFILE.sda_modes == ("text",)
     assert [pack.id for pack in PROFILE.custom_nodes] == ["comfyui-krea2edit"]
     for item in PROFILE.aspect_ratios:
@@ -199,7 +199,7 @@ def test_edit_profile_must_match_photo_count():
 def test_health_blocks_only_edit_when_nodes_are_missing():
     health = check_profile_health(PROFILE, _inventory(node_types=[]))
     assert health["status"] == "ready"
-    assert health["modes_ready"] == {"text": True, "reference": True, "edit": False}
+    assert health["modes_ready"] == {"text": True, "reference": True, "variation": True, "edit": False}
     assert health["missing_nodes"][0]["id"] == "comfyui-krea2edit"
     assert health["installable"] is True
     assert health["restart_required"] is False
@@ -254,7 +254,7 @@ def test_health_reports_missing_models_with_download_links():
     health = check_profile_health(PROFILE, _inventory(missing_files=("krea2_turbo_sda_v1.0_comfy.safetensors",)))
     assert health["status"] == "not_installed"
     assert health["installable"] is True
-    assert health["modes_ready"] == {"text": False, "reference": False, "edit": False}
+    assert health["modes_ready"] == {"text": False, "reference": False, "variation": False, "edit": False}
 
 
 def _pack_archive(entries: dict[str, bytes]) -> bytes:
@@ -581,3 +581,52 @@ def test_install_route_installs_missing_node_pack(create_env, monkeypatch, tmp_p
     assert data["restart_required"] is True
     assert data["node_packs"][0]["status"] == "installed"
     assert data["manual_install"] == []
+
+
+def test_generate_variation_starts_from_the_photo_with_the_chosen_noise(create_env):
+    fake_client, fake_store = create_env
+    resp = app.test_client().post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40",
+        "mode": "variation",
+        "prompt": "A woman in a grey sweater on a rocky coast at dusk.",
+        "reference_image": _png_data_url(640, 960),
+        "denoise": 0.4,
+        "batch_size": 2,
+        "seed": 3,
+    })
+    assert resp.status_code == 200, resp.data
+    data = resp.get_json()
+    assert data["denoise"] == 0.4
+    assert (data["width"], data["height"]) == (832, 1248)
+    assert len(fake_client.uploads) == 1 and len(fake_client.queued) == 2
+    workflow = fake_client.queued[0]["workflow"]
+    assert workflow["13"]["inputs"]["image"].startswith("cmv/cmv_source_")
+    assert workflow["14"]["class_type"] == "ImageScaleToTotalPixels"
+    assert workflow["7"]["inputs"]["denoise"] == 0.4
+    assert workflow["7"]["inputs"]["latent_image"] == ["6", 0]
+    assert workflow["9"]["inputs"]["filename_prefix"] == "CMV/Create/krea2_variation"
+    assert [item["workflow"]["7"]["inputs"]["seed"] for item in fake_client.queued] == [3, 4]
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_denoise"] == 0.4
+    assert fake_store.drafts[0]["values"]["denoise"] == 0.4
+    # No SDA LoRA: the photo, not a diversity LoRA, shapes the start.
+    assert not any("sda" in str(node["inputs"].get("lora_name", "")) for node in workflow.values())
+
+
+def test_generate_variation_defaults_and_rejections(create_env):
+    fake_client, _ = create_env
+    client = app.test_client()
+    ok = client.post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40", "mode": "variation", "prompt": "x", "reference_image": _png_data_url(512, 512),
+    })
+    assert ok.status_code == 200 and fake_client.queued[0]["workflow"]["7"]["inputs"]["denoise"] == 0.65
+    no_photo = client.post("/api/simple/generate", json={"profile_id": "krea2_moody_v40", "mode": "variation", "prompt": "x"})
+    assert no_photo.status_code == 400 and no_photo.get_json()["code"] == "image_required"
+    out_of_range = client.post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40", "mode": "variation", "prompt": "x",
+        "reference_image": _png_data_url(512, 512), "denoise": 1.5,
+    })
+    assert out_of_range.status_code == 400
+    wrong_mode = client.post("/api/simple/generate", json={
+        "profile_id": "krea2_moody_v40", "mode": "text", "prompt": "x", "denoise": 0.5,
+    })
+    assert wrong_mode.status_code == 400 and wrong_mode.get_json()["code"] == "variation_only"

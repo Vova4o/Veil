@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from flask import Blueprint, Response, current_app, jsonify, render_template, request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import database as db
 from app import library as media_library
@@ -54,13 +54,16 @@ from .progress_monitor import ProgressMonitor, monitor_for
 from .simple_downloader import SimpleModelDownloaderError, SimpleModelDownloaderService
 from .simple_profiles import (
     APPROVED_PROFILES,
+    DEFAULT_VARIATION_DENOISE,
     ApprovedProfile,
     check_profile_health,
     compile_edit_workflow,
     compile_simple_workflow,
+    compile_variation_workflow,
     resolve_dimensions,
     resolve_edit_profile,
     serialize_approved_profile,
+    variation_dimensions,
 )
 from .workflow_execution import WorkflowExecutionService
 from .workflow_inventory import cached_runtime_inventory, client_from_store
@@ -657,8 +660,11 @@ class SimpleGenerateRequest(BaseModel):
     seed: int = -1
     reference_image: str | None = None
     negative_prompt: str | None = None
-    # text: description only; reference: the image guides the prompt; edit: the image is changed.
-    mode: Literal["text", "reference", "edit"] = "text"
+    # text: description only; reference: the image guides the prompt; variation: the image is
+    # also the starting point and is partly repainted; edit: the image is changed.
+    mode: Literal["text", "reference", "variation", "edit"] = "text"
+    # variation only: how much of the photo is repainted (0 keeps it, 1 ignores it).
+    denoise: float | None = Field(default=None, ge=0.0, le=1.0)
     # edit only: a calibrated edit profile id and an optional donor photo (second reference).
     edit_profile: str | None = None
     subject_image: str | None = None
@@ -668,7 +674,8 @@ class SimpleGenerateRequest(BaseModel):
 
 class SimpleAgentRequest(BaseModel):
     profile_id: str = ""
-    mode: Literal["text", "reference", "edit"] = "text"
+    # variation uses the reference instruction: the agent describes the photo either way.
+    mode: Literal["text", "reference", "variation", "edit"] = "text"
     request: str = ""
     previous_prompt: str | None = None
     aspect_ratio: str = "1:1"
@@ -681,7 +688,9 @@ class SimpleAgentRequest(BaseModel):
     agent_variant: str | None = None
     agent_host: Literal["opencode", "antigravity", "codex", "claude"] | None = None
 
+
 MAX_SOURCE_IMAGE_BYTES = 40 * 1024 * 1024
+PHOTO_MODES = {"reference", "variation", "edit"}
 
 
 def _decode_image_data_url(value: str | None) -> tuple[bytes, tuple[int, int]] | None:
@@ -790,9 +799,12 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
     if req.mode not in profile.modes:
         return jsonify({"error": f"Mode '{req.mode}' is not supported by {profile.name}.", "code": "mode_unsupported"}), 400
 
-    image = _decode_image_data_url(req.reference_image) if req.mode in {"reference", "edit"} else None
-    if req.mode in {"reference", "edit"} and image is None:
+    image = _decode_image_data_url(req.reference_image) if req.mode in PHOTO_MODES else None
+    if req.mode in PHOTO_MODES and image is None:
         return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
+    if req.denoise is not None and req.mode != "variation":
+        return jsonify({"error": "Denoise is only used in variation mode.", "code": "variation_only"}), 400
+    denoise = req.denoise if req.denoise is not None else DEFAULT_VARIATION_DENOISE
     if req.mode == "edit" and not req.prompt.strip():
         return jsonify({"error": "Describe what to change in the photo.", "code": "instruction_required"}), 400
     if not req.prompt.strip():
@@ -810,7 +822,10 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
             return jsonify({"error": str(exc), "code": "edit_profile_invalid"}), 400
     elif req.subject_image or req.edit_profile:
         return jsonify({"error": "A second photo and edit profiles are only used in edit mode.", "code": "edit_only"}), 400
-    width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
+    if req.mode == "variation" and image:
+        width, height = variation_dimensions(image[1])
+    else:
+        width, height = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
 
     backend = _backend()
     # Matches the managed process readiness timeout: a cold start with custom nodes takes a while.
@@ -838,7 +853,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
 
     client = backend.client()
     source_name = subject_name = None
-    if req.mode == "edit":
+    if req.mode in {"edit", "variation"}:
         try:
             source_name = _upload_input_image(client, "cmv_source", image[0])
             if subject:
@@ -868,6 +883,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
             "subject_image": subject_name,
             "edit_profile": edit_profile.id if edit_profile else None,
             "negative_prompt": edit_negative,
+            "denoise": denoise if req.mode == "variation" else None,
         },
         resource_selections={},
     )
@@ -890,6 +906,14 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
                     edit_profile=edit_profile.id if edit_profile else None,
                     subject_image=subject_name,
                     negative_instruction=edit_negative,
+                )
+            elif req.mode == "variation":
+                workflow = compile_variation_workflow(
+                    profile,
+                    positive_prompt=positive_prompt,
+                    source_image=source_name,
+                    seed=seed,
+                    denoise=denoise,
                 )
             else:
                 workflow = compile_simple_workflow(
@@ -921,6 +945,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
                         **({"cmv_agent": req.agent_name} if req.agent_name else {}),
                         **({"cmv_edit_profile": edit_profile.id} if edit_profile else {}),
                         **({"cmv_negative_prompt": edit_negative} if edit_negative else {}),
+                        **({"cmv_denoise": denoise} if req.mode == "variation" else {}),
                     },
                 },
             )
@@ -954,6 +979,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest):
         "profile_id": profile.id,
         "mode": req.mode,
         "edit_profile": edit_profile.id if edit_profile else None,
+        "denoise": denoise if req.mode == "variation" else None,
         "seconds_per_image": edit_profile.seconds if edit_profile else None,
         "width": width,
         "height": height,
@@ -976,7 +1002,7 @@ def simple_agent():
         return jsonify({"error": f"Mode '{req.mode}' is not supported.", "code": "mode_unsupported"}), 400
 
     image = subject = None
-    if req.mode in {"reference", "edit"}:
+    if req.mode in PHOTO_MODES:
         image = _decode_image_data_url(req.reference_image)
         if image is None:
             return jsonify({"error": "Attach a valid image for this mode.", "code": "image_required"}), 400
@@ -984,11 +1010,15 @@ def simple_agent():
         subject = _decode_image_data_url(req.subject_image)
         if subject is None:
             return jsonify({"error": "The second photo is not a valid image.", "code": "subject_invalid"}), 400
-    dimensions = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
+    if req.mode == "variation" and image:
+        dimensions = variation_dimensions(image[1])
+    else:
+        dimensions = resolve_dimensions(profile, req.aspect_ratio, image[1] if image else None)
     run_kwargs: dict[str, Any] = {
         "profile": profile,
         "store": _ai_profile_store(),
-        "mode": req.mode,
+        # The variation prompt is the same faithful description of the photo as in reference mode.
+        "mode": "reference" if req.mode == "variation" else req.mode,
         "request": req.request,
         "image": image[0] if image else None,
         "subject": subject[0] if subject else None,
