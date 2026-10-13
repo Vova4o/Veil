@@ -14,6 +14,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.comfyui.desktop import comfyui_output_dir
 from app.comfyui.progress_monitor import ProgressMonitor
 from app.config_store import ConfigStore
 from app.model_sources.tokens import civitai_token
@@ -47,6 +49,10 @@ REMOTE_ROOT = "/content/cmv"
 ATTACH_SECONDS = 900
 CONTROL_TICK_SECONDS = 2.0
 KEEP_FINISHED_SECONDS = 6 * 3600
+# How often to look for a runtime whose start failed half-way (each look is a CLI call).
+UNCONFIRMED_CHECK_SECONDS = 60.0
+# Failures where Colab certainly started nothing.
+REFUSED_CODES = {"gpu_rejected", "allocation_refused"}
 ACTIVE_STATES = {"waiting", "sent", "received", "preparing", "queued", "running", "collecting"}
 LIVE_STATES = {"allocating", "booting", "ready"}
 
@@ -112,6 +118,74 @@ def pid_alive(pid: Any) -> bool:
 
 def output_key(subfolder: Any, filename: Any) -> str:
     return f"{subfolder or ''}/{filename}"
+
+
+_COMFY_FILENAME = re.compile(r"^(?P<prefix>.+)_\d{5,}_(?P<ext>\.[A-Za-z0-9]+)$")
+
+
+def rename_outputs(outputs: dict[str, Any], renamed: dict[str, str]) -> dict[str, Any]:
+    """ComfyUI outputs with the files that were saved under another name renamed."""
+    if not renamed:
+        return outputs
+    result: dict[str, Any] = {}
+    for node_id, node_outputs in outputs.items():
+        if not isinstance(node_outputs, dict):
+            result[node_id] = node_outputs
+            continue
+        result[node_id] = {
+            media_key: [
+                {**item, "filename": renamed.get(output_key(item.get("subfolder"), item.get("filename")), item.get("filename"))}
+                if isinstance(item, dict) else item
+                for item in items
+            ] if isinstance(items, list) else items
+            for media_key, items in node_outputs.items()
+        }
+    return result
+
+
+def save_to_output(output_dir: Path, subfolder: str, filename: str, source: Path) -> Path:
+    """Copy a result into ComfyUI's output folder under the next free name, as ComfyUI names it.
+
+    The VM restarts its own counter for every job, so its file names are not reused here.
+    """
+    root = output_dir.resolve()
+    folder = (root / subfolder).resolve() if subfolder else root
+    if folder != root and root not in folder.parents:
+        raise ValueError(f"The output subfolder leaves the output folder: {subfolder}")
+    folder.mkdir(parents=True, exist_ok=True)
+    name = Path(filename).name
+    match = _COMFY_FILENAME.match(name)
+    prefix, ext = (match["prefix"], match["ext"]) if match else (Path(name).stem, Path(name).suffix)
+    taken = re.compile(re.escape(prefix) + r"_(\d+)_" + re.escape(ext) + "$", re.IGNORECASE)
+    counter = max((int(found[1]) for item in folder.iterdir() if (found := taken.match(item.name))), default=0) + 1
+    data = source.read_bytes()
+    while True:
+        target = folder / f"{prefix}_{counter:05}_{ext}"
+        try:
+            with target.open("xb") as handle:
+                handle.write(data)
+            return target
+        except FileExistsError:
+            counter += 1
+
+
+OUTPUT_JOB_KEY = "cmv_job"
+
+
+def tag_outputs(outputs: dict[str, Any], prompt_id: str) -> dict[str, Any]:
+    """ComfyUI outputs with each file marked by its job, so a download finds that job's file."""
+    tagged: dict[str, Any] = {}
+    for node_id, node_outputs in outputs.items():
+        if not isinstance(node_outputs, dict):
+            tagged[node_id] = node_outputs
+            continue
+        tagged[node_id] = {
+            media_key: [
+                {**item, OUTPUT_JOB_KEY: prompt_id} if isinstance(item, dict) else item for item in items
+            ] if isinstance(items, list) else items
+            for media_key, items in node_outputs.items()
+        }
+    return tagged
 
 
 def signed_civitai_url(url: str, token: str, *, opener: Any = None) -> str:
@@ -182,6 +256,7 @@ class ColabRuntime:
         self._stream_process: subprocess.Popen[bytes] | None = None
         self._stream_thread: threading.Thread | None = None
         self._adopt_checked = False
+        self._unconfirmed_checked_at = float("-inf")
         threading.Thread(target=self._control, daemon=True, name="cmv-colab-control").start()
 
     # --- what routes call ---------------------------------------------------------
@@ -293,11 +368,13 @@ class ColabRuntime:
     def output_bytes(self, output: dict[str, Any]) -> bytes:
         key = output_key(output.get("subfolder"), output.get("filename"))
         with self._lock:
-            for job in self.jobs.values():
-                path = job.files.get(key)
-                if path is not None:
-                    return path.read_bytes()
-        raise FileNotFoundError(f"Colab output {key} is not in the local cache.")
+            # The VM empties ComfyUI's output folder after each job, so every job's first
+            # image has the same name; only the job's own files are its outputs.
+            job = self.jobs.get(str(output.get(OUTPUT_JOB_KEY) or ""))
+            path = job.files.get(key) if job is not None else None
+        if path is None:
+            raise FileNotFoundError(f"Colab output {key} is not in the local cache.")
+        return path.read_bytes()
 
     # --- control loop -------------------------------------------------------------
 
@@ -311,6 +388,7 @@ class ColabRuntime:
                 if not self._adopt_checked:
                     self._adopt_checked = True
                     self._adopt()
+                self._sweep_unconfirmed()
                 if self.state == "allocating":
                     self._start_runtime()
                 if self.state in {"booting", "ready"}:
@@ -328,13 +406,51 @@ class ColabRuntime:
     def _records(self) -> Path:
         return self.cache_dir / "runtimes"
 
-    def _record_owner(self, name: str) -> None:
-        """Note that this process runs ``name``; another CMV process leaves it alone."""
+    def _record_owner(self, name: str, *, unconfirmed: bool = False) -> None:
+        """Note that this process runs ``name``; another CMV process leaves it alone.
+
+        ``unconfirmed`` marks a runtime asked for but not reported started: when the start
+        fails half-way, Colab may still have created it, and it must not run unseen.
+        """
         self._records.mkdir(parents=True, exist_ok=True)
-        (self._records / f"{name}.json").write_text(
-            json.dumps({"name": name, "pid": os.getpid(), "gpu": self.gpu, "recorded_at": time.time()}),
-            encoding="utf-8",
-        )
+        record = {"name": name, "pid": os.getpid(), "gpu": self.gpu, "recorded_at": time.time()}
+        if unconfirmed:
+            record["unconfirmed"] = True
+        (self._records / f"{name}.json").write_text(json.dumps(record), encoding="utf-8")
+
+    def _read_records(self) -> list[dict[str, Any]]:
+        records = []
+        for path in sorted(self._records.glob("*.json")) if self._records.is_dir() else []:
+            try:
+                records.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                path.unlink(missing_ok=True)
+        return records
+
+    def _sweep_unconfirmed(self, *, force: bool = False) -> None:
+        """Stop runtimes whose start failed half-way; forget them once Colab no longer lists them."""
+        now = time.monotonic()
+        if not force and now - self._unconfirmed_checked_at < UNCONFIRMED_CHECK_SECONDS:
+            return
+        records = [
+            record for record in self._read_records()
+            if record.get("unconfirmed") and record.get("name") != self.name
+            and (record.get("pid") == os.getpid() or not pid_alive(record.get("pid")))
+        ]
+        if not records:
+            return
+        self._unconfirmed_checked_at = now
+        try:
+            alive = {item.name for item in self.cli.sessions()}
+        except ColabCLIError:
+            return  # Colab is unreachable; look again later.
+        for record in records:
+            name = str(record.get("name"))
+            if name in alive:
+                logger.warning("Stopping Colab runtime %s: it started although its start was reported as failed", name)
+                self._stop_quietly(name)
+            else:
+                self._forget_owner(name)
 
     def _forget_owner(self, name: str | None) -> None:
         if name:
@@ -347,16 +463,11 @@ class ColabRuntime:
         recorded them has ended: a second CMV running now (the desktop app next to a
         dev server, say) keeps its own runtime, and runtimes started by hand are left alone.
         """
-        records = []
-        for path in sorted(self._records.glob("*.json")) if self._records.is_dir() else []:
-            try:
-                record = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                path.unlink(missing_ok=True)
-                continue
-            if record.get("pid") != os.getpid() and pid_alive(record.get("pid")):
-                continue
-            records.append(record)
+        records = [
+            record for record in self._read_records()
+            if not record.get("unconfirmed")
+            and (record.get("pid") == os.getpid() or not pid_alive(record.get("pid")))
+        ]
         if not records:
             return
         try:
@@ -391,10 +502,15 @@ class ColabRuntime:
         name = f"{SESSION_PREFIX}{uuid.uuid4().hex[:8]}"
         with self._lock:
             self.gpu, self.boot_stage, self.started_at, self.ready_at = settings["gpu"], "allocating", time.time(), None
+        self._record_owner(name, unconfirmed=True)
         try:
             self.cli.new(name, settings["gpu"])
         except ColabCLIError as exc:
             self._fail_runtime(str(exc), exc.code)
+            if exc.code in REFUSED_CODES:
+                self._forget_owner(name)
+            else:
+                self._sweep_unconfirmed(force=True)
             return
         with self._lock:
             self.name, self._last_seq, self.vm_files = name, 0, set()
@@ -643,7 +759,7 @@ class ColabRuntime:
                 self.monitor.handle(message)
             elif kind == "job_done":
                 job.state = "collecting"
-                job.outputs = event.get("outputs") or {}
+                job.outputs = tag_outputs(event.get("outputs") or {}, job.prompt_id)
                 self._downloads.submit(self._collect, job.prompt_id, list(event.get("files") or []))
             elif kind == "job_failed":
                 job.error = {"message": event.get("message"), **(event.get("error") if isinstance(event.get("error"), dict) else {})}
@@ -661,6 +777,31 @@ class ColabRuntime:
             job = self.jobs[str(prompt_id)] = RemoteJob(prompt_id=str(prompt_id), workflow={}, state="sent")
         return job
 
+    def _save_outputs(self, files: list[dict[str, Any]], downloaded: dict[str, Path]) -> dict[str, str]:
+        """Results also land in ComfyUI's output folder, as they do when this computer renders.
+
+        Returns the new file name of each saved output by its key, so the library names the
+        image as the file in the output folder is named.
+        """
+        output_dir = comfyui_output_dir(self.store.comfyui_settings())
+        if output_dir is None:
+            logger.warning("No ComfyUI output folder is known; Colab results stay in the library only")
+            return {}
+        renamed: dict[str, str] = {}
+        for item in files:
+            key = output_key(item.get("subfolder"), item.get("filename"))
+            local = downloaded.get(key)
+            if local is None:
+                continue
+            try:
+                saved = save_to_output(output_dir, str(item.get("subfolder") or ""), str(item["filename"]), local)
+            except (OSError, ValueError) as exc:
+                logger.warning("Could not save the Colab result %s to %s: %s", item.get("filename"), output_dir, exc)
+                continue
+            if saved.name != item["filename"]:
+                renamed[key] = saved.name
+        return renamed
+
     def _collect(self, prompt_id: str, files: list[dict[str, Any]]) -> None:
         job = self.jobs.get(prompt_id)
         if job is None or self.name is None:
@@ -677,7 +818,11 @@ class ColabRuntime:
                 job.error = {"message": f"The result could not be downloaded from Colab: {exc}", "code": exc.code}
                 self._finish_job(job, "failed")
             return
+        renamed = self._save_outputs(files, downloaded)
         with self._lock:
+            for key, name in renamed.items():
+                downloaded[output_key(key.rsplit("/", 1)[0], name)] = downloaded.pop(key)
+            job.outputs = rename_outputs(job.outputs, renamed)
             job.files = downloaded
             job.state = "done"
             job.finished_at = time.time()
@@ -694,5 +839,6 @@ __all__ = [
     "RemoteJob",
     "output_key",
     "pid_alive",
+    "save_to_output",
     "signed_civitai_url",
 ]

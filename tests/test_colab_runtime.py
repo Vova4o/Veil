@@ -26,7 +26,7 @@ from app.remote.colab_backend import (
     job_resources,
 )
 from app.remote.colab_cli import ColabCLIError, ColabSession
-from app.remote.colab_runtime import ColabRuntime, signed_civitai_url
+from app.remote.colab_runtime import ColabRuntime, save_to_output, signed_civitai_url
 from app.remote.colab_worker import ATTACH_END_PREFIX, EVENT_PREFIX
 
 PROFILE = APPROVED_PROFILES["krea2_moody_v40"]
@@ -73,6 +73,7 @@ class _FakeCLI:
     def __init__(self, sessions=()):
         self.calls: list[tuple] = []
         self.uploads: dict[str, bytes] = {}
+        self.files: dict[str, bytes] = {}  # VM files by path; others download as PNG
         self.streams: queue.Queue[_Stream] = queue.Queue()
         self.attached: list[str] = []
         self.session_list = list(sessions)
@@ -100,7 +101,7 @@ class _FakeCLI:
 
     def download(self, name, remote, local):
         local.parent.mkdir(parents=True, exist_ok=True)
-        local.write_bytes(PNG)
+        local.write_bytes(self.files.get(remote, PNG))
         self.calls.append(("download", remote))
 
     def stop(self, name):
@@ -142,6 +143,7 @@ def store(tmp_path):
     item = ConfigStore(tmp_path / "config.json")
     item.update_remote_settings(backend="colab", colab_gpu="G4", colab_idle_minutes=10)
     save_civitai_token(item, "secret-token")
+    item.update_comfyui_settings(output_dir=str(tmp_path / "comfy-output"))
     return item
 
 
@@ -211,10 +213,59 @@ def test_a_job_runs_from_upload_to_import(store, tmp_path, signed, runtimes):
     ])
     _wait(lambda: client.get_job(prompt_id)["status"] == "completed", label="completed")
     done = client.get_job(prompt_id)
-    assert done["outputs"] == outputs and done["workflow"]["prompt"] == workflow
-    assert client.download_output(outputs["9"]["images"][0]) == PNG
+    image = done["outputs"]["9"]["images"][0]
+    assert image == {**outputs["9"]["images"][0], "cmv_job": prompt_id} and done["workflow"]["prompt"] == workflow
+    assert client.download_output(image) == PNG
     _wait(lambda: f"/content/cmv/inbox/{prompt_id}.collected" in cli.uploads, label="collected marker")
     assert runtime.status()["images_done"] == 1
+
+
+def test_jobs_with_the_same_output_name_get_their_own_images(store, tmp_path, signed, runtimes):
+    # The VM empties ComfyUI's output folder after each job, so each job's first image
+    # is krea2_00001_.png again.
+    cli = _FakeCLI()
+    runtime = runtimes(store, tmp_path / "cache", cli)
+    client = ColabComfyUIClient(runtime)
+    stream = None
+    seq = 1
+    names = []
+    for picture in (b"first picture", b"second picture"):
+        prompt_id = client.queue_prompt(_text_workflow(), client_id="x")["prompt_id"]
+        if stream is None:
+            stream = cli.streams.get(timeout=15)
+            stream.emit(1, "ready", gpu="G4")
+        _wait(lambda job=prompt_id: f"/content/cmv/inbox/{job}.job.json" in cli.uploads, label="job upload")
+        item = {"filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output"}
+        path = f"/content/cmv/outbox/{prompt_id}/krea2_00001_.png"
+        cli.files[path] = picture
+        seq += 1
+        stream.emit(seq, "job_done", job=prompt_id, outputs={"9": {"images": [item]}}, files=[{**item, "path": path}])
+        _wait(lambda job=prompt_id: client.get_job(job)["status"] == "completed", label="completed")
+        image = client.get_job(prompt_id)["outputs"]["9"]["images"][0]
+        assert client.download_output(image) == picture
+        names.append(image["filename"])
+    with pytest.raises(FileNotFoundError):
+        client.download_output(item)
+    # Both results also land in ComfyUI's output folder, numbered on from what is there.
+    saved = tmp_path / "comfy-output" / "CMV" / "Create"
+    assert (saved / "krea2_00001_.png").read_bytes() == b"first picture"
+    assert (saved / "krea2_00002_.png").read_bytes() == b"second picture"
+    # The library names each image as its file in the output folder is named.
+    assert names == ["krea2_00001_.png", "krea2_00002_.png"]
+
+
+def test_saving_to_output_takes_the_next_free_name(tmp_path):
+    source = tmp_path / "result.png"
+    source.write_bytes(b"image")
+    output = tmp_path / "output"
+    (output / "CMV" / "Create").mkdir(parents=True)
+    (output / "CMV" / "Create" / "krea2_00007_.png").write_bytes(b"older")
+    (output / "CMV" / "Create" / "krea2_edit_00009_.png").write_bytes(b"other prefix")
+    assert save_to_output(output, "CMV/Create", "krea2_00001_.png", source).name == "krea2_00008_.png"
+    assert save_to_output(output, "CMV/Create", "krea2_edit_00001_.png", source).name == "krea2_edit_00010_.png"
+    assert save_to_output(output, "", "plain.png", source) == output / "plain_00001_.png"
+    with pytest.raises(ValueError):
+        save_to_output(output, "../outside", "krea2_00001_.png", source)
 
 
 def test_cancel_before_sending_and_after(store, tmp_path, signed, runtimes):
@@ -248,6 +299,52 @@ def test_refused_gpu_fails_the_waiting_runs(store, tmp_path, runtimes):
     _wait(lambda: client.get_job(prompt_id)["status"] == "failed", label="failed")
     assert client.get_job(prompt_id)["execution_error"]["code"] == "gpu_rejected"
     assert runtime.status()["state"] == "error"
+
+
+def test_a_runtime_started_despite_a_timeout_is_stopped(store, tmp_path, runtimes):
+    cli = _FakeCLI()
+    reachable = {"now": False}
+
+    def time_out(name, gpu):
+        # Colab created the runtime, but the answer never reached the CLI.
+        cli.calls.append(("new", name, gpu))
+        cli.session_list = [ColabSession(name, "endpoint", gpu, "Standard", "GPU")]
+        raise ColabCLIError("Colab did not answer in time.", code="colab_unreachable")
+
+    def sessions():
+        if not reachable["now"]:
+            raise ColabCLIError("Colab sessions are unavailable.", code="sessions_failed")
+        return list(cli.session_list) if cli.alive else []
+
+    cli.new, cli.sessions = time_out, sessions
+    runtime = runtimes(store, tmp_path / "cache", cli)
+    client = ColabComfyUIClient(runtime)
+    prompt_id = client.queue_prompt(_text_workflow(), client_id="x")["prompt_id"]
+    _wait(lambda: client.get_job(prompt_id)["status"] == "failed", label="failed")
+    name = cli.calls[0][1]
+    record = tmp_path / "cache" / "runtimes" / f"{name}.json"
+    assert json.loads(record.read_text(encoding="utf-8"))["unconfirmed"] is True
+    # While Colab is unreachable the record stays; once it answers, the runtime is stopped.
+    reachable["now"] = True
+    runtime._unconfirmed_checked_at = float("-inf")
+    runtime._wake.set()
+    _wait(lambda: ("stop", name) in cli.calls, label="orphan stopped")
+    runtime._unconfirmed_checked_at = float("-inf")
+    runtime._wake.set()
+    _wait(lambda: not record.exists(), label="record forgotten")
+
+
+def test_a_refused_runtime_leaves_no_record(store, tmp_path, runtimes):
+    cli = _FakeCLI()
+
+    def refuse(name, gpu):
+        raise ColabCLIError("Colab refused the runtime.", code="allocation_refused")
+
+    cli.new = refuse
+    runtime = runtimes(store, tmp_path / "cache", cli)
+    runtime.ensure_started()
+    _wait(lambda: runtime.status()["state"] == "error", label="error")
+    assert not list((tmp_path / "cache" / "runtimes").glob("*.json"))
 
 
 def test_idle_runtime_is_stopped(store, tmp_path, signed, runtimes):

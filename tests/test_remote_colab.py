@@ -104,12 +104,22 @@ def test_whoami_reads_the_account():
     ("[colab] Backend rejected accelerator 'H100'. You may not have quota", "gpu_rejected"),
     ("[colab] Allocation refused (precondition failed).", "allocation_refused"),
     ("Traceback: boom", "colab_failed"),
+    ("ReadTimeout: HTTPSConnectionPool(host='colab.research.google.com', port=443): Read timed out.", "colab_unreachable"),
 ])
 def test_new_explains_refused_runtimes(stderr, code):
     cli, _ = _cli({" new ": (1, "[colab] Creating session 'cmv'...\n", stderr)})
     with pytest.raises(ColabCLIError) as excinfo:
         cli.new("cmv", "H100")
     assert excinfo.value.code == code
+
+
+def test_cli_errors_lose_the_frames_of_rich_panels():
+    panel = "╭" + "─" * 300 + "╮\n│ KeyError: 'endpoint' │\n╰" + "─" * 300 + "╯"
+    cli, _ = _cli({" new ": (1, "[colab] Creating session 'cmv'...\n", panel)})
+    with pytest.raises(ColabCLIError) as excinfo:
+        cli.new("cmv", "G4")
+    message = str(excinfo.value)
+    assert "─" not in message and "KeyError: 'endpoint'" in message and len(message) < 200
 
 
 def test_new_succeeds_on_ready():

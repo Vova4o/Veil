@@ -228,6 +228,20 @@ def launch_settings(
     return resolved
 
 
+def comfyui_output_dir(settings: Mapping[str, Any], data_dir: Path | None = None) -> Path | None:
+    """The folder ComfyUI saves results in: CMV's own, else Desktop's, else the ComfyUI folder's."""
+    own = _text(settings.get("output_dir"))
+    if own:
+        return Path(own)
+    data_dir = data_dir or desktop_data_dir()
+    installation = selected_installation(settings, data_dir) if data_dir else None
+    if installation is not None:
+        desktop = desktop_folders(data_dir)["output_dir"]
+        return Path(desktop) if desktop else installation.comfy_dir / "output"
+    install_path = _text(settings.get("install_path"))
+    return Path(install_path) / "output" if install_path else None
+
+
 def write_models_config(models_dir: Path, state_dir: Path | None = None) -> Path:
     """A model paths config that makes ``models_dir`` ComfyUI's default models folder.
 

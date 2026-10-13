@@ -7,6 +7,7 @@ import pytest
 from app.comfyui import desktop, routes
 from app.comfyui.desktop import (
     CMV_MODEL_PATHS_FILE,
+    comfyui_output_dir,
     desktop_installation_for,
     find_desktop_installations,
     launch_settings,
@@ -53,6 +54,16 @@ def desktop_env(tmp_path, monkeypatch):
            f"comfy.desktop_0:\n  base_path: '{shared / 'models'}'\n  is_default: true\n  'loras': 'loras/'\n")
     monkeypatch.setattr(desktop, "desktop_data_dir", lambda: data)
     return {"data": data, "shared": shared, "installs": installs}
+
+
+def test_output_folder_is_cmvs_own_else_desktops_else_comfyuis(desktop_env, tmp_path):
+    assert comfyui_output_dir({"output_dir": str(tmp_path / "mine")}) == tmp_path / "mine"
+    assert comfyui_output_dir({}) == desktop_env["shared"] / "output"
+    _write(desktop_env["data"] / "settings.json", {})
+    assert comfyui_output_dir({}) == desktop_env["installs"] / "Main" / "ComfyUI" / "output"
+    plain = tmp_path / "Portable" / "ComfyUI"
+    assert comfyui_output_dir({"install_path": str(plain)}, data_dir=tmp_path / "no-desktop") == plain / "output"
+    assert comfyui_output_dir({}, data_dir=tmp_path / "no-desktop") is None
 
 
 def test_installations_skip_cloud_and_broken_entries_and_lead_with_last_used(desktop_env):

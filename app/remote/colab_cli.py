@@ -171,8 +171,17 @@ def _stalled(result: subprocess.CompletedProcess[str]) -> bool:
     return any(marker in text for marker in ("ReadTimeout", "Read timed out", "ConnectTimeout", "Timeout waiting for reply"))
 
 
+# The frames the CLI draws its error panels with.
+_BOX_DRAWING = re.compile("[\u2500-\u257f]+")
+
+
 def _tail(result: subprocess.CompletedProcess[str], limit: int = 400) -> str:
-    lines = [line for line in (result.stderr + "\n" + result.stdout).splitlines() if line.strip()]
+    """The last lines of the CLI's output, without the frames of its error panels."""
+    lines = []
+    for raw in (result.stderr + "\n" + result.stdout).splitlines():
+        line = " ".join(_BOX_DRAWING.sub(" ", raw).split())
+        if line:
+            lines.append(line)
     return " ".join(lines[-3:])[-limit:] or f"exit {result.returncode}"
 
 
@@ -262,6 +271,12 @@ class ColabCLI:
             raise ColabCLIError(
                 "Colab refused the runtime: too many sessions or a temporary capacity limit.",
                 code="allocation_refused",
+            )
+        if _stalled(result):
+            raise ColabCLIError(
+                "Colab did not answer in time. Check that WSL can reach the internet (a VPN often "
+                "blocks it), then try again.",
+                code="colab_unreachable",
             )
         raise ColabCLIError(f"Colab could not start a runtime: {_tail(result)}")
 
