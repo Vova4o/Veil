@@ -15,7 +15,7 @@ from flask import Flask, jsonify, request
 from .desktop_cache import configure_legacy_cache
 from .desktop_data import import_legacy_library
 
-TOKEN_HEADER = "X-CMV-Desktop-Token"
+TOKEN_HEADER = "X-MediaStudio-Desktop-Token"
 
 
 def install_desktop_guard(application: Flask, token: str) -> None:
@@ -49,14 +49,14 @@ def install_desktop_guard(application: Flask, token: str) -> None:
 
 
 def main() -> None:
-    token = os.environ.get("COMFY_META_DESKTOP_TOKEN", "")
+    token = os.environ.get("MEDIASTUDIO_DESKTOP_TOKEN", "")
     if len(token) < 32:
         raise SystemExit("The desktop backend must be started by its Electron launcher.")
-    data_dir = Path(os.environ["COMFY_META_DATA_DIR"])
-    import_dir = os.environ.get("COMFY_META_IMPORT_DIR")
+    data_dir = Path(os.environ["MEDIASTUDIO_DATA_DIR"])
+    import_dir = os.environ.get("MEDIASTUDIO_IMPORT_DIR")
     if import_dir:
         import_legacy_library(Path(import_dir), data_dir)
-    legacy_cache = os.environ.get("COMFY_META_IMPORT_CACHE_DIR")
+    legacy_cache = os.environ.get("MEDIASTUDIO_IMPORT_CACHE_DIR")
     eligible = configure_legacy_cache(data_dir, Path(legacy_cache) if legacy_cache else None)
     if eligible:
         print(f"[Desktop] Legacy cache available for {eligible} matching assets", flush=True)
@@ -67,7 +67,7 @@ def main() -> None:
         for tool in ("ffmpeg", "ffprobe"):
             executable = tools_dir / f"{tool}{suffix}"
             if executable.is_file():
-                os.environ.setdefault(f"COMFY_META_{tool.upper()}", str(executable))
+                os.environ.setdefault(f"MEDIASTUDIO_{tool.upper()}", str(executable))
 
     from waitress import create_server
 
@@ -92,9 +92,9 @@ def main() -> None:
         app.config["DESKTOP_PORT"] = int(server.effective_port)
         serving = threading.Thread(target=server.run, name="desktop-http", daemon=True)
         serving.start()
-        print("CMV_DESKTOP_READY " + json.dumps({
+        print("MEDIASTUDIO_DESKTOP_READY " + json.dumps({
             "port": int(server.effective_port), "pid": os.getpid(),
-            "session": os.environ.get("COMFY_META_DESKTOP_SESSION"),
+            "session": os.environ.get("MEDIASTUDIO_DESKTOP_SESSION"),
         }), flush=True)
         try:
             while not stop.wait(0.5):

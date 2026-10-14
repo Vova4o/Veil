@@ -53,6 +53,7 @@ from .paths import (
     PathValidationError,
     RuntimePaths,
     build_runtime_paths,
+    migrate_legacy_data_dir,
     normalize_existing_directory,
     portable_filename,
 )
@@ -83,7 +84,7 @@ from .visual_runtime.routes import studio_blueprint
 app = Flask(__name__)
 
 setup_tracing()
-tracer = get_tracer("comfy-meta-viewer")
+tracer = get_tracer("mediastudio")
 
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 app.config["SEND_FILE_MAX_AGE"] = 3600
@@ -1211,6 +1212,7 @@ def open_browser(port: int):
 
 def configure_runtime(paths: RuntimePaths | None = None) -> RuntimePaths:
     runtime_paths = paths or build_runtime_paths()
+    migrate_legacy_data_dir(runtime_paths)
     runtime_paths.ensure_directories()
     app.config.update(runtime_paths.flask_config())
     db.set_db_path(runtime_paths.database)
@@ -1221,7 +1223,7 @@ def configure_runtime(paths: RuntimePaths | None = None) -> RuntimePaths:
     from .source_monitor import sync_configured_sources
 
     sync_configured_sources(store)
-    # SaveImage writes into CMV/Create: include its subfolders and backfill old results.
+    # SaveImage writes into MediaStudio/Create: include its subfolders and backfill old results.
     from .comfyui.create_outputs import ensure_output_source
     with app.app_context():
         ensure_output_source(store)
@@ -1264,6 +1266,7 @@ def main():
         raise SystemExit("Choose only one reset command")
 
     runtime_paths = build_runtime_paths()
+    migrate_legacy_data_dir(runtime_paths)
     if reset_index_requested or factory_reset_requested:
         _run_reset_command(
             runtime_paths,
@@ -1271,7 +1274,7 @@ def main():
         )
         return
 
-    port = int(os.environ.get("COMFY_META_PORT", "7860"))
+    port = int(os.environ.get("MEDIASTUDIO_PORT", "7860"))
 
     if "--no-browser" not in sys.argv:
         open_browser(port)

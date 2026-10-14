@@ -19,7 +19,7 @@ export async function setupTracing() {
 
         const provider = new WebTracerProvider({
             resource: new Resource({
-                [SemanticResourceAttributes.SERVICE_NAME]: "comfy-meta-viewer-web",
+                [SemanticResourceAttributes.SERVICE_NAME]: "mediastudio-web",
             }),
         });
         provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
@@ -36,7 +36,7 @@ export async function setupTracing() {
             console.warn("[tracing] xhr instrumentation failed", e);
         }
 
-        _tracer = otelApi.trace.getTracer("comfy-meta-viewer-web");
+        _tracer = otelApi.trace.getTracer("mediastudio-web");
         _ready = true;
         console.info("[tracing] opentelemetry web tracing enabled -> console");
     } catch (e) {

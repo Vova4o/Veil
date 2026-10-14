@@ -5,7 +5,7 @@
 
 import './features/simple-mode-continuity.js';
 
-const THEME_STORAGE_KEY = 'cmv_theme';
+const THEME_STORAGE_KEY = 'mediastudio_theme';
 const VALID_THEMES = ['dark', 'light', 'strawberry', 'strawberry-dark', 'system'];
 
 export function getStoredTheme() {

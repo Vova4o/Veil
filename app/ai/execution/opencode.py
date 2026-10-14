@@ -24,7 +24,7 @@ from ..prompting import (
 MAX_USER_INPUT_CHARS = 100_000
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-OPENCODE_AGENT_NAME = "cmv-prompt-smoke"
+OPENCODE_AGENT_NAME = "mediastudio-prompt-smoke"
 LEGACY_OPENCODE_TIMEOUT_SECONDS = 60
 DEFAULT_OPENCODE_TIMEOUT_SECONDS = 5 * 60
 # The JSON event stream repeats every text part; long prompts exceed the default cap.
@@ -141,7 +141,7 @@ class OpenCodePromptExecutor:
             profile=profile,
             task_package=self._render_task_package(bundle, cleaned_input),
             image_path=validated_image,
-            title="ComfyUI Meta Viewer prompt smoke",
+            title="MediaStudio prompt smoke",
             on_output_chunk=on_output_chunk,
         )
         try:
@@ -183,7 +183,7 @@ class OpenCodePromptExecutor:
         profile: dict[str, Any],
         task_package: str,
         image_path: str | Path | None = None,
-        title: str = "ComfyUI Meta Viewer structured task",
+        title: str = "MediaStudio structured task",
         on_output_chunk: Any = None,
     ) -> OpenCodeRawExecutionResult:
         self._validate_profile(profile)
@@ -222,13 +222,13 @@ class OpenCodePromptExecutor:
         agent = opencode_host.STOCK_AGENT if stock_agent else OPENCODE_AGENT_NAME
 
         try:
-            with tempfile.TemporaryDirectory(prefix="cmv-opencode-", ignore_cleanup_errors=True) as temp_dir:
+            with tempfile.TemporaryDirectory(prefix="mediastudio-opencode-", ignore_cleanup_errors=True) as temp_dir:
                 workspace = Path(temp_dir) / "project"
                 config_home = Path(temp_dir) / "config"
                 workspace.mkdir()
                 config_home.mkdir()
                 self._write_isolated_config(workspace, stock_agent=stock_agent)
-                task_file = workspace / "cmv-task.md"
+                task_file = workspace / "mediastudio-task.md"
                 task_file.write_text(
                     task_package.strip() + "\n",
                     encoding="utf-8",
@@ -242,7 +242,7 @@ class OpenCodePromptExecutor:
                     files.append(copied_image)
 
                 prompt = (
-                    "Use the attached CMV task package as the authoritative task. "
+                    "Use the attached MediaStudio task package as the authoritative task. "
                     "Do not use tools, subagents, skills, file browsing, shell commands, "
                     "or network access. Return only the strict JSON object required by "
                     "the task package, with no Markdown fences or commentary."
@@ -441,11 +441,11 @@ class OpenCodePromptExecutor:
         if not stock_agent:
             config["agent"] = {
                 OPENCODE_AGENT_NAME: {
-                    "description": "Generate one CMV PromptResult without tools.",
+                    "description": "Generate one MediaStudio PromptResult without tools.",
                     "mode": "primary",
                     "permission": {"*": "deny"},
                     "prompt": (
-                        "You execute deterministic ComfyUI Meta Viewer prompt tasks. "
+                        "You execute deterministic MediaStudio prompt tasks. "
                         "Use only the supplied task package and attachments. Return strict JSON only."
                     ),
                 }
@@ -459,7 +459,7 @@ class OpenCodePromptExecutor:
     @staticmethod
     def _render_task_package(bundle: InstructionBundle, user_input: str) -> str:
         return (
-            "# CMV managed OpenCode task\n\n"
+            "# MediaStudio managed OpenCode task\n\n"
             "The instruction bundle below is authoritative. Do not inspect the project or "
             "seek additional context.\n\n"
             f"{bundle.render()}\n"

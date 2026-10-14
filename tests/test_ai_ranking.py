@@ -77,7 +77,7 @@ class AIRankingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.old_db_path = database.get_db_path()
-        database.set_db_path(Path(self.temp_dir.name) / "cmv.sqlite3")
+        database.set_db_path(Path(self.temp_dir.name) / "mediastudio.sqlite3")
         database.init_db()
         self.old_app_config = {
             "TESTING": app.config.get("TESTING"),

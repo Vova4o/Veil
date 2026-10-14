@@ -1,10 +1,10 @@
-"""CMV's side of a Colab runtime: start it, stream its events, send jobs, stop it when idle.
+"""MediaStudio's side of a Colab runtime: start it, stream its events, send jobs, stop it when idle.
 
-One ``ColabRuntime`` per CMV process. It allocates a runtime with the Colab CLI, defines the
+One ``ColabRuntime`` per MediaStudio process. It allocates a runtime with the Colab CLI, defines the
 worker (``colab_worker.py``) in its kernel, boots it and keeps one ``attach`` stream open.
 Jobs wait here until the runtime exists, then go up as files; the worker's events update a
 local mirror that ``ColabComfyUIClient`` reads, and outputs come down to a cache folder
-until Create imports them into the library. A runtime CMV started earlier (CMV restarted
+until Create imports them into the library. A runtime MediaStudio started earlier (MediaStudio restarted
 while it ran) is adopted instead of starting a second one.
 """
 
@@ -44,8 +44,8 @@ COMFYUI_PIN = {
     "repo": "https://github.com/comfyanonymous/ComfyUI.git",
     "commit": "e8665ca8e4089ab917567cdb491308e1397663d4",  # 2026-10-11, checked with Krea2 on G4 and L4
 }
-SESSION_PREFIX = "cmv-"
-REMOTE_ROOT = "/content/cmv"
+SESSION_PREFIX = "mediastudio-"
+REMOTE_ROOT = "/content/mediastudio"
 ATTACH_SECONDS = 900
 CONTROL_TICK_SECONDS = 2.0
 KEEP_FINISHED_SECONDS = 6 * 3600
@@ -62,7 +62,7 @@ class RelayedProgressMonitor(ProgressMonitor):
 
     def __init__(self) -> None:
         super().__init__("colab", 0)
-        self.client_id = "cmv-colab"
+        self.client_id = "mediastudio-colab"
 
     def ensure_connected(self, timeout: float = 2.0) -> bool:
         return True
@@ -169,7 +169,7 @@ def save_to_output(output_dir: Path, subfolder: str, filename: str, source: Path
             counter += 1
 
 
-OUTPUT_JOB_KEY = "cmv_job"
+OUTPUT_JOB_KEY = "mediastudio_job"
 
 
 def tag_outputs(outputs: dict[str, Any], prompt_id: str) -> dict[str, Any]:
@@ -205,7 +205,7 @@ def signed_civitai_url(url: str, token: str, *, opener: Any = None) -> str:
         query.append(("token", token))
     request = urllib.request.Request(
         urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query))),
-        headers={"User-Agent": "comfy-meta-viewer", **({"Authorization": f"Bearer {token}"} if token else {})},
+        headers={"User-Agent": "mediastudio", **({"Authorization": f"Bearer {token}"} if token else {})},
         method="GET",
     )
     opener = opener or urllib.request.build_opener(_NoRedirect)
@@ -252,12 +252,12 @@ class ColabRuntime:
         self._lock = threading.RLock()
         self._wake = threading.Event()
         self._closed = threading.Event()
-        self._downloads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cmv-colab-download")
+        self._downloads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mediastudio-colab-download")
         self._stream_process: subprocess.Popen[bytes] | None = None
         self._stream_thread: threading.Thread | None = None
         self._adopt_checked = False
         self._unconfirmed_checked_at = float("-inf")
-        threading.Thread(target=self._control, daemon=True, name="cmv-colab-control").start()
+        threading.Thread(target=self._control, daemon=True, name="mediastudio-colab-control").start()
 
     # --- what routes call ---------------------------------------------------------
 
@@ -407,7 +407,7 @@ class ColabRuntime:
         return self.cache_dir / "runtimes"
 
     def _record_owner(self, name: str, *, unconfirmed: bool = False) -> None:
-        """Note that this process runs ``name``; another CMV process leaves it alone.
+        """Note that this process runs ``name``; another MediaStudio process leaves it alone.
 
         ``unconfirmed`` marks a runtime asked for but not reported started: when the start
         fails half-way, Colab may still have created it, and it must not run unseen.
@@ -457,10 +457,10 @@ class ColabRuntime:
             (self._records / f"{name}.json").unlink(missing_ok=True)
 
     def _adopt(self) -> None:
-        """Take over a runtime that this CMV started before it restarted.
+        """Take over a runtime that this MediaStudio started before it restarted.
 
         Only runtimes recorded here are candidates, and only when the process that
-        recorded them has ended: a second CMV running now (the desktop app next to a
+        recorded them has ended: a second MediaStudio running now (the desktop app next to a
         dev server, say) keeps its own runtime, and runtimes started by hand are left alone.
         """
         records = [
@@ -521,7 +521,7 @@ class ColabRuntime:
                 raise ColabCLIError(f"The worker could not start: {defined.stderr.strip()[-300:]}", code="worker_failed")
             spec = {"comfyui": COMFYUI_PIN, "custom_nodes": self._custom_nodes(),
                     "idle_seconds": settings["idle_minutes"] * 60}
-            booted = self.cli.exec_code(name, f"import json\nCMV_WORKER.boot(json.loads({json.dumps(json.dumps(spec))}))", timeout=120)
+            booted = self.cli.exec_code(name, f"import json\nMEDIASTUDIO_WORKER.boot(json.loads({json.dumps(json.dumps(spec))}))", timeout=120)
             if booted.returncode != 0:
                 raise ColabCLIError(f"The worker did not boot: {booted.stderr.strip()[-300:]}", code="worker_failed")
         except ColabCLIError as exc:
@@ -669,7 +669,7 @@ class ColabRuntime:
     def _start_stream(self) -> None:
         if self._stream_thread is not None and self._stream_thread.is_alive():
             return
-        self._stream_thread = threading.Thread(target=self._stream, daemon=True, name="cmv-colab-stream")
+        self._stream_thread = threading.Thread(target=self._stream, daemon=True, name="mediastudio-colab-stream")
         self._stream_thread.start()
 
     def _stream(self) -> None:
@@ -678,7 +678,7 @@ class ColabRuntime:
             name = self.name
             try:
                 process = self.cli.exec_stream(
-                    name, f"CMV_WORKER.attach({self._last_seq}, {ATTACH_SECONDS})", timeout=ATTACH_SECONDS + 120,
+                    name, f"MEDIASTUDIO_WORKER.attach({self._last_seq}, {ATTACH_SECONDS})", timeout=ATTACH_SECONDS + 120,
                 )
             except ColabCLIError as exc:
                 failures += 1
@@ -773,7 +773,7 @@ class ColabRuntime:
             return None
         job = self.jobs.get(str(prompt_id))
         if job is None and event.get("ev") in {"job_done", "job_failed", "job_cancelled", "job_queued", "comfy"}:
-            # A job from before CMV restarted: rebuilt so its run can still finish.
+            # A job from before MediaStudio restarted: rebuilt so its run can still finish.
             job = self.jobs[str(prompt_id)] = RemoteJob(prompt_id=str(prompt_id), workflow={}, state="sent")
         return job
 

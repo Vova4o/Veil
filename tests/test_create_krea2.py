@@ -103,13 +103,13 @@ def test_edit_workflow_binds_instruction_source_and_size():
     workflow = compile_edit_workflow(
         PROFILE,
         instruction="  Recolor the dress to burgundy.  ",
-        source_image="cmv/source.png",
+        source_image="mediastudio/source.png",
         dimensions=(832, 1216),
         seed=11,
     )
     assert workflow["4"]["inputs"]["prompt"] == "Recolor the dress to burgundy."
     assert workflow["5"]["inputs"]["prompt"] == ""
-    assert workflow["15"]["inputs"]["image"] == "cmv/source.png"
+    assert workflow["15"]["inputs"]["image"] == "mediastudio/source.png"
     assert workflow["17"]["inputs"]["width"] == 832
     assert workflow["17"]["inputs"]["height"] == 1216
     assert workflow["7"]["inputs"]["seed"] == 11
@@ -145,7 +145,7 @@ def test_edit_profiles_cover_every_knob_and_photo_count():
 def test_edit_profile_sets_graph_knobs(edit_profile):
     item = resolve_edit_profile(PROFILE, edit_profile)
     workflow = compile_edit_workflow(
-        PROFILE, instruction="x", source_image="cmv/s.png", dimensions=(896, 1152), seed=1, edit_profile=edit_profile
+        PROFILE, instruction="x", source_image="mediastudio/s.png", dimensions=(896, 1152), seed=1, edit_profile=edit_profile
     )
     assert _edit_knobs(workflow) == item.settings
     # The negative grounded encode must see the same image at the same grounding size.
@@ -153,7 +153,7 @@ def test_edit_profile_sets_graph_knobs(edit_profile):
 
 
 def test_default_edit_profile_matches_calibrated_graph():
-    workflow = compile_edit_workflow(PROFILE, instruction="x", source_image="cmv/s.png", dimensions=(896, 1152))
+    workflow = compile_edit_workflow(PROFILE, instruction="x", source_image="mediastudio/s.png", dimensions=(896, 1152))
     assert _edit_knobs(workflow) == {"cfg": 1.0, "steps": 8, "ref_boost": 4.0, "ref_boost_a": 1.0, "grounding_px": 768}
 
 
@@ -162,7 +162,7 @@ def test_edit_negative_goes_to_grounded_negative_encode():
         PROFILE,
         instruction="She is topless, with both arms bare.",
         negative_instruction="  a cream knitted sweater with long sleeves  ",
-        source_image="cmv/s.png",
+        source_image="mediastudio/s.png",
         dimensions=(896, 1152),
         edit_profile="remove",
     )
@@ -176,13 +176,13 @@ def test_edit_with_subject_wires_second_reference():
     workflow = compile_edit_workflow(
         PROFILE,
         instruction="Copy the tattoo from the second image.",
-        source_image="cmv/scene.png",
-        subject_image="cmv/donor.png",
+        source_image="mediastudio/scene.png",
+        subject_image="mediastudio/donor.png",
         dimensions=(896, 1152),
         seed=3,
         edit_profile="donor_detail",
     )
-    assert workflow["30"]["inputs"]["image"] == "cmv/donor.png"
+    assert workflow["30"]["inputs"]["image"] == "mediastudio/donor.png"
     assert workflow["31"]["inputs"]["image"] == ["30", 0]
     assert workflow["32"]["inputs"]["pixels"] == ["31", 0]
     patch = workflow["18"]["inputs"]
@@ -190,7 +190,7 @@ def test_edit_with_subject_wires_second_reference():
     assert patch["source_image_b"] == ["31", 0]
     # Scene stays the first reference: the main inputs keep the source photo.
     assert patch["source_image"] == ["16", 0]
-    assert workflow["15"]["inputs"]["image"] == "cmv/scene.png"
+    assert workflow["15"]["inputs"]["image"] == "mediastudio/scene.png"
     assert workflow["4"]["inputs"]["image_b"] == ["31", 0]
     assert workflow["5"]["inputs"]["image_b"] == ["31", 0]
     assert (patch["ref_boost"], patch["ref_boost_a"]) == (2.0, 4.0)
@@ -329,7 +329,7 @@ class _FakeClient:
         self.queued: list[dict] = []
         self.uploads: list[tuple[str, int]] = []
 
-    def upload_image(self, filename, data, *, subfolder="cmv", overwrite=False):
+    def upload_image(self, filename, data, *, subfolder="mediastudio", overwrite=False):
         self.uploads.append((filename, len(data)))
         return {"name": filename, "subfolder": subfolder, "type": "input"}
 
@@ -382,7 +382,7 @@ def test_generate_text_mode_queues_one_prompt_per_image(create_env):
     seeds = [item["workflow"]["11"]["inputs"]["noise_seed"] for item in fake_client.queued]
     assert seeds == [500, 501, 502]
     assert all(item["workflow"]["10"]["inputs"]["strength_model"] == 1.0 for item in fake_client.queued)
-    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_create_mode"] == "text"
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["mediastudio_create_mode"] == "text"
     assert fake_store.drafts[0]["values"]["seeds"] == [500, 501, 502]
 
 
@@ -469,7 +469,7 @@ def test_generate_edit_uploads_source_and_uses_its_ratio(create_env):
     assert len(fake_client.uploads) == 1
     assert len(fake_client.queued) == 2
     workflow = fake_client.queued[0]["workflow"]
-    assert workflow["15"]["inputs"]["image"].startswith("cmv/cmv_source_")
+    assert workflow["15"]["inputs"]["image"].startswith("mediastudio/mediastudio_source_")
     assert workflow["4"]["inputs"]["prompt"] == "Change the dress to deep burgundy red."
     assert abs(data["width"] / data["height"] - 640 / 960) < 0.03
     assert [item["workflow"]["7"]["inputs"]["seed"] for item in fake_client.queued] == [9, 10]
@@ -492,10 +492,10 @@ def test_generate_edit_with_donor_and_profile(create_env):
     assert data["seconds_per_image"] > 0
     assert [name.split("_")[1] for name, _size in fake_client.uploads] == ["source", "subject"]
     workflow = fake_client.queued[0]["workflow"]
-    assert workflow["30"]["inputs"]["image"].startswith("cmv/cmv_subject_")
-    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_edit_profile"] == "donor"
+    assert workflow["30"]["inputs"]["image"].startswith("mediastudio/mediastudio_subject_")
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["mediastudio_edit_profile"] == "donor"
     assert fake_store.drafts[0]["values"]["edit_profile"] == "donor"
-    assert fake_store.drafts[0]["values"]["subject_image"].startswith("cmv/cmv_subject_")
+    assert fake_store.drafts[0]["values"]["subject_image"].startswith("mediastudio/mediastudio_subject_")
 
 
 def test_generate_edit_heavy_profile_raises_cfg(create_env):
@@ -527,7 +527,7 @@ def test_generate_edit_remove_profile_carries_negative(create_env):
     assert resp.get_json()["negative_prompt"] == "a cream knitted sweater with long sleeves"
     workflow = fake_client.queued[0]["workflow"]
     assert workflow["5"]["inputs"]["prompt"] == "a cream knitted sweater with long sleeves"
-    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_negative_prompt"].startswith("a cream")
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["mediastudio_negative_prompt"].startswith("a cream")
     assert fake_store.drafts[0]["values"]["negative_prompt"].startswith("a cream")
 
 
@@ -616,13 +616,13 @@ def test_generate_variation_starts_from_the_photo_with_the_chosen_noise(create_e
     assert (data["width"], data["height"]) == (832, 1248)
     assert len(fake_client.uploads) == 1 and len(fake_client.queued) == 2
     workflow = fake_client.queued[0]["workflow"]
-    assert workflow["13"]["inputs"]["image"].startswith("cmv/cmv_source_")
+    assert workflow["13"]["inputs"]["image"].startswith("mediastudio/mediastudio_source_")
     assert workflow["14"]["class_type"] == "ImageScaleToTotalPixels"
     assert workflow["7"]["inputs"]["denoise"] == 0.4
     assert workflow["7"]["inputs"]["latent_image"] == ["6", 0]
-    assert workflow["9"]["inputs"]["filename_prefix"] == "CMV/Create/krea2_variation"
+    assert workflow["9"]["inputs"]["filename_prefix"] == "MediaStudio/Create/krea2_variation"
     assert [item["workflow"]["7"]["inputs"]["seed"] for item in fake_client.queued] == [3, 4]
-    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["cmv_denoise"] == 0.4
+    assert fake_client.queued[0]["extra"]["extra_pnginfo"]["mediastudio_denoise"] == 0.4
     assert fake_store.drafts[0]["values"]["denoise"] == 0.4
     # This route must remain plain img2img, with no editing or diversity adapter.
     assert not any("LoraLoader" in node["class_type"] or node["class_type"].startswith("Krea2Edit")

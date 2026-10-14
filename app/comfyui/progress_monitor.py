@@ -270,7 +270,7 @@ class ProgressMonitor:
     def __init__(self, host: str, port: int):
         self.host = host
         self.port = int(port)
-        self.client_id = f"cmv-create-{uuid.uuid4().hex}"
+        self.client_id = f"mediastudio-create-{uuid.uuid4().hex}"
         self._prompts: dict[str, PromptProgress] = {}
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -285,7 +285,7 @@ class ProgressMonitor:
         with self._lock:
             if self._thread is None or not self._thread.is_alive():
                 self._connected.clear()
-                self._thread = threading.Thread(target=self._run, name="cmv-comfy-progress", daemon=True)
+                self._thread = threading.Thread(target=self._run, name="mediastudio-comfy-progress", daemon=True)
                 self._last_activity = time.monotonic()
                 self._thread.start()
         return self._connected.wait(timeout)

@@ -143,7 +143,7 @@ def test_bundle_modules_follow_the_mode():
         "krea2_base", "mode_reference", "composition", "wardrobe", "intimate", "create_krea2",
     ]
     rendered = edit.render()
-    assert rendered.startswith("CMV CREATE TASK")
+    assert rendered.startswith("MediaStudio CREATE TASK")
     assert "mode: edit" in rendered
     assert "family: flux" not in rendered
     assert "- light:" in rendered and "- donor:" not in rendered
@@ -486,7 +486,7 @@ def test_codex_progress_skips_the_echoed_task_and_keeps_the_journal():
     read = create_agent.progress_reader({"kind": "cli", "cli_type": "codex"}, seen.append)
     journal = [
         "OpenAI Codex v0.160.0", "--------", "model: gpt-x", "--------",
-        "user", "CMV CREATE TASK", "SECTION FAMILY_BASE: secret instruction text", "",
+        "user", "MediaStudio CREATE TASK", "SECTION FAMILY_BASE: secret instruction text", "",
         "thinking", "**Planning the frame**",
         "mcp: memory-agent/recall started",
         "codex", '{"positive_prompt": "x"', "}",

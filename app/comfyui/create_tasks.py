@@ -62,7 +62,7 @@ class CreateTaskService:
             return self.snapshot(task_id)
 
     def _spawn(self, task_id: str, target) -> None:
-        thread = threading.Thread(target=self._worker, args=(task_id, target), name=f"cmv-create-{task_id}", daemon=True)
+        thread = threading.Thread(target=self._worker, args=(task_id, target), name=f"mediastudio-create-{task_id}", daemon=True)
         self._threads[task_id] = thread
         thread.start()
 
@@ -188,7 +188,7 @@ class CreateTaskService:
                     "started_at": started_at,
                 })
 
-        thread = threading.Thread(target=prepare, name=f"cmv-create-runtime-{task_id}", daemon=True)
+        thread = threading.Thread(target=prepare, name=f"mediastudio-create-runtime-{task_id}", daemon=True)
         with self._lock:
             self._runtime_threads[task_id] = thread
             thread.start()

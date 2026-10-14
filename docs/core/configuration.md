@@ -25,25 +25,25 @@ The application is designed to run locally with a small set of environment varia
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMFY_META_PORT` | `7860` | HTTP server port |
-| `COMFY_META_DATA_DIR` | `.comfy_meta_uploads` | Directory for the SQLite database and application data |
-| `COMFY_META_CACHE_DIR` | `cache` | Directory for thumbnails, previews, and cutouts |
-| `COMFY_META_UPLOAD` | — | Backward-compatible alias for `COMFY_META_DATA_DIR` |
+| `MEDIASTUDIO_PORT` | `7860` | HTTP server port |
+| `MEDIASTUDIO_DATA_DIR` | `.mediastudio_data` | Directory for the SQLite database and application data |
+| `MEDIASTUDIO_CACHE_DIR` | `cache` | Directory for thumbnails, previews, and cutouts |
+| `MEDIASTUDIO_UPLOAD` | — | Backward-compatible alias for `MEDIASTUDIO_DATA_DIR` |
 
 ### Examples
 
 ```bash
 # Windows CMD
-set COMFY_META_PORT=8080
-set COMFY_META_DATA_DIR=D:\my_data
-set COMFY_META_CACHE_DIR=D:\my_cache
+set MEDIASTUDIO_PORT=8080
+set MEDIASTUDIO_DATA_DIR=D:\my_data
+set MEDIASTUDIO_CACHE_DIR=D:\my_cache
 start.bat
 
 # Linux/macOS
-COMFY_META_PORT=8080 COMFY_META_DATA_DIR=/data/comfy-meta ./start.sh
+MEDIASTUDIO_PORT=8080 MEDIASTUDIO_DATA_DIR=/data/mediastudio ./start.sh
 
 # Poetry run with a custom port
-COMFY_META_PORT=8080 poetry run python -m app.main
+MEDIASTUDIO_PORT=8080 poetry run python -m app.main
 ```
 
 ---
@@ -66,7 +66,7 @@ By default, the Flask server binds to `127.0.0.1`, so it is intended for local u
 
 ```
 ComfyUI-Meta-Viewer/
-├── .comfy_meta_uploads/
+├── .mediastudio_data/
 │   ├── config.json                # Saved sources and non-secret AI provider settings
 │   └── meta.db                    # Disposable SQLite index
 ├── cache/
@@ -86,9 +86,9 @@ ComfyUI-Meta-Viewer/
 
 | Path | Contents | Reset Index | Factory Reset |
 |------|----------|-------------|---------------|
-| `.comfy_meta_uploads/config.json` | Source paths plus non-secret AI providers, model visibility and the default model | preserved | deleted |
-| `.comfy_meta_uploads/meta.db` | Disposable SQLite index, virtual library data, and uploaded BLOBs | recreated | recreated |
-| `.comfy_meta_uploads/meta.db-wal` / `-shm` | SQLite WAL sidecars | deleted | deleted |
+| `.mediastudio_data/config.json` | Source paths plus non-secret AI providers, model visibility and the default model | preserved | deleted |
+| `.mediastudio_data/meta.db` | Disposable SQLite index, virtual library data, and uploaded BLOBs | recreated | recreated |
+| `.mediastudio_data/meta.db-wal` / `-shm` | SQLite WAL sidecars | deleted | deleted |
 | `cache/thumbnails/` | Generated JPEG thumbnails | cleared | cleared |
 | `cache/previews/` | Generated lightbox previews up to 4096 px | cleared | cleared |
 | `cache/cutouts/` | Generated transparent PNG cutouts | cleared | cleared |
@@ -138,7 +138,7 @@ environment variable rather than a plaintext fallback.
 
 Local AI tools (OpenCode, Claude Code, Codex, Antigravity) are found on this computer and run
 themselves, so they retain ownership of their authorization. The application does not read or copy
-their credential files. Factory Reset removes CMV's system-keyring entries before deleting
+their credential files. Factory Reset removes VEIL's system-keyring entries before deleting
 `config.json`; Reset Index preserves providers and credentials.
 
 ---

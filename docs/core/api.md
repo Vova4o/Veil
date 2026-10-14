@@ -781,7 +781,7 @@ Returns local diagnostics and cache statistics.
 
 ```json
 {
-  "db_path": "/absolute/path/to/project/.comfy_meta_uploads/meta.db",
+  "db_path": "/absolute/path/to/project/.mediastudio_data/meta.db",
   "folders": 3,
   "images": 150,
   "uploads": 12,
@@ -791,7 +791,7 @@ Returns local diagnostics and cache statistics.
   "preview_count": 7,
   "cutout_dir": "/absolute/path/to/project/cache/cutouts",
   "cutout_count": 5,
-  "upload_dir": "/absolute/path/to/project/.comfy_meta_uploads"
+  "upload_dir": "/absolute/path/to/project/.mediastudio_data"
 }
 ```
 
@@ -939,12 +939,12 @@ Deletes the stored AI rating and any manual override for the asset.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET/POST` | `/api/comfyui/config` | Read or update the ComfyUI Desktop installation, CMV's own models, input and output folders, host, port, and launch arguments |
+| `GET/POST` | `/api/comfyui/config` | Read or update the ComfyUI Desktop installation, VEIL's own models, input and output folders, host, port, and launch arguments |
 | `GET` | `/api/comfyui/installations` | List ComfyUI Desktop installations (last used first) and Desktop's models, input and output folders |
 | `POST` | `/api/comfyui/detect` | Validate an installation folder; names its ComfyUI Desktop installation when there is one |
 | `GET` | `/api/comfyui/status` | Return managed/external mode, health, queue, installation, and hardware data |
-| `POST` | `/api/comfyui/start` | Start the chosen ComfyUI Desktop installation with Desktop's launch arguments and CMV's folders; the process ends with CMV |
-| `POST` | `/api/comfyui/stop` | Stop only the CMV-managed process |
+| `POST` | `/api/comfyui/start` | Start the chosen ComfyUI Desktop installation with Desktop's launch arguments and VEIL's folders; the process ends with VEIL |
+| `POST` | `/api/comfyui/stop` | Stop only the VEIL-managed process |
 | `POST` | `/api/comfyui/restart` | Restart the managed process |
 | `POST` | `/api/comfyui/interrupt` | Interrupt active ComfyUI execution |
 | `GET` | `/api/comfyui/logs` | Return captured managed-process output |
@@ -954,7 +954,7 @@ Deletes the stored AI rating and any manual override for the asset.
 
 ## Remote GPU (Google Colab)
 
-Create can render on a Google Colab GPU under the user's own Google account (plan: [COLAB-REMOTE-PLAN.md](../COLAB-REMOTE-PLAN.md)). On Windows CMV drives Google's Colab CLI (`google-colab-cli`) inside WSL. Sign-in is the CLI's own copy-paste Google flow: CMV opens the Google link and hands the code to the waiting CLI process; it never reads or stores the token, which the CLI keeps in WSL. CMV keeps its runtimes in its own CLI session file. Routes that start programs (`install`, `login`, `logout`, WSL setup) answer only to the app on this computer.
+Create can render on a Google Colab GPU under the user's own Google account (plan: [COLAB-REMOTE-PLAN.md](../COLAB-REMOTE-PLAN.md)). On Windows VEIL drives Google's Colab CLI (`google-colab-cli`) inside WSL. Sign-in is the CLI's own copy-paste Google flow: VEIL opens the Google link and hands the code to the waiting CLI process; it never reads or stores the token, which the CLI keeps in WSL. VEIL keeps its runtimes in its own CLI session file. Routes that start programs (`install`, `login`, `logout`, WSL setup) answer only to the app on this computer.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -964,16 +964,16 @@ Create can render on a Google Colab GPU under the user's own Google account (pla
 | `GET` | `/api/remote/colab/update` | The installed CLI version and a newer release, if the CLI knows one |
 | `POST` | `/api/remote/colab/login` | Start sign-in and return the Google URL; `signed_in: true` without a URL when the CLI is already signed in |
 | `POST` | `/api/remote/colab/login/code` | Body `{"code": "..."}`: hand Google's authorization code to the waiting CLI; the code is not stored |
-| `POST` | `/api/remote/colab/logout` | Remove the CLI's saved sign-in in WSL (also signs out the CLI outside CMV) |
-| `GET` | `/api/remote/colab/usage` | Compute-unit balance, the current CU per hour, active assignments and CMV's runtimes; cached 60 s, `?refresh=1` asks again |
-| `GET` | `/api/remote/colab/runtime` | CMV's Colab runtime: state (`off`, `allocating`, `booting`, `ready`, `stopping`, `error`), GPU, boot stage, active jobs, images done and seconds until the idle auto-stop |
+| `POST` | `/api/remote/colab/logout` | Remove the CLI's saved sign-in in WSL (also signs out the CLI outside VEIL) |
+| `GET` | `/api/remote/colab/usage` | Compute-unit balance, the current CU per hour, active assignments and VEIL's runtimes; cached 60 s, `?refresh=1` asks again |
+| `GET` | `/api/remote/colab/runtime` | VEIL's Colab runtime: state (`off`, `allocating`, `booting`, `ready`, `stopping`, `error`), GPU, boot stage, active jobs, images done and seconds until the idle auto-stop |
 | `POST` | `/api/remote/colab/runtime/start` | Allocate the runtime and boot the worker in the background (Create runs also start it on demand) |
 | `POST` | `/api/remote/colab/runtime/stop` | Release the runtime now; runs still waiting on it fail |
 | `GET/POST` | `/api/remote/settings` | Where Create runs (`local` or `colab`), the Colab GPU (`G4` default, `A100`, `L4`, `T4`, `H100`) and the idle auto-stop (2-60 minutes, default 10) |
 
 ## Model sources
 
-The Civitai API key that model downloads use, here and for Colab runtimes (Integrations › Model sources). It is kept in the system credential store, like provider API keys; `config.json` holds it only where no credential store is available, and a key an older version saved there moves into the store the first time it is read. No route returns the key. For Colab, CMV turns each Civitai link into a short-lived signed link locally, so the key never reaches the runtime. Routes that set, check or remove the key answer only to the app on this computer.
+The Civitai API key that model downloads use, here and for Colab runtimes (Integrations › Model sources). It is kept in the system credential store, like provider API keys; `config.json` holds it only where no credential store is available, and a key an older version saved there moves into the store the first time it is read. No route returns the key. For Colab, VEIL turns each Civitai link into a short-lived signed link locally, so the key never reaches the runtime. Routes that set, check or remove the key answer only to the app on this computer.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -1221,9 +1221,9 @@ edit-only. `variation` starts from the photo itself (image to image): the photo 
 how much of it is repainted from the prompt; 1.0 keeps only its proportions. The prompt for a
 variation is the same faithful description of the photo the agent writes in `reference` mode.
 The request, the prompt, the agent, the edit profile and the noise level are stored in the draft and
-in the PNG metadata (`cmv_user_request`, `cmv_prompt`, `cmv_agent`, `cmv_edit_profile`,
-`cmv_denoise`). Every result also lands in ComfyUI's output folder (`CMV/Create`), including runs on
-Colab: CMV copies them there under the next free ComfyUI-style name.
+in the PNG metadata (`mediastudio_user_request`, `mediastudio_prompt`, `mediastudio_agent`, `mediastudio_edit_profile`,
+`mediastudio_denoise`). Every result also lands in ComfyUI's output folder (`MediaStudio/Create`), including runs on
+Colab: VEIL copies them there under the next free ComfyUI-style name.
 
 **Response (`200`):**
 

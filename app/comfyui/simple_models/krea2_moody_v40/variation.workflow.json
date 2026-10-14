@@ -140,7 +140,7 @@
   "9": {
     "class_type": "SaveImage",
     "inputs": {
-      "filename_prefix": "CMV/Create/krea2_variation",
+      "filename_prefix": "MediaStudio/Create/krea2_variation",
       "images": [
         "8",
         0

@@ -1,4 +1,4 @@
-# CMV Prompt Engineering & AI Agent Architecture Specification
+# VEIL Prompt Engineering & AI Agent Architecture Specification
 
 > **Status:** Canonical Master Reference Specification  
 > **Target Execution Layer:** Frontier CLI Agents (OpenCode, Claude Code, Antigravity) & Direct API Adapters  
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Core Philosophy
 
-This document defines the comprehensive prompt compilation, composition, and AI agent execution architecture for the **VEIL (CMV)** ecosystem.
+This document defines the comprehensive prompt compilation, composition, and AI agent execution architecture for the **VEIL (VEIL)** ecosystem.
 
 The system is engineered specifically for **frontier-class reasoning and multimodal AI models** (Google Gemini 3.1 Pro / 3.5–3.7 Flash, xAI Grok 4.6, OpenAI GPT-5.6, Anthropic Claude 4/5, Mimo v2.5, Hy3, Muse Spark) executed via isolated CLI agent hosts or direct API adapters. It operates without legacy compromises, unlocking:
 
@@ -327,7 +327,7 @@ graph LR
 #### 2. OpenAI Provider (`GPT-5.6 Sol / Terra / Luna`, `GPT-5`, `o3` Series)
 - **Primary Verdict:** **Powerful Composition with a Tendency Toward Context Bloat.**
 - **Strengths:** Excellent multi-subject relationship understanding, rich vocabulary, and subtle artistic nuance.
-- **Weaknesses:** Strong tendency to **overcomplicate and bloat the prompt** with unnecessary narrative backstory, verbose adjectives, and redundant qualifiers if not strictly constrained by the CMV runtime.
+- **Weaknesses:** Strong tendency to **overcomplicate and bloat the prompt** with unnecessary narrative backstory, verbose adjectives, and redundant qualifiers if not strictly constrained by the VEIL runtime.
 - **Best Use Cases:** Complex multi-character storytelling, intricate historical fantasy setups, and complex concept ideation where length is secondary to depth.
 
 #### 3. Uncensored & Permissive NSFW Champions (`Grok 4.6 / 4.7`, `Mimo v2.5`, `Hy3`, `Muse Spark`)
@@ -346,7 +346,7 @@ graph LR
 #### 5. Code-Specialized & Non-Vision LLMs
 - **Primary Verdict:** **High Error Rate; Not Recommended as Primary Prompt Generators.**
 - **Weaknesses:** Models tuned strictly for code or lacking descriptive visual training frequently make fundamental spatial and logical errors (confusing left/right laterality, creating physical contradictions like dry wet-paint, or inventing impossible anatomy).
-- **Runtime Scaffolding Role:** The CMV Prompt Runtime enforces strict JSON formatting and validation, but **cannot magically compensate** for a model's intrinsic lack of visual composition intuition and common-sense spatial reasoning.
+- **Runtime Scaffolding Role:** The VEIL Prompt Runtime enforces strict JSON formatting and validation, but **cannot magically compensate** for a model's intrinsic lack of visual composition intuition and common-sense spatial reasoning.
 
 ---
 

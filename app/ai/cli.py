@@ -21,7 +21,7 @@ SECRET_PATTERNS = (
     re.compile(r"(?i)((?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*)(\S+)"),
     re.compile(r"\b(sk-[A-Za-z0-9_-]{8,})\b"),
 )
-VISION_TEST_IMAGE = Path(__file__).with_name("assets") / "cmv-vision-test-garden.jpg"
+VISION_TEST_IMAGE = Path(__file__).with_name("assets") / "mediastudio-vision-test-garden.jpg"
 
 
 CLI_SPECS: dict[str, dict[str, Any]] = {
@@ -785,7 +785,7 @@ def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[s
             code="incompatible_format",
         )
 
-    prompt = "Reply with exactly CMV_OK and no other text. Do not use tools."
+    prompt = "Reply with exactly MEDIASTUDIO_OK and no other text. Do not use tools."
     if cli_type == "opencode":
         return _run_opencode_test(executable, profile, multimodal=multimodal)
     elif cli_type == "codex":
@@ -827,7 +827,7 @@ def run_cli_test(profile: dict[str, Any], *, multimodal: bool = False) -> dict[s
 def _run_opencode_test(executable: str, profile: dict[str, Any], *, multimodal: bool) -> dict[str, Any]:
     from . import opencode_host
 
-    prompt = "Reply with exactly CMV_OK and no other text. Do not use tools."
+    prompt = "Reply with exactly MEDIASTUDIO_OK and no other text. Do not use tools."
     files: list[Path] = []
     if multimodal:
         if not VISION_TEST_IMAGE.is_file():
@@ -837,9 +837,9 @@ def _run_opencode_test(executable: str, profile: dict[str, Any], *, multimodal: 
             )
         prompt = (
             "Inspect the attached garden image, then reply with exactly "
-            "CMV_OK and no other text. Do not use tools."
+            "MEDIASTUDIO_OK and no other text. Do not use tools."
         )
-    with tempfile.TemporaryDirectory(prefix="cmv-opencode-test-", ignore_cleanup_errors=True) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-opencode-test-", ignore_cleanup_errors=True) as temp_dir:
         workspace = Path(temp_dir) / "project"
         config_home = Path(temp_dir) / "config"
         workspace.mkdir()
@@ -852,7 +852,7 @@ def _run_opencode_test(executable: str, profile: dict[str, Any], *, multimodal: 
             generation=opencode_host.generation_for(executable),
             model=profile["model"],
             agent=opencode_host.STOCK_AGENT,
-            title="ComfyUI Meta Viewer connection test",
+            title="MediaStudio connection test",
             message=prompt,
             files=files,
         )
@@ -880,14 +880,14 @@ def _run_claude_vision_test(executable: str, profile: dict[str, Any]) -> dict[st
         raise CLIIntegrationError(
             "The bundled vision test image is missing.", code="incompatible_format"
         )
-    with tempfile.TemporaryDirectory(prefix="cmv-claude-test-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-claude-test-") as temp_dir:
         shutil.copyfile(VISION_TEST_IMAGE, Path(temp_dir) / "input.jpg")
         result = run_command(
             [
                 executable,
                 "--print",
                 "Use the Read tool to open the image input.jpg in the current working "
-                "directory, then reply with exactly CMV_OK and no other text.",
+                "directory, then reply with exactly MEDIASTUDIO_OK and no other text.",
                 "--output-format",
                 "json",
                 "--model",
@@ -913,11 +913,11 @@ def _run_codex_test(executable: str, profile: dict[str, Any], *, multimodal: boo
             "The bundled vision test image is missing.", code="incompatible_format"
         )
     prompt = (
-        "Inspect the attached garden image, then reply with exactly CMV_OK and no other text."
+        "Inspect the attached garden image, then reply with exactly MEDIASTUDIO_OK and no other text."
         if multimodal
-        else "Reply with exactly CMV_OK and no other text. Do not run commands."
+        else "Reply with exactly MEDIASTUDIO_OK and no other text. Do not run commands."
     )
-    with tempfile.TemporaryDirectory(prefix="cmv-codex-test-", ignore_cleanup_errors=True) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-codex-test-", ignore_cleanup_errors=True) as temp_dir:
         image_name = None
         if multimodal:
             image_name = "input.jpg"

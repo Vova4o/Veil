@@ -14,7 +14,7 @@ Krea2 diffusion model file instead of the profile's),
 cfg, steps, ref_boost_a, system_prompt, negative (what must disappear; acts at cfg > 1), lora / lora_strength (replace the identity edit
 LoRA), extra_lora / extra_lora_strength (chained after it), subject_image (a donor photo
 wired by the profile as the second reference: scene first, subject second). Results land in ComfyUI
-output under CMV/CalibrationEdit/. See docs/CREATE-KREA2-PLAN.md (sections 5.1, 5.2).
+output under MediaStudio/CalibrationEdit/. See docs/CREATE-KREA2-PLAN.md (sections 5.1, 5.2).
 """
 import json
 import sys
@@ -46,7 +46,7 @@ def node_id(workflow, class_type):
 
 
 def upload(client, path: Path) -> str:
-    uploaded = client.upload_image(f"cmv_calib_{path.stem}{path.suffix}", path.read_bytes(), overwrite=True)
+    uploaded = client.upload_image(f"mediastudio_calib_{path.stem}{path.suffix}", path.read_bytes(), overwrite=True)
     return "/".join(part for part in (uploaded.get("subfolder"), uploaded["name"]) if part)
 
 
@@ -104,7 +104,7 @@ def main():
                 },
             }
             patch["model"] = ["33", 0]
-        node_of(workflow, "SaveImage")[0]["inputs"]["filename_prefix"] = f"CMV/CalibrationEdit/edit_{run['label']}"
+        node_of(workflow, "SaveImage")[0]["inputs"]["filename_prefix"] = f"MediaStudio/CalibrationEdit/edit_{run['label']}"
         if "--front" in sys.argv:
             payload = {"prompt": workflow, "client_id": str(uuid.uuid4()), "front": True}
             prompt_id = client._request_json("POST", "/prompt", payload=payload, timeout=30.0)["prompt_id"]

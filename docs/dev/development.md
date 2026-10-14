@@ -92,7 +92,7 @@ ComfyUI-Meta-Viewer/
 poetry run python -m app.main
 
 # Custom port
-COMFY_META_PORT=8080 poetry run python -m app.main
+MEDIASTUDIO_PORT=8080 poetry run python -m app.main
 
 # Do not auto-open the browser
 poetry run python -m app.main --no-browser
@@ -107,7 +107,7 @@ Default URL: `http://localhost:7860`.
 
 ## Adding an API Endpoint
 
-CMV treats `site/api/openapi.json` as the public machine-readable API contract. The detailed human reference lives in `docs/core/api.md`. Supported public routes and OpenAPI are checked for drift by `tests/test_openapi_contract.py` on every normal pytest/CI run.
+VEIL treats `site/api/openapi.json` as the public machine-readable API contract. The detailed human reference lives in `docs/core/api.md`. Supported public routes and OpenAPI are checked for drift by `tests/test_openapi_contract.py` on every normal pytest/CI run.
 
 The supported public route modules are:
 

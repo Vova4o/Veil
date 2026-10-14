@@ -708,7 +708,7 @@ class OpenCodeIntentJudgeExecutorTest(unittest.TestCase):
             captured["config"] = json.loads(
                 (workspace / "opencode.json").read_text(encoding="utf-8")
             )
-            captured["task"] = (workspace / "cmv-judge-task.md").read_text(
+            captured["task"] = (workspace / "mediastudio-judge-task.md").read_text(
                 encoding="utf-8"
             )
             return CommandResult(
@@ -752,7 +752,7 @@ class OpenCodeIntentJudgeExecutorTest(unittest.TestCase):
         self.assertEqual(executed.result.total, 93)
         self.assertEqual(captured["timeout"], 300)
         self.assertEqual(
-            captured["config"]["agent"]["cmv-intent-judge"]["permission"],
+            captured["config"]["agent"]["mediastudio-intent-judge"]["permission"],
             {"*": "deny"},
         )
         self.assertIn("clean_minimal", captured["task"])

@@ -2,7 +2,7 @@ module.exports = {
     appId: 'org.lotargo.veil', productName: 'VEIL',
     directories: { output: 'dist/desktop' },
     files: ['.desktop-build/**', 'desktop/shell.html', 'desktop/shell.js', 'desktop/assets/**', 'package.json'],
-    extraResources: [{ from: 'build/desktop-backend/comfy-meta-backend', to: 'backend' }],
+    extraResources: [{ from: 'build/desktop-backend/mediastudio-backend', to: 'backend' }],
     asar: true, npmRebuild: false,
     win: { target: 'nsis', icon: 'desktop/assets/icon.ico', artifactName: 'VEIL-${version}-Setup.${ext}' },
     nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true,

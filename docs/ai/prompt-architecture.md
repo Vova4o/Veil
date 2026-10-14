@@ -1,6 +1,6 @@
 # AI Prompt Architecture
 
-> High-level architecture overview for the CMV prompt compilation and AI execution subsystem.
+> High-level architecture overview for the VEIL prompt compilation and AI execution subsystem.
 > For the complete normative reference, see the [Prompt Architecture Specification](prompt-architecture-spec.md).
 
 VEIL compiles model-aware prompt instructions from one canonical registry and

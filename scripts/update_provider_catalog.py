@@ -1,7 +1,7 @@
 """Rebuild app/ai/assets/provider_catalog.json from the models.dev catalog.
 
 OpenCode keeps a copy of https://models.dev/api.json in ``~/.cache/opencode/models.json``;
-that copy is read by default, so no network access is needed. Only providers CMV can
+that copy is read by default, so no network access is needed. Only providers MediaStudio can
 reach through an OpenAI-compatible ``/chat/completions`` endpoint are kept.
 
     poetry run python scripts/update_provider_catalog.py

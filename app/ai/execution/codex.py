@@ -27,7 +27,7 @@ from .agent_cli import (
 )
 
 DEFAULT_CODEX_TIMEOUT_SECONDS = 5 * 60
-LAST_MESSAGE_FILE = "cmv-last-message.txt"
+LAST_MESSAGE_FILE = "mediastudio-last-message.txt"
 # Model ids that mean "use the model configured in ~/.codex/config.toml".
 CODEX_DEFAULT_MODELS = {"", "default", "auto"}
 
@@ -157,7 +157,7 @@ class CodexPromptExecutor:
             instruction_bundle, cleaned_input, image_name=image_name, image_attached=True
         )
         try:
-            with agent_run_workspace("cmv-codex-", image_path=validated_image) as workspace:
+            with agent_run_workspace("mediastudio-codex-", image_path=validated_image) as workspace:
                 completed = run_command(
                     command,
                     timeout=timeout_sec,

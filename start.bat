@@ -11,7 +11,7 @@ if /I "%~1"=="--web" goto web
 if /I "%~1"=="--reset-index" goto web
 if /I "%~1"=="--factory-reset" goto web
 
-set "COMFY_META_IMPORT_DIR=%~dp0.comfy_meta_uploads"
+set "MEDIASTUDIO_IMPORT_DIR=%~dp0.mediastudio_data"
 if exist "%~dp0dist\desktop\win-unpacked\VEIL.exe" (
     start "" "%~dp0dist\desktop\win-unpacked\VEIL.exe" %*
     exit /b 0
@@ -21,9 +21,14 @@ call "%~dp0desktop.bat" %*
 exit /b %errorlevel%
 
 :web
-if not defined COMFY_META_DATA_DIR if exist "%APPDATA%\Comfy Meta Viewer\data\meta.db" (
-    set "COMFY_META_DATA_DIR=%APPDATA%\Comfy Meta Viewer\data"
-    set "COMFY_META_CACHE_DIR=%APPDATA%\Comfy Meta Viewer\cache"
+if not defined MEDIASTUDIO_DATA_DIR if exist "%APPDATA%\MediaStudio\data\meta.db" (
+    set "MEDIASTUDIO_DATA_DIR=%APPDATA%\MediaStudio\data"
+    set "MEDIASTUDIO_CACHE_DIR=%APPDATA%\MediaStudio\cache"
+)
+rem A profile from before the codename is still read until the desktop app has moved it.
+if not defined MEDIASTUDIO_DATA_DIR if exist "%APPDATA%\Comfy Meta Viewer\data\meta.db" (
+    set "MEDIASTUDIO_DATA_DIR=%APPDATA%\Comfy Meta Viewer\data"
+    set "MEDIASTUDIO_CACHE_DIR=%APPDATA%\Comfy Meta Viewer\cache"
 )
 where poetry >nul 2>&1
 if %errorlevel% neq 0 (

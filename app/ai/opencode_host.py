@@ -1,18 +1,18 @@
 """OpenCode installations and the command dialect each one speaks.
 
-CMV exclusively supports OpenCode generation 2 (bundled with OpenCode desktop,
+MediaStudio exclusively supports OpenCode generation 2 (bundled with OpenCode desktop,
 e.g. ``resources/opencode-cli.exe``). Generation 1 (npm CLI) is deprecated and
 unsupported due to heavy startup latency, lack of reasoning variants, and slow CLI execution.
 
 OpenCode Zen free models answer only the stock OpenCode agent with its stock tools:
 a custom agent or a tool-restricted one gets ``FreeTierError`` ("free tier can only
 be used from within OpenCode"). Zen runs therefore use the built-in ``plan`` agent,
-while other providers keep CMV's tool-denied agent. Every run gets an empty
+while other providers keep MediaStudio's tool-denied agent. Every run gets an empty
 ``XDG_CONFIG_HOME``, so the user's global OpenCode config (MCP servers, plugins,
-custom agents, skills) never reaches a CMV task; credentials live in the data
+custom agents, skills) never reaches a MediaStudio task; credentials live in the data
 directory and still apply. This matters in practice: a global plugin such as Forma
 hooks every prompt (it appends its own preferences and offers ComfyUI tools), and
-the desktop background service always runs with it loaded. CMV runs therefore never
+the desktop background service always runs with it loaded. MediaStudio runs therefore never
 use the background service (``--standalone``); only the read-only model listing does.
 """
 
@@ -218,7 +218,7 @@ def uses_stock_agent(model: str) -> bool:
 
 
 def isolated_env(config_home: Path) -> dict[str, str | None]:
-    """Hide the user's global OpenCode config from a CMV run."""
+    """Hide the user's global OpenCode config from a MediaStudio run."""
     return {"XDG_CONFIG_HOME": str(config_home)}
 
 
@@ -428,7 +428,7 @@ def list_models(
 
 
 def _list_api_models(executable: str) -> list[OpenCodeModel]:
-    with tempfile.TemporaryDirectory(prefix="cmv-opencode-models-", ignore_cleanup_errors=True) as location:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-opencode-models-", ignore_cleanup_errors=True) as location:
         args = [executable, "api", "GET", "/api/model", "--param", f"location[directory]={location}"]
         for attempt in range(2):
             result = cli.run_command(args, timeout=60, output_limit=MODEL_LIST_OUTPUT_LIMIT)

@@ -17,7 +17,7 @@ from app.comfyui.create_agent import CreateAgentError
 from app.main import app
 
 monkeypatch = pytest.MonkeyPatch()
-root = Path(tempfile.mkdtemp(prefix="cmv-create-navigation-"))
+root = Path(tempfile.mkdtemp(prefix="mediastudio-create-navigation-"))
 monkeypatch.setattr(desktop, "desktop_data_dir", lambda: root / "no-desktop")
 fixture = create_runtime.__wrapped__(root, monkeypatch)
 backend, started, release, output, png = next(fixture)

@@ -32,7 +32,7 @@ DEFAULT_CLAUDE_TIMEOUT_SECONDS = 5 * 60
 # Replaces the coding-agent system prompt. It travels on the command line, so it
 # stays short and avoids characters that cmd.exe treats specially.
 CLAUDE_SYSTEM_PROMPT = (
-    "You execute ComfyUI Meta Viewer prompt tasks. The task package arrives on standard input "
+    "You execute MediaStudio prompt tasks. The task package arrives on standard input "
     "and is authoritative. Use no tools except reading the input image named in the task. "
     "Reply with exactly the output the task package requires and nothing else."
 )
@@ -208,13 +208,13 @@ class ClaudeCodePromptExecutor:
             instruction_bundle, cleaned_input, image_name=image_file_name(validated_image)
         )
         try:
-            with agent_run_workspace("cmv-claude-", image_path=validated_image) as workspace:
+            with agent_run_workspace("mediastudio-claude-", image_path=validated_image) as workspace:
                 completed = run_command(
                     command,
                     timeout=timeout_sec,
                     cwd=workspace.root,
                     input_text=task_package,
-                    # A CMV started from a Claude Code session inherits this marker,
+                    # A MediaStudio started from a Claude Code session inherits this marker,
                     # and Claude Code refuses to start nested sessions while it is set.
                     env_overrides={"CLAUDECODE": None},
                 )

@@ -34,15 +34,15 @@ class DatabaseMaintenanceError(RuntimeError):
 
 
 class _TrackedConnection(sqlite3.Connection):
-    _cmv_counted = False
+    _mediastudio_counted = False
 
     def close(self) -> None:
-        counted = self._cmv_counted
+        counted = self._mediastudio_counted
         try:
             super().close()
         finally:
             if counted:
-                self._cmv_counted = False
+                self._mediastudio_counted = False
                 _release_connection()
 
 
@@ -104,7 +104,7 @@ def get_conn() -> sqlite3.Connection:
 
     try:
         conn = sqlite3.connect(get_db_path(), timeout=30.0, factory=_TrackedConnection)
-        conn._cmv_counted = True
+        conn._mediastudio_counted = True
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")

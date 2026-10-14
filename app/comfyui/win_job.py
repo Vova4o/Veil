@@ -1,8 +1,8 @@
-"""Windows job object that ends a managed ComfyUI process tree together with CMV.
+"""Windows job object that ends a managed ComfyUI process tree together with MediaStudio.
 
 The job is created with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE and its only handle
 belongs to this process, so Windows terminates every process in the job when
-CMV exits for any reason, including a crash or a forced kill.
+MediaStudio exits for any reason, including a crash or a forced kill.
 
 A venv ``python.exe`` is a launcher that starts the real interpreter as a
 child. The managed process is therefore created suspended and assigned to the

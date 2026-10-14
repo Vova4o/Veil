@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Единый гейт качества comfy-meta-viewer: ESLint, Node-тесты, Ruff, Pyrefly, Pydantic, Контракты OpenAPI, pytest.
+    Единый гейт качества mediastudio: ESLint, Node-тесты, Ruff, Pyrefly, Pydantic, Контракты OpenAPI, pytest.
 
 .DESCRIPTION
     Прогоняет все проверки, которые раньше делались вручную по отдельности:

@@ -204,11 +204,11 @@ def _read_input(args: argparse.Namespace) -> str | None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.ai.opencode_smoke",
-        description="Run explicit CMV prompt scenarios through the OpenCode CLI host.",
+        description="Run explicit MediaStudio prompt scenarios through the OpenCode CLI host.",
     )
     parser.add_argument("--no-color", action="store_true", help="Disable terminal colors.")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("list", help="List shared CMV smoke scenarios.")
+    subparsers.add_parser("list", help="List shared MediaStudio smoke scenarios.")
 
     models = subparsers.add_parser(
         "models",

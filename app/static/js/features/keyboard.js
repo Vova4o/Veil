@@ -219,7 +219,7 @@ function initHelpCenter() {
                 <section class="help-panel" data-help-panel="workflow" role="tabpanel">
                     <div class="help-grid">
                         <div class="shortcut-group">
-                            <h4>What CMV Reads</h4>
+                            <h4>What MediaStudio Reads</h4>
                             <p class="help-text">VEIL extracts generation metadata embedded inside image files: prompts, sampler settings, models, LoRA entries, EXIF fields, raw chunks, and ComfyUI workflow data when present.</p>
                         </div>
                         <div class="shortcut-group">
@@ -228,7 +228,7 @@ function initHelpCenter() {
                         </div>
                         <div class="shortcut-group">
                             <h4>Missing Metadata</h4>
-                            <p class="help-text">Some images have no embedded workflow or prompt chunks. CMV still shows file info and available EXIF/raw metadata, but generation details may be empty.</p>
+                            <p class="help-text">Some images have no embedded workflow or prompt chunks. MediaStudio still shows file info and available EXIF/raw metadata, but generation details may be empty.</p>
                         </div>
                         <div class="shortcut-group">
                             <h4>Object Cutout</h4>
@@ -240,7 +240,7 @@ function initHelpCenter() {
                     <div class="help-grid">
                         <div class="shortcut-group">
                             <h4>Scanned Folders</h4>
-                            <p class="help-text">Opening a folder stores the folder path and extracted metadata in the local SQLite database. Deleting a folder or image from CMV removes the database entry, not the original file on disk.</p>
+                            <p class="help-text">Opening a folder stores the folder path and extracted metadata in the local SQLite database. Deleting a folder or image from MediaStudio removes the database entry, not the original file on disk.</p>
                         </div>
                         <div class="shortcut-group">
                             <h4>Uploaded Files</h4>
@@ -248,7 +248,7 @@ function initHelpCenter() {
                         </div>
                         <div class="shortcut-group">
                             <h4>Cache And Reset</h4>
-                            <p class="help-text">Reset Index physically recreates SQLite and generated caches, then reindexes saved source folders. Factory Reset also forgets saved sources and browser preferences. Neither action deletes files from scanned folders, but uploaded originals stored only in CMV are removed.</p>
+                            <p class="help-text">Reset Index physically recreates SQLite and generated caches, then reindexes saved source folders. Factory Reset also forgets saved sources and browser preferences. Neither action deletes files from scanned folders, but uploaded originals stored only in MediaStudio are removed.</p>
                         </div>
                     </div>
                 </section>

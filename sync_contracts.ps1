@@ -58,7 +58,7 @@ function Write-Step($icon, $text, $color = "White") {
 }
 
 # ── preflight ──────────────────────────────────────────────────────
-Write-Header "Contract Sync - comfy-meta-viewer"
+Write-Header "Contract Sync - mediastudio"
 
 if (-not (Test-Path $OpenApiJson)) {
     Write-Step "X" "openapi.json not found: $OpenApiJson" "Red"

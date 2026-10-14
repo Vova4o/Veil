@@ -3,7 +3,7 @@
 Usage (plan is a JSON list; "sda": 1 gates the SDA LoRA to steps 0-2 of 8):
 
     python scripts/krea2_calibrate.py '[{"seed": 101, "sampler": "dpmpp_2m_sde_gpu",
-        "scheduler": "sgm_uniform", "sda": 1, "prefix": "CMV/Calibration/krea2_C_seed101"}]'
+        "scheduler": "sgm_uniform", "sda": 1, "prefix": "MediaStudio/Calibration/krea2_C_seed101"}]'
 
 Results land in the ComfyUI output folder under the given prefix. See
 docs/CREATE-KREA2-PLAN.md (section 5) for the 2026-10-10 calibration.

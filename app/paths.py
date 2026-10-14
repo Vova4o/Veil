@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIRNAME = ".mediastudio_data"
+LEGACY_DATA_DIRNAME = ".comfy_meta_uploads"
+
+log = logging.getLogger(__name__)
 
 
 class PathValidationError(ValueError):
@@ -93,10 +98,10 @@ def build_runtime_paths(
     env = os.environ if environ is None else environ
     root = normalize_path(project_root, base_dir=Path.cwd())
 
-    # COMFY_META_UPLOAD remains supported for compatibility with existing installs.
-    data_value = env.get("COMFY_META_DATA_DIR") or env.get("COMFY_META_UPLOAD")
-    cache_value = env.get("COMFY_META_CACHE_DIR")
-    data_dir = normalize_path(data_value, base_dir=root) if data_value else root / ".comfy_meta_uploads"
+    # MEDIASTUDIO_UPLOAD remains supported for compatibility with existing installs.
+    data_value = env.get("MEDIASTUDIO_DATA_DIR") or env.get("MEDIASTUDIO_UPLOAD")
+    cache_value = env.get("MEDIASTUDIO_CACHE_DIR")
+    data_dir = normalize_path(data_value, base_dir=root) if data_value else root / DATA_DIRNAME
     cache_dir = normalize_path(cache_value, base_dir=root) if cache_value else root / "cache"
 
     return RuntimePaths(
@@ -109,3 +114,19 @@ def build_runtime_paths(
         previews=cache_dir / "previews",
         cutouts=cache_dir / "cutouts",
     )
+
+
+def migrate_legacy_data_dir(paths: RuntimePaths) -> None:
+    """Move a pre-codename development data folder to its current name, once.
+
+    Only the default location is touched; an explicit data directory is the caller's.
+    """
+    legacy = paths.project_root / LEGACY_DATA_DIRNAME
+    if paths.data_dir != paths.project_root / DATA_DIRNAME:
+        return
+    if not legacy.is_dir() or paths.data_dir.exists():
+        return
+    try:
+        legacy.rename(paths.data_dir)
+    except OSError as exc:
+        log.warning("Could not move %s to %s: %s", legacy, paths.data_dir, exc)

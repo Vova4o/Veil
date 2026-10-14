@@ -80,7 +80,7 @@ def mime_type_for_path(path: str | Path) -> str:
 def temporary_media_file(data: bytes, file_name: str) -> Iterator[Path]:
     """Expose an uploaded media BLOB as a short-lived file for FFmpeg tools."""
     suffix = Path(file_name).suffix.lower()
-    with tempfile.TemporaryDirectory(prefix="comfy-meta-upload-") as directory:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-upload-") as directory:
         path = Path(directory) / f"asset{suffix}"
         path.write_bytes(data)
         yield path
@@ -94,7 +94,7 @@ def _subprocess_options() -> dict[str, Any]:
 
 
 def _tool_path(name: str, explicit_path: str | None) -> str:
-    executable = explicit_path or os.environ.get(f"COMFY_META_{name.upper()}") or shutil.which(name)
+    executable = explicit_path or os.environ.get(f"MEDIASTUDIO_{name.upper()}") or shutil.which(name)
     if not executable:
         raise MediaToolUnavailableError(name)
     return executable

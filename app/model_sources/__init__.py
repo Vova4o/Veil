@@ -1,4 +1,4 @@
-"""Model hosts CMV downloads from: the Civitai API token (Integrations › Model sources)."""
+"""Model hosts MediaStudio downloads from: the Civitai API token (Integrations › Model sources)."""
 
 from .routes import model_sources_blueprint
 from .tokens import civitai_token

@@ -13,14 +13,14 @@ const report = { profile, packaged: Boolean(executablePath), videos: [], errors:
 let application;
 
 async function waitForLibrary(page) {
-    await page.waitForURL('cmv://app/', { timeout: 90_000 });
+    await page.waitForURL('mediastudio://app/', { timeout: 90_000 });
     await page.locator('html.app-ready').waitFor({ timeout: 90_000 });
 }
 
 async function run() {
-    const env = { ...process.env, COMFY_META_DESKTOP_PROFILE: profile,
-        COMFY_META_DATA_DIR: path.join(profile, 'data'), COMFY_META_CACHE_DIR: path.join(profile, 'cache'),
-        COMFY_META_IMPORT_DIR: path.join(ROOT, '.comfy_meta_uploads') };
+    const env = { ...process.env, MEDIASTUDIO_DESKTOP_PROFILE: profile,
+        MEDIASTUDIO_DATA_DIR: path.join(profile, 'data'), MEDIASTUDIO_CACHE_DIR: path.join(profile, 'cache'),
+        MEDIASTUDIO_IMPORT_DIR: path.join(ROOT, '.mediastudio_data') };
     delete env.ELECTRON_RUN_AS_NODE;
     if (executablePath) {
         // The installed executable must work without Python, Poetry or FFmpeg on PATH.
@@ -40,7 +40,7 @@ async function run() {
     await waitForLibrary(page);
     report.initial = await page.evaluate(async () => ({
         health: await (await fetch('/_desktop/health')).json(),
-        desktopBridge: typeof window.cmvDesktop?.chooseFolder,
+        desktopBridge: typeof window.mediaStudioDesktop?.chooseFolder,
         nodeAccess: typeof window.require,
         folders: (await (await fetch('/api/folders')).json()).folders?.length,
     }));
@@ -110,8 +110,8 @@ async function run() {
                 const opened = application.waitForEvent('window');
                 await page.locator('#lb-view-original').click();
                 const original = await opened;
-                await original.waitForURL(`cmv://app/api/original/${asset.id}**`);
-                assert.equal(page.url(), 'cmv://app/');
+                await original.waitForURL(`mediastudio://app/api/original/${asset.id}**`);
+                assert.equal(page.url(), 'mediastudio://app/');
                 assert.equal(await original.evaluate(() => typeof window.require), 'undefined');
                 report.originalWindow = original.url().split('?')[0];
                 await original.close();
@@ -123,8 +123,8 @@ async function run() {
         await page.screenshot({ path: path.join(profile, 'gallery.png') });
     }
     // Browser storage must survive a new random backend port and an app restart.
-    await page.evaluate(() => localStorage.setItem('cmv_desktop_acceptance', 'persistent'));
-    await page.goto('cmv://app/editor');
+    await page.evaluate(() => localStorage.setItem('mediastudio_desktop_acceptance', 'persistent'));
+    await page.goto('mediastudio://app/editor');
     await page.locator('#prompt').waitFor();
     await page.locator('#prompt').fill('Desktop acceptance draft');
     report.editor = {
@@ -139,19 +139,19 @@ async function run() {
             return { canceled: true, filePaths: [] };
         };
     });
-    assert.equal(await page.evaluate(() => window.cmvDesktop.chooseFolder()), null);
+    assert.equal(await page.evaluate(() => window.mediaStudioDesktop.chooseFolder()), null);
     report.folderDialogIpc = 'PASS (cancelled dialog stub)';
-    await page.goto('cmv://app/');
+    await page.goto('mediastudio://app/');
     await page.locator('html.app-ready').waitFor();
     // Crash only this test-owned backend; the shell must expose a working retry.
     const oldPid = report.initial.health.pid;
     process.kill(oldPid);
-    await page.waitForURL('cmv://app/_desktop/shell', { timeout: 20_000 });
+    await page.waitForURL('mediastudio://app/_desktop/shell', { timeout: 20_000 });
     await page.getByRole('button', { name: 'Try again' }).click();
     await waitForLibrary(page);
     report.restarted = await page.evaluate(async () => ({
         health: await (await fetch('/_desktop/health')).json(),
-        storage: localStorage.getItem('cmv_desktop_acceptance'),
+        storage: localStorage.getItem('mediastudio_desktop_acceptance'),
     }));
     assert.notEqual(report.restarted.health.pid, oldPid);
     assert.equal(report.restarted.storage, 'persistent');
@@ -160,7 +160,7 @@ async function run() {
     await popup;
     const closed = application.waitForEvent('close', { timeout: 25_000 });
     await application.evaluate(({ BrowserWindow }) => {
-        BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === 'cmv://app/').close();
+        BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === 'mediastudio://app/').close();
     });
     await closed;
     application = undefined;

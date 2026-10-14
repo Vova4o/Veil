@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.mediastudio_data/
 .comfy_meta_uploads/
 *.egg-info/
 dist/

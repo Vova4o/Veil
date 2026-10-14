@@ -178,14 +178,14 @@ class PromptSkillExporter:
     def _render_skill(host: SkillExportHost) -> str:
         label = _HOST_LABELS[host]
         return f"""---
-name: cmv-prompt-profiles
-description: Compile and validate ComfyUI Meta Viewer prompt tasks in {label}.
+name: mediastudio-prompt-profiles
+description: Compile and validate MediaStudio prompt tasks in {label}.
 metadata:
   package_version: \"1\"
   host: {host.value}
 ---
 
-# ComfyUI Meta Viewer prompt profiles
+# MediaStudio prompt profiles
 
 Use this package when a user asks to generate, reconstruct, adapt, or translate
 an image-generation prompt for a supported family.

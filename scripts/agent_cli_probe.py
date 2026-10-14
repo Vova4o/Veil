@@ -21,9 +21,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-IMAGE = ROOT / "app" / "ai" / "assets" / "cmv-vision-test-garden.jpg"
+IMAGE = ROOT / "app" / "ai" / "assets" / "mediastudio-vision-test-garden.jpg"
 TIMEOUT = 240
-LONG_MARKER = "CMV_LONG_OK"
+LONG_MARKER = "MEDIASTUDIO_LONG_OK"
 
 
 def long_prompt() -> str:
@@ -79,7 +79,7 @@ def run(label: str, args: list[str], *, cwd: Path, stdin_text: str | None, expec
 
 
 def probe_claude(exe: str) -> None:
-    with tempfile.TemporaryDirectory(prefix="cmv-probe-claude-") as temp:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-probe-claude-") as temp:
         work = Path(temp)
         base = [exe, "--print", "--output-format", "json", "--no-session-persistence"]
         run(
@@ -104,7 +104,7 @@ def probe_claude(exe: str) -> None:
 
 def probe_agy(exe: str) -> None:
     common = ["--dangerously-skip-permissions", "--sandbox"]
-    with tempfile.TemporaryDirectory(prefix="cmv-probe-agy-") as temp:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-probe-agy-") as temp:
         work = Path(temp)
         run(
             "agy long prompt via stdin with --print and no value",
@@ -120,13 +120,13 @@ def probe_agy(exe: str) -> None:
             stdin_text=long_prompt(),
             expect=LONG_MARKER,
         )
-        (work / "cmv-task.md").write_text(long_prompt(), encoding="utf-8")
+        (work / "mediastudio-task.md").write_text(long_prompt(), encoding="utf-8")
         run(
             "agy long prompt via task file in the run folder",
             [
                 exe,
                 "--print",
-                "Read the file cmv-task.md in the current working directory in full and "
+                "Read the file mediastudio-task.md in the current working directory in full and "
                 "follow its final task exactly.",
                 *common,
             ],

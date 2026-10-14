@@ -96,7 +96,7 @@ test('refresh updates a saved Antigravity level', async () => {
         json = async () => ({ groups: [{ id: 'antigravity', host: 'antigravity', label: 'Antigravity', models: [
             { id: 'future', name: 'Future', vision: true, levels: [{ id: 'future-low', level: 'low' }] }] }] });`);
     await h.run('loadAgents(true)');
-    const choice = JSON.parse(h.saved.get('cmv_create_agent'));
+    const choice = JSON.parse(h.saved.get('mediastudio_create_agent'));
     assert.equal(choice.model, 'future-low');
     assert.equal(choice.level, 'low');
     assert.deepEqual(JSON.parse(h.run('JSON.stringify(agentRequestFields())')),
@@ -106,7 +106,7 @@ test('refresh updates a saved Antigravity level', async () => {
 test('after a page restart cached models show before a slow discovery finishes', async () => {
     const h = harness();
     const payload = { groups: [{ id: 'codex', host: 'codex', label: 'Codex', models: [{ id: 'saved', name: 'Saved model', vision: true }] }] };
-    h.saved.set('cmv_create_agent_catalog_v2', JSON.stringify({ version: 2, savedAt: Date.now(), payload }));
+    h.saved.set('mediastudio_create_agent_catalog_v2', JSON.stringify({ version: 2, savedAt: Date.now(), payload }));
     h.run('restoreAgentCatalog(); json = () => new Promise(resolve => { globalThis.finishDiscovery = resolve; });');
     const pending = h.run('loadAgents()');
     assert.match(h.elements.get('agent-menu-body').innerHTML, /Saved model/);
@@ -114,14 +114,14 @@ test('after a page restart cached models show before a slow discovery finishes',
     h.run('finishDiscovery({ groups: [{ id: "codex", host: "codex", label: "Codex", models: [{ id: "new", name: "New model", vision: true }] }] });');
     await pending;
     assert.match(h.elements.get('agent-menu-body').innerHTML, /New model/);
-    assert.match(h.saved.get('cmv_create_agent_catalog_v2'), /New model/);
+    assert.match(h.saved.get('mediastudio_create_agent_catalog_v2'), /New model/);
 });
 
 test('a catalog saved before Integrations changed the shown models is reloaded', () => {
     const h = harness();
     h.run('state.agentsSavedAt = Date.now();');
     assert.equal(h.run('agentCatalogStale()'), false);
-    h.saved.set('cmv_ai_models_changed_at', String(Date.now() + 1000));
+    h.saved.set('mediastudio_ai_models_changed_at', String(Date.now() + 1000));
     assert.equal(h.run('agentCatalogStale()'), true);
 });
 

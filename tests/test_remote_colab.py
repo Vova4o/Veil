@@ -14,11 +14,11 @@ from app.remote.colab_cli import ColabCLI, ColabCLIError, LoginFlow
 USAGE = "Current balance: 350.96 compute units\nUsage rate: 8.90/hr\nActive assignments: 1\n"
 SESSIONS = (
     "[colab] Pruned 1 stale local session(s).\n"
-    "[cmv-g4] gpu-g4-s-ft-kkb-euw4a1-1b1bb5wnohfuv | Hardware: G4 | Shape: Standard | Variant: GPU\n"
+    "[mediastudio-g4] gpu-g4-s-ft-kkb-euw4a1-1b1bb5wnohfuv | Hardware: G4 | Shape: Standard | Variant: GPU\n"
     "[?] m-s-kkb-usw1c2-1epnzlci1x1j3 | Hardware: CPU | Shape: Standard | Variant: DEFAULT\n"
 )
 STATUS = (
-    "[cmv-g4] gpu-g4-s-ft-kkb-euw4a1-1b1bb5wnohfuv | Hardware: G4 | Shape: Standard | Variant: GPU"
+    "[mediastudio-g4] gpu-g4-s-ft-kkb-euw4a1-1b1bb5wnohfuv | Hardware: G4 | Shape: Standard | Variant: GPU"
     " | Status: BUSY (relay)\n  Last Execution: <stdin> at 2026-10-13 01:28:14\n"
 )
 WHOAMI = (
@@ -49,7 +49,7 @@ def test_parsers_read_recorded_cli_output():
     assert (usage.balance, usage.rate_per_hour, usage.active_assignments) == (350.96, 8.9, 1)
     sessions = colab_cli.parse_sessions(SESSIONS)
     assert [(item.name, item.hardware, item.variant) for item in sessions] == [
-        ("cmv-g4", "G4", "GPU"), ("?", "CPU", "DEFAULT"),
+        ("mediastudio-g4", "G4", "GPU"), ("?", "CPU", "DEFAULT"),
     ]
     (status,) = colab_cli.parse_sessions(STATUS)
     assert status.status == "BUSY (relay)" and status.busy
@@ -83,10 +83,10 @@ def _cli(answers):
     return ColabCLI(runner=runner, starter=lambda script, env=None: None, path_mapper=lambda path: f"/mnt/x/{path}"), runner
 
 
-def test_commands_use_oauth_and_cmv_own_session_file():
-    command = ColabCLI.command("new", "-s", "cmv one", "--gpu", "G4")
-    assert "colab --auth oauth2 --config \"$HOME/.config/cmv-colab/sessions.json\"" in command
-    assert "new -s 'cmv one' --gpu G4" in command
+def test_commands_use_oauth_and_mediastudio_own_session_file():
+    command = ColabCLI.command("new", "-s", "mediastudio one", "--gpu", "G4")
+    assert "colab --auth oauth2 --config \"$HOME/.config/mediastudio-colab/sessions.json\"" in command
+    assert "new -s 'mediastudio one' --gpu G4" in command
 
 
 def test_whoami_never_starts_sign_in_without_a_token():
@@ -107,24 +107,24 @@ def test_whoami_reads_the_account():
     ("ReadTimeout: HTTPSConnectionPool(host='colab.research.google.com', port=443): Read timed out.", "colab_unreachable"),
 ])
 def test_new_explains_refused_runtimes(stderr, code):
-    cli, _ = _cli({" new ": (1, "[colab] Creating session 'cmv'...\n", stderr)})
+    cli, _ = _cli({" new ": (1, "[colab] Creating session 'mediastudio'...\n", stderr)})
     with pytest.raises(ColabCLIError) as excinfo:
-        cli.new("cmv", "H100")
+        cli.new("mediastudio", "H100")
     assert excinfo.value.code == code
 
 
 def test_cli_errors_lose_the_frames_of_rich_panels():
     panel = "╭" + "─" * 300 + "╮\n│ KeyError: 'endpoint' │\n╰" + "─" * 300 + "╯"
-    cli, _ = _cli({" new ": (1, "[colab] Creating session 'cmv'...\n", panel)})
+    cli, _ = _cli({" new ": (1, "[colab] Creating session 'mediastudio'...\n", panel)})
     with pytest.raises(ColabCLIError) as excinfo:
-        cli.new("cmv", "G4")
+        cli.new("mediastudio", "G4")
     message = str(excinfo.value)
     assert "─" not in message and "KeyError: 'endpoint'" in message and len(message) < 200
 
 
 def test_new_succeeds_on_ready():
-    cli, runner = _cli({" new ": (0, "[colab] Creating session 'cmv'...\n[colab] Session READY.\n", "")})
-    cli.new("cmv", "G4")
+    cli, runner = _cli({" new ": (0, "[colab] Creating session 'mediastudio'...\n[colab] Session READY.\n", "")})
+    cli.new("mediastudio", "G4")
     assert "--gpu G4" in runner.scripts[-1]
 
 
@@ -137,9 +137,9 @@ def test_usage_without_a_balance_is_an_error():
 
 def test_files_and_exec_map_paths_and_pass_code_on_stdin(tmp_path):
     cli, runner = _cli({" upload ": (0, "", ""), " exec ": (0, "ok\n", "")})
-    cli.upload("cmv", tmp_path / "job.json", "/content/cmv/inbox/job.json")
+    cli.upload("mediastudio", tmp_path / "job.json", "/content/mediastudio/inbox/job.json")
     assert f"/mnt/x/{tmp_path / 'job.json'}" in runner.scripts[-1]
-    cli.exec_code("cmv", "print('ok')", timeout=90)
+    cli.exec_code("mediastudio", "print('ok')", timeout=90)
     assert "--timeout 90" in runner.scripts[-1]
     assert runner.inputs[-1] == "print('ok')"
 
@@ -245,10 +245,10 @@ def test_exec_retries_a_stalled_connection_but_not_a_failing_snippet(monkeypatch
     monkeypatch.setattr(colab_cli.time, "sleep", lambda seconds: None)
     stalled = (1, "", "requests.exceptions.ReadTimeout: Read timed out. (read timeout=30)")
     cli, runner = _cli({" exec ": [stalled, (0, "ok\n", "")]})
-    assert cli.exec_code("cmv", "print('ok')").stdout == "ok\n"
+    assert cli.exec_code("mediastudio", "print('ok')").stdout == "ok\n"
     assert len(runner.scripts) == 2
     assert runner.envs[-1] == {"REQUEST_TIMEOUT": "30"}
 
     cli, runner = _cli({" exec ": [(1, "", "NameError: name 'x' is not defined"), (0, "", "")]})
-    assert cli.exec_code("cmv", "x").returncode == 1
+    assert cli.exec_code("mediastudio", "x").returncode == 1
     assert len(runner.scripts) == 1

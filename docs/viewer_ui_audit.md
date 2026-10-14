@@ -115,7 +115,7 @@
          <button data-density="lg" title="Large">L</button>
      </div>
      ```
-  3. Сохранять значение в `localStorage` (`cmv_gallery_density`).
+  3. Сохранять значение в `localStorage` (`mediastudio_gallery_density`).
 
 ---
 

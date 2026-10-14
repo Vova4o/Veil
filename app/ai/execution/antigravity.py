@@ -27,10 +27,10 @@ from .agent_cli import (
     validate_user_input,
 )
 
-logger = logging.getLogger("cmv.ai.antigravity")
+logger = logging.getLogger("mediastudio.ai.antigravity")
 
 DEFAULT_ANTIGRAVITY_TIMEOUT_SECONDS = 5 * 60
-RESULT_SCHEMA_FILE_NAME = "cmv-result.schema.json"
+RESULT_SCHEMA_FILE_NAME = "mediastudio-result.schema.json"
 
 
 class AntigravityPromptExecutionError(RuntimeError):
@@ -184,7 +184,7 @@ class AntigravityPromptExecutor:
         logger.info("[Antigravity] Executing %s (model=%s, timeout=%s)", executable, clean_model, timeout_sec)
         try:
             with agent_run_workspace(
-                "cmv-agy-", image_path=validated_image, task_package=task_package
+                "mediastudio-agy-", image_path=validated_image, task_package=task_package
             ) as workspace:
                 schema = PromptResult.model_json_schema()
                 schema["required"] = list(schema["properties"])

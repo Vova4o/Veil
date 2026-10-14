@@ -46,7 +46,7 @@ class ModelFolders:
         download_root: Path | None = None,
     ) -> None:
         self.models_dir = models_dir
-        # A models folder chosen in CMV receives every download.
+        # A models folder chosen in MediaStudio receives every download.
         self.download_root = download_root
         self._paths: dict[str, list[Path]] = {}
         self._preferred: dict[str, Path] = {}
@@ -73,7 +73,7 @@ class ModelFolders:
         return list(self._paths.get(folder) or self._defaults(folder))
 
     def download_dir(self, folder: str) -> Path:
-        """Where a new file of this folder belongs: CMV's models folder, the config's default, else ``<models>``."""
+        """Where a new file of this folder belongs: MediaStudio's models folder, the config's default, else ``<models>``."""
         if self.download_root is not None:
             return self.download_root / folder
         aliases = [alias for alias, current in LEGACY_FOLDERS.items() if current == folder]

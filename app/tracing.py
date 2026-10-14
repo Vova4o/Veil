@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 _tracing_ready = False
 
 
-def setup_tracing(service_name: str = "comfy-meta-viewer", level: str = "INFO") -> None:
+def setup_tracing(service_name: str = "mediastudio", level: str = "INFO") -> None:
     global _tracing_ready
     if _tracing_ready:
         return
@@ -29,7 +29,7 @@ def setup_tracing(service_name: str = "comfy-meta-viewer", level: str = "INFO") 
     provider = TracerProvider(resource=resource, sampler=ALWAYS_ON)
 
     import os
-    if os.environ.get("CMV_CONSOLE_TRACING") == "1" or os.environ.get("OTEL_TRACES_EXPORTER") == "console":
+    if os.environ.get("MEDIASTUDIO_CONSOLE_TRACING") == "1" or os.environ.get("OTEL_TRACES_EXPORTER") == "console":
         provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
         logger.info("opentelemetry tracing enabled -> stdout (console exporter)")
 

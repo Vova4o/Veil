@@ -3,11 +3,11 @@
 ---
 
 ### Что уже сделано хорошо (Сильные стороны)
-1. **WAL-режим и базовые PRAGMA**: включён [WAL-режим](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py#L108-L113) (`PRAGMA journal_mode=WAL`), `synchronous=NORMAL`, `foreign_keys=ON` и `temp_store=MEMORY`.
-2. **Deferred Join в `get_images_page`**: в [database.py (строка 1665)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py#L1665) основной просмотрщик сначала фильтрует и пагинирует лёгкие `id`, и лишь затем подтягивает поля конкретной страницы.
+1. **WAL-режим и базовые PRAGMA**: включён [WAL-режим](file:///f:/ComfyUI_windows_portable/veil/app/database.py#L108-L113) (`PRAGMA journal_mode=WAL`), `synchronous=NORMAL`, `foreign_keys=ON` и `temp_store=MEMORY`.
+2. **Deferred Join в `get_images_page`**: в [database.py (строка 1665)](file:///f:/ComfyUI_windows_portable/veil/app/database.py#L1665) основной просмотрщик сначала фильтрует и пагинирует лёгкие `id`, и лишь затем подтягивает поля конкретной страницы.
 3. **Cursor / Keyset пагинация**: реализована поддержка курсора `(cursor_mtime, cursor_id)` для бесконечной ленты.
 4. **Составные индексы**: созданы грамотные составные индексы под сортировку по дате и типам медиа (`idx_images_folder_media_mtime_id`, `idx_images_media_mtime_id`, `idx_item_positions_scope`).
-5. **Атомарные транзакции**: очереди задач ([job_queue](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py#L2103)) и перемещения используют `RETURNING` и транзакционные обвязки.
+5. **Атомарные транзакции**: очереди задач ([job_queue](file:///f:/ComfyUI_windows_portable/veil/app/database.py#L2103)) и перемещения используют `RETURNING` и транзакционные обвязки.
 
 ---
 
@@ -43,12 +43,12 @@
 
 #### 3. Нестыковка индексов и WHERE-условий (Index Invalidation)
 * **Проблема: `COALESCE(i.rating, 0) = ?` блокирует использование индекса по рейтингу.**  
-  В [database.py (строка 553)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py#L553) создан индекс:
+  В [database.py (строка 553)](file:///f:/ComfyUI_windows_portable/veil/app/database.py#L553) создан индекс:
   ```sql
   CREATE INDEX IF NOT EXISTS idx_images_rating_media_mtime 
   ON images(rating, media_type, file_mtime DESC, id DESC);
   ```
-  Но в [get_images_page (строка 1542)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py#L1542) фильтр строится как:
+  Но в [get_images_page (строка 1542)](file:///f:/ComfyUI_windows_portable/veil/app/database.py#L1542) фильтр строится как:
   ```sql
   AND COALESCE(i.rating, 0) = ?
   ```
@@ -59,7 +59,7 @@
 
 #### 4. Неэффективность в `library.py` (Overfetching и отсутствие Deferred Join)
 * **Проблема: Отсутствие Deferred Join в `get_assets` (library).**  
-  В отличие от `get_images_page`, функция [get_assets](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py#L1285) делала прямую сортировку с выборкой всех полей.
+  В отличие от `get_images_page`, функция [get_assets](file:///f:/ComfyUI_windows_portable/veil/app/library.py#L1285) делала прямую сортировку с выборкой всех полей.
   * **Решение (✅ Реализовано):** Реализован Deferred Join через подзапрос `({subquery}) page_ids`. Подзапрос сортирует и пагинирует лёгкие `id`, а основной запрос подтягивает полные атрибуты только для запрашиваемых элементов страницы (`per_page`).
 * **Проблема: Перекачка гигантских JSON ради двух булевых флагов.**  
   В `get_assets`:
@@ -78,7 +78,7 @@
 ---
 
 #### 5. Медленные фильтры через `json_tree` (Table Scan на лету)
-* В функциях `list_metadata_filters()` и `_model_family_condition()` ([library.py:L130, L167](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py#L167)) фильтрация по нодам и семейству моделей выполняла функцию виртуальной таблицы `json_tree(...)` над колонкой `metadata_json` для каждой строки.
+* В функциях `list_metadata_filters()` и `_model_family_condition()` ([library.py:L130, L167](file:///f:/ComfyUI_windows_portable/veil/app/library.py#L167)) фильтрация по нодам и семейству моделей выполняла функцию виртуальной таблицы `json_tree(...)` над колонкой `metadata_json` для каждой строки.
 * При 10 000+ изображениях разбор дерева JSON на лету во время SQL-запроса приводил к задержкам от сотен миллисекунд до нескольких секунд.
   * **Решение (✅ Реализовано):**
     1. Созданы нормализованные таблицы связей:
@@ -88,8 +88,8 @@
        - `trg_images_metadata_ai` (AFTER INSERT), `trg_images_metadata_au` (AFTER UPDATE OF metadata_json) и `trg_images_metadata_ad` (AFTER DELETE).
        - Триггеры парсят ComfyUI ноды (`$.workflow.workflow_nodes` и fallback `$.prompt_api_json`), а также автоматически классифицируют семейства моделей (`flux`, `pony`, `sdxl`, `sd15`).
     3. Добавлена прозрачная автомиграция и бэкфилл существующих данных (`_backfill_metadata_indices`) при `init_db()`.
-    4. Запросы фильтрации в [library.py](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/library.py) переведены на быстрые O(log N) `EXISTS` с использованием индексов, а `list_metadata_filters()` — на мгновенный `SELECT DISTINCT node_type FROM image_nodes ORDER BY node_type COLLATE NOCASE`.
-    5. В веб-интерфейс ([library.html](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/templates/library.html)) добавлен фильтр семейства моделей `SD 1.5` (`sd15`).
+    4. Запросы фильтрации в [library.py](file:///f:/ComfyUI_windows_portable/veil/app/library.py) переведены на быстрые O(log N) `EXISTS` с использованием индексов, а `list_metadata_filters()` — на мгновенный `SELECT DISTINCT node_type FROM image_nodes ORDER BY node_type COLLATE NOCASE`.
+    5. В веб-интерфейс ([library.html](file:///f:/ComfyUI_windows_portable/veil/app/templates/library.html)) добавлен фильтр семейства моделей `SD 1.5` (`sd15`).
 
 ---
 
@@ -102,10 +102,10 @@
   На 1,000 картинок это 2,000 открытий/закрытий соединений SQLite и 1,000 дисковых синхронизаций (fsync) коммитов WAL.
   * **Решение (✅ Реализовано):** Реализована выборка пачками `_next_asset_batch(batch_size=50)` за 1 запрос. Добавлена пакетная фиксация `commit_worker_batch(image_updates=..., video_updates=..., error_updates=...)`, использующая `conn.executemany` в рамках одной SQLite-транзакции. Добавлен автоматический отказоустойчивый построчный фоллбек `_fallback_commit_worker_items`, предотвращающий отравление батча единичной ошибкой. Убран искусственный сон 10 мс на каждый файл.
 * **Проблема: N+1 при реконсиляции в `indexing.py`.**  
-  В [indexing.py (строка 275)](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/indexing.py#L275) для каждого измененного файла вызывался `db.get_image_ids_by_rel_paths(folder_id, [rel_path])`, хотя ID уже загружен в словаре `old_records[rel_path]["id"]`.
+  В [indexing.py (строка 275)](file:///f:/ComfyUI_windows_portable/veil/app/indexing.py#L275) для каждого измененного файла вызывался `db.get_image_ids_by_rel_paths(folder_id, [rel_path])`, хотя ID уже загружен в словаре `old_records[rel_path]["id"]`.
   * **Решение (✅ Реализовано):** Для всех изменённых и удалённых файлов ID берутся напрямую из памяти `old_records[path]["id"]` (0 дополнительных SQL-запросов вместо N). Переименования файлов переведены на пакетный метод `db.batch_rename_assets` через `executemany`.
 * **Проблема: Вставка в цикле вместо `executemany`.**  
-  В [database.py](file:///f:/ComfyUI_windows_portable/comfy-meta-viewer/app/database.py) `insert_assets` использовал цикл Python `for asset in assets: conn.execute(...)`.
+  В [database.py](file:///f:/ComfyUI_windows_portable/veil/app/database.py) `insert_assets` использовал цикл Python `for asset in assets: conn.execute(...)`.
   * **Решение (✅ Реализовано):** `insert_assets` переведён на нативный C-уровневый `conn.executemany(...)` с подготовленным списком кортежей параметров, компилируя SQL-запрос `ON CONFLICT DO UPDATE` один раз на весь батч.
 
 ---

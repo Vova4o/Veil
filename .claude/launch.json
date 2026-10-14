@@ -2,16 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "cmv",
+      "name": "mediastudio",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "app.main", "--no-browser"],
       "port": 7860
     },
     {
-      "name": "cmv-7861",
+      "name": "mediastudio-7861",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "app.main", "--no-browser"],
-      "env": { "COMFY_META_PORT": "7861" },
+      "env": { "MEDIASTUDIO_PORT": "7861" },
       "port": 7861
     }
   ]

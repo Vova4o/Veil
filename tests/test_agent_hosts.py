@@ -24,7 +24,7 @@ from app.ai.execution.router import ExecutionRouter
 from app.ai.prompting import PromptFamily, PromptOperation, PromptScenario, PromptTask
 
 LONG_INPUT_CHARS = 60_000
-VISION_IMAGE = Path(__file__).resolve().parents[1] / "app" / "ai" / "assets" / "cmv-vision-test-garden.jpg"
+VISION_IMAGE = Path(__file__).resolve().parents[1] / "app" / "ai" / "assets" / "mediastudio-vision-test-garden.jpg"
 
 
 def _task() -> PromptTask:
@@ -95,16 +95,16 @@ def test_claude_adapter_accepts_image_files():
 
 
 def test_run_command_delivers_long_input_through_stdin(monkeypatch):
-    monkeypatch.setenv("CMV_TEST_REMOVED", "1")
+    monkeypatch.setenv("MEDIASTUDIO_TEST_REMOVED", "1")
     script = (
         "import os, sys; data = sys.stdin.read(); "
-        "print(len(data), os.environ.get('CMV_TEST_REMOVED', 'gone'), os.environ['CMV_TEST_SET'])"
+        "print(len(data), os.environ.get('MEDIASTUDIO_TEST_REMOVED', 'gone'), os.environ['MEDIASTUDIO_TEST_SET'])"
     )
     result = run_command(
         [sys.executable, "-c", script],
         timeout=30,
         input_text="x" * LONG_INPUT_CHARS,
-        env_overrides={"CMV_TEST_REMOVED": None, "CMV_TEST_SET": "yes"},
+        env_overrides={"MEDIASTUDIO_TEST_REMOVED": None, "MEDIASTUDIO_TEST_SET": "yes"},
     )
     assert result.returncode == 0
     assert result.stdout.split() == [str(LONG_INPUT_CHARS), "gone", "yes"]
@@ -234,7 +234,7 @@ def test_claude_vision_connection_test_reads_image_from_run_folder(monkeypatch):
 
     def fake_run(args, **kwargs):
         calls.append({"args": list(args), "kwargs": kwargs, "files": sorted(p.name for p in Path(kwargs["cwd"]).iterdir())})
-        return CommandResult(returncode=0, stdout=_claude_envelope("CMV_OK"), stderr="", elapsed_ms=9)
+        return CommandResult(returncode=0, stdout=_claude_envelope("MEDIASTUDIO_OK"), stderr="", elapsed_ms=9)
 
     monkeypatch.setattr(cli_module, "run_command", fake_run)
     monkeypatch.setattr(cli_module, "find_executable", lambda *_: "C:/tools/claude.cmd")
@@ -246,7 +246,7 @@ def test_claude_vision_connection_test_reads_image_from_run_folder(monkeypatch):
     assert call["files"] == ["input.jpg"]
     assert call["args"][call["args"].index("--tools") + 1] == "Read"
     assert call["kwargs"]["env_overrides"] == {"CLAUDECODE": None}
-    assert result["response_preview"] == "CMV_OK"
+    assert result["response_preview"] == "MEDIASTUDIO_OK"
 
 
 def test_antigravity_executor_writes_task_file_and_image(monkeypatch):
@@ -258,8 +258,8 @@ def test_antigravity_executor_writes_task_file_and_image(monkeypatch):
         cwd = Path(kwargs["cwd"])
         seen["args"] = list(args)
         seen["files"] = sorted(path.name for path in cwd.iterdir())
-        seen["task"] = (cwd / "cmv-task.md").read_text(encoding="utf-8")
-        seen["schema"] = json.loads((cwd / "cmv-result.schema.json").read_text(encoding="utf-8"))
+        seen["task"] = (cwd / "mediastudio-task.md").read_text(encoding="utf-8")
+        seen["schema"] = json.loads((cwd / "mediastudio-result.schema.json").read_text(encoding="utf-8"))
         return CommandResult(
             returncode=0,
             stdout=json.dumps({"status": "SUCCESS", "structured_output": {
@@ -282,13 +282,13 @@ def test_antigravity_executor_writes_task_file_and_image(monkeypatch):
     )
 
     assert sum(len(part) for part in seen["args"]) < 8_000
-    assert seen["files"] == ["cmv-result.schema.json", "cmv-task.md", "input.jpg"]
+    assert seen["files"] == ["input.jpg", "mediastudio-result.schema.json", "mediastudio-task.md"]
     assert long_input.strip() in seen["task"]
     assert "`input.jpg`" in seen["task"]
     assert seen["args"][seen["args"].index("--model") + 1] == "gemini-3-pro"
     assert seen["args"][seen["args"].index("--print-timeout") + 1] == "90s"
     assert seen["args"][seen["args"].index("--output-format") + 1] == "json"
-    assert seen["args"][seen["args"].index("--json-schema") + 1] == "cmv-result.schema.json"
+    assert seen["args"][seen["args"].index("--json-schema") + 1] == "mediastudio-result.schema.json"
     assert set(seen["schema"]["required"]) == {"schema_version", "positive_prompt", "negative_prompt", "edit_profile", "note"}
     assert seen["schema"]["additionalProperties"] is False
     assert executed.result.positive_prompt == "a garden path"

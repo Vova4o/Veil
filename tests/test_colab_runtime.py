@@ -167,19 +167,19 @@ def test_resources_follow_the_files_a_workflow_loads():
     text = {item["filename"] for item in job_resources(_text_workflow())}
     assert "moodyKrea2Mix_v40.safetensors" in text and "krea2_turbo_sda_v1.0_comfy.safetensors" in text
     assert "krea2_identity_edit_v1_2_r64.safetensors" not in text
-    edit = compile_edit_workflow(PROFILE, instruction="red sweater", source_image="cmv/src.png", dimensions=(1024, 1024))
+    edit = compile_edit_workflow(PROFILE, instruction="red sweater", source_image="mediastudio/src.png", dimensions=(1024, 1024))
     assert "krea2_identity_edit_v1_2_r64.safetensors" in {item["filename"] for item in job_resources(edit)}
-    assert job_inputs(edit, {"cmv/src.png", "cmv/other.png"}) == ["cmv/src.png"]
+    assert job_inputs(edit, {"mediastudio/src.png", "mediastudio/other.png"}) == ["mediastudio/src.png"]
 
 
 def test_a_job_runs_from_upload_to_import(store, tmp_path, signed, runtimes):
     cli = _FakeCLI()
     runtime = runtimes(store, tmp_path / "cache", cli)
     client = ColabComfyUIClient(runtime)
-    assert client.upload_image("cmv_source_x.png", b"photo") == {"name": "cmv_source_x.png", "subfolder": "cmv", "type": "input"}
+    assert client.upload_image("mediastudio_source_x.png", b"photo") == {"name": "mediastudio_source_x.png", "subfolder": "mediastudio", "type": "input"}
     workflow = _text_workflow()
-    workflow["99"] = {"class_type": "LoadImage", "inputs": {"image": "cmv/cmv_source_x.png"}}
-    prompt_id = client.queue_prompt(workflow, client_id="x", extra_data={"extra_pnginfo": {"cmv_prompt": "A lighthouse"}})["prompt_id"]
+    workflow["99"] = {"class_type": "LoadImage", "inputs": {"image": "mediastudio/mediastudio_source_x.png"}}
+    prompt_id = client.queue_prompt(workflow, client_id="x", extra_data={"extra_pnginfo": {"mediastudio_prompt": "A lighthouse"}})["prompt_id"]
     assert client.get_job(prompt_id)["status"] == "pending"
 
     stream = cli.streams.get(timeout=15)
@@ -187,15 +187,15 @@ def test_a_job_runs_from_upload_to_import(store, tmp_path, signed, runtimes):
     assert cli.calls[0][2] == "G4"
     stream.emit(1, "hello", stage="booting")
     stream.emit(2, "ready", gpu="NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB")
-    _wait(lambda: f"/content/cmv/inbox/{prompt_id}.job.json" in cli.uploads, label="job upload")
-    assert cli.uploads["/content/cmv/inbox/inputs/cmv_source_x.png"] == b"photo"
-    job = json.loads(cli.uploads[f"/content/cmv/inbox/{prompt_id}.job.json"])
-    assert job["inputs"] == ["cmv/cmv_source_x.png"]
+    _wait(lambda: f"/content/mediastudio/inbox/{prompt_id}.job.json" in cli.uploads, label="job upload")
+    assert cli.uploads["/content/mediastudio/inbox/inputs/mediastudio_source_x.png"] == b"photo"
+    job = json.loads(cli.uploads[f"/content/mediastudio/inbox/{prompt_id}.job.json"])
+    assert job["inputs"] == ["mediastudio/mediastudio_source_x.png"]
     moody = next(item for item in job["resources"] if item["filename"] == "moodyKrea2Mix_v40.safetensors")
     assert moody["url"].startswith("https://b2.civitai.com/")
     assert signed[0][1] == "secret-token"
     assert "secret-token" not in json.dumps(job)
-    assert "/content/cmv/inbox/settings.json" not in cli.uploads, "boot already carried the idle time"
+    assert "/content/mediastudio/inbox/settings.json" not in cli.uploads, "boot already carried the idle time"
 
     runtime.monitor.track(prompt_id, workflow)
     stream.emit(3, "job_received", job=prompt_id)
@@ -207,16 +207,16 @@ def test_a_job_runs_from_upload_to_import(store, tmp_path, signed, runtimes):
     stream.emit(7, "comfy", job=prompt_id, msg={"type": "progress", "data": {"prompt_id": prompt_id, "node": "12", "value": 3, "max": 6}})
     _wait(lambda: client.get_job(prompt_id)["status"] == "in_progress", label="running")
     assert runtime.monitor.snapshot(prompt_id)["step"] == 3
-    outputs = {"9": {"images": [{"filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output"}]}}
+    outputs = {"9": {"images": [{"filename": "krea2_00001_.png", "subfolder": "MediaStudio/Create", "type": "output"}]}}
     stream.emit(8, "job_done", job=prompt_id, outputs=outputs, files=[
-        {"filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output", "path": f"/content/cmv/outbox/{prompt_id}/krea2_00001_.png"},
+        {"filename": "krea2_00001_.png", "subfolder": "MediaStudio/Create", "type": "output", "path": f"/content/mediastudio/outbox/{prompt_id}/krea2_00001_.png"},
     ])
     _wait(lambda: client.get_job(prompt_id)["status"] == "completed", label="completed")
     done = client.get_job(prompt_id)
     image = done["outputs"]["9"]["images"][0]
-    assert image == {**outputs["9"]["images"][0], "cmv_job": prompt_id} and done["workflow"]["prompt"] == workflow
+    assert image == {**outputs["9"]["images"][0], "mediastudio_job": prompt_id} and done["workflow"]["prompt"] == workflow
     assert client.download_output(image) == PNG
-    _wait(lambda: f"/content/cmv/inbox/{prompt_id}.collected" in cli.uploads, label="collected marker")
+    _wait(lambda: f"/content/mediastudio/inbox/{prompt_id}.collected" in cli.uploads, label="collected marker")
     assert runtime.status()["images_done"] == 1
 
 
@@ -234,9 +234,9 @@ def test_jobs_with_the_same_output_name_get_their_own_images(store, tmp_path, si
         if stream is None:
             stream = cli.streams.get(timeout=15)
             stream.emit(1, "ready", gpu="G4")
-        _wait(lambda job=prompt_id: f"/content/cmv/inbox/{job}.job.json" in cli.uploads, label="job upload")
-        item = {"filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output"}
-        path = f"/content/cmv/outbox/{prompt_id}/krea2_00001_.png"
+        _wait(lambda job=prompt_id: f"/content/mediastudio/inbox/{job}.job.json" in cli.uploads, label="job upload")
+        item = {"filename": "krea2_00001_.png", "subfolder": "MediaStudio/Create", "type": "output"}
+        path = f"/content/mediastudio/outbox/{prompt_id}/krea2_00001_.png"
         cli.files[path] = picture
         seq += 1
         stream.emit(seq, "job_done", job=prompt_id, outputs={"9": {"images": [item]}}, files=[{**item, "path": path}])
@@ -247,7 +247,7 @@ def test_jobs_with_the_same_output_name_get_their_own_images(store, tmp_path, si
     with pytest.raises(FileNotFoundError):
         client.download_output(item)
     # Both results also land in ComfyUI's output folder, numbered on from what is there.
-    saved = tmp_path / "comfy-output" / "CMV" / "Create"
+    saved = tmp_path / "comfy-output" / "MediaStudio" / "Create"
     assert (saved / "krea2_00001_.png").read_bytes() == b"first picture"
     assert (saved / "krea2_00002_.png").read_bytes() == b"second picture"
     # The library names each image as its file in the output folder is named.
@@ -258,11 +258,11 @@ def test_saving_to_output_takes_the_next_free_name(tmp_path):
     source = tmp_path / "result.png"
     source.write_bytes(b"image")
     output = tmp_path / "output"
-    (output / "CMV" / "Create").mkdir(parents=True)
-    (output / "CMV" / "Create" / "krea2_00007_.png").write_bytes(b"older")
-    (output / "CMV" / "Create" / "krea2_edit_00009_.png").write_bytes(b"other prefix")
-    assert save_to_output(output, "CMV/Create", "krea2_00001_.png", source).name == "krea2_00008_.png"
-    assert save_to_output(output, "CMV/Create", "krea2_edit_00001_.png", source).name == "krea2_edit_00010_.png"
+    (output / "MediaStudio" / "Create").mkdir(parents=True)
+    (output / "MediaStudio" / "Create" / "krea2_00007_.png").write_bytes(b"older")
+    (output / "MediaStudio" / "Create" / "krea2_edit_00009_.png").write_bytes(b"other prefix")
+    assert save_to_output(output, "MediaStudio/Create", "krea2_00001_.png", source).name == "krea2_00008_.png"
+    assert save_to_output(output, "MediaStudio/Create", "krea2_edit_00001_.png", source).name == "krea2_edit_00010_.png"
     assert save_to_output(output, "", "plain.png", source) == output / "plain_00001_.png"
     with pytest.raises(ValueError):
         save_to_output(output, "../outside", "krea2_00001_.png", source)
@@ -279,9 +279,9 @@ def test_cancel_before_sending_and_after(store, tmp_path, signed, runtimes):
     stream = cli.streams.get(timeout=15)
     stream.emit(1, "ready", gpu="G4")
     sent = client.queue_prompt(_text_workflow(), client_id="x")["prompt_id"]
-    _wait(lambda: f"/content/cmv/inbox/{sent}.job.json" in cli.uploads, label="job upload")
+    _wait(lambda: f"/content/mediastudio/inbox/{sent}.job.json" in cli.uploads, label="job upload")
     client.cancel_prompt(sent)
-    _wait(lambda: f"/content/cmv/inbox/{sent}.cancel" in cli.uploads, label="cancel marker")
+    _wait(lambda: f"/content/mediastudio/inbox/{sent}.cancel" in cli.uploads, label="cancel marker")
     stream.emit(2, "job_cancelled", job=sent)
     _wait(lambda: client.get_job(sent)["status"] == "cancelled", label="cancelled")
 
@@ -373,9 +373,9 @@ def _ended_pid():
     return process.pid
 
 
-def test_only_recorded_runtimes_of_an_ended_cmv_are_adopted(store, tmp_path, runtimes):
-    sessions = [ColabSession(name, "endpoint", "G4", "Standard", "GPU") for name in ("cmv-byhand", "cmv-live")]
-    _record(tmp_path, "cmv-live", os.getppid())  # its CMV process still runs
+def test_only_recorded_runtimes_of_an_ended_mediastudio_are_adopted(store, tmp_path, runtimes):
+    sessions = [ColabSession(name, "endpoint", "G4", "Standard", "GPU") for name in ("mediastudio-byhand", "mediastudio-live")]
+    _record(tmp_path, "mediastudio-live", os.getppid())  # its MediaStudio process still runs
     cli = _FakeCLI(sessions=sessions)
     runtime = runtimes(store, tmp_path / "cache", cli)
     time.sleep(0.5)
@@ -384,19 +384,19 @@ def test_only_recorded_runtimes_of_an_ended_cmv_are_adopted(store, tmp_path, run
 
 
 def test_a_runtime_from_before_a_restart_is_adopted(store, tmp_path, runtimes):
-    _record(tmp_path, "cmv-1234abcd", _ended_pid())
-    cli = _FakeCLI(sessions=[ColabSession("cmv-1234abcd", "endpoint", "G4", "Standard", "GPU")])
+    _record(tmp_path, "mediastudio-1234abcd", _ended_pid())
+    cli = _FakeCLI(sessions=[ColabSession("mediastudio-1234abcd", "endpoint", "G4", "Standard", "GPU")])
     runtime = runtimes(store, tmp_path / "cache", cli)
     stream = cli.streams.get(timeout=15)
-    assert runtime.status()["name"] == "cmv-1234abcd"
-    assert cli.attached[0].startswith("CMV_WORKER.attach(0,")
+    assert runtime.status()["name"] == "mediastudio-1234abcd"
+    assert cli.attached[0].startswith("MEDIASTUDIO_WORKER.attach(0,")
     assert not any(call[0] == "new" for call in cli.calls)
-    # A job of the previous CMV still finishes: its run imports the output.
+    # A job of the previous MediaStudio still finishes: its run imports the output.
     stream.emit(1, "ready", gpu="G4")
     old = "0f8b9e2c-4d3a-4c1e-9b7a-2e6d5c4b3a21"
-    stream.emit(2, "job_done", job=old, outputs={}, files=[{"filename": "a.png", "subfolder": "", "path": "/content/cmv/outbox/a.png"}])
+    stream.emit(2, "job_done", job=old, outputs={}, files=[{"filename": "a.png", "subfolder": "", "path": "/content/mediastudio/outbox/a.png"}])
     _wait(lambda: (runtime.job_snapshot(old) or {}).get("status") == "completed", label="old job")
-    record = json.loads((tmp_path / "cache" / "runtimes" / "cmv-1234abcd.json").read_text(encoding="utf-8"))
+    record = json.loads((tmp_path / "cache" / "runtimes" / "mediastudio-1234abcd.json").read_text(encoding="utf-8"))
     assert record["pid"] == os.getpid(), "the adopting process owns the runtime now"
 
 
@@ -413,7 +413,7 @@ def test_a_lost_runtime_fails_its_runs(store, tmp_path, signed, runtimes):
     prompt_id = client.queue_prompt(_text_workflow(), client_id="x")["prompt_id"]
     stream = cli.streams.get(timeout=15)
     stream.emit(1, "ready", gpu="G4")
-    _wait(lambda: f"/content/cmv/inbox/{prompt_id}.job.json" in cli.uploads, label="job upload")
+    _wait(lambda: f"/content/mediastudio/inbox/{prompt_id}.job.json" in cli.uploads, label="job upload")
     cli.alive = False
     stream.end(clean=False)
     _wait(lambda: client.get_job(prompt_id)["status"] == "failed", label="failed")

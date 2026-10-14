@@ -43,7 +43,7 @@
 
 - Ссылка `modelVersionId=3134403` («V4.0 Converted FP8», 13,8 ГБ) — **другой файл** для WanGP/NEO, для ComfyUI не подходит.
 - KJNodes **не нужен**: подгонку цвета делает нода ядра `ColorTransfer` (`mkl_lab`, `strength`).
-- Ноды `comfyui-krea2edit` установлены вручную 2026-10-10 (с меткой `.cmv-node-pack.json`); после перезапуска ComfyUI 2026-10-11 классы `Krea2EditModelPatch` / `Krea2EditGroundedEncode` загружены, сигнатуры совпадают с `edit.workflow.json`.
+- Ноды `comfyui-krea2edit` установлены вручную 2026-10-10 (с меткой `.mediastudio-node-pack.json`); после перезапуска ComfyUI 2026-10-11 классы `Krea2EditModelPatch` / `Krea2EditGroundedEncode` загружены, сигнатуры совпадают с `edit.workflow.json`.
 
 ## 4. Рецепты графов
 
@@ -59,7 +59,7 @@
 
 ### 4.1a Вариация (`variation.workflow.json`, режим `variation`, 2026-10-13)
 
-Граф пользователя `moodyKrea2Mix_v40_auto_1MP_img2img.json` без пустого стека LoRA rgthree и без апскейла (он был в bypass): `LoadImage` → `ImageScaleToTotalPixels` (lanczos, 1 МП, `resolution_steps=16`) → `VAEEncode` → `KSampler` (8 шагов, CFG 1, `euler` + `simple`, **denoise**) → `VAEDecode` → `SaveImage` `CMV/Create/krea2_variation`; негатив — `ConditioningZeroOut`, без SDA.
+Граф пользователя `moodyKrea2Mix_v40_auto_1MP_img2img.json` без пустого стека LoRA rgthree и без апскейла (он был в bypass): `LoadImage` → `ImageScaleToTotalPixels` (lanczos, 1 МП, `resolution_steps=16`) → `VAEEncode` → `KSampler` (8 шагов, CFG 1, `euler` + `simple`, **denoise**) → `VAEDecode` → `SaveImage` `MediaStudio/Create/krea2_variation`; негатив — `ConditioningZeroOut`, без SDA.
 
 - Это не дипфейк-режим: агент пишет то же точное описание фото, что в `reference` (та же инструкция, отдельного навыка нет), а генератор вдобавок получает само фото как стартовую картинку.
 - **Шум выбирает только пользователь** ползунком 0–1 (шаг 0,05, по умолчанию 0,65); агенту он не передаётся. Зоны с подсказкой: до 0,35 — синяя, уклон к референсу, его артефакты переходят в результат; 0,35–0,55 — артефакты ещё могут перейти, но в основном перерисованы; 0,60–0,75 — оптимум: новая картинка без мелких артефактов; 0,80–0,95 — сходства мало; 1,0 — фото не участвует (остаются только пропорции).
@@ -72,7 +72,7 @@
 - `Krea2EditGroundedEncode` позитив = команда правки, негатив = пустая команда с тем же фото, `grounding_px=768`.
 - `KSampler` 8 шагов, CFG 1, `dpmpp_2m_sde_gpu` / `sgm_uniform` (калибровка 5.1), denoise 1 на новом `EmptySD3LatentImage` (исходник — не стартовый латент, а отдельное условие).
 - Рецепт взят из проверенного прогона `image_gen` (`research/local-runs/workflows/moodykrea2-local-identity-edit.api.json`) и откалиброван живьём 2026-10-11 (5.1).
-- Исходник загружается в ComfyUI через `ComfyUIClient.upload_image` (`input/cmv/cmv_source_<uuid>.png`).
+- Исходник загружается в ComfyUI через `ComfyUIClient.upload_image` (`input/mediastudio/mediastudio_source_<uuid>.png`).
 - **Профили правки** (2026-10-11) — список `edit_profiles` в `manifest.json`; каждый задаёт все пять ручек графа (`cfg`, `steps`, `ref_boost`, `ref_boost_a`, `grounding_px`), они — привязки `edit.bindings.json` (`grounding_px` — у обоих `Krea2EditGroundedEncode`, негатив тогда работает как trained unconditional из README нод). Без явного профиля берётся первый для данного числа фото: `light` для одного, `donor` для двух.
 
   | id | Для чего | cfg | шаги | rb | rb_a | grounding | ~с/кадр |
@@ -88,7 +88,7 @@
 
   Профиль, сделанный для другого числа фото, — ошибка `edit_profile_invalid`. Привязка `negative_prompt` ведёт в негативный grounded-энкодер (та же картинка); текст там действует только при cfg > 1.
 - **Второй референс** (донор: человек, тату, одежда) — фрагмент `edit.subject.workflow.json`: `LoadImage` → тот же `ImageScaleToTotalPixels` → `VAEEncode`; связи `subject_links` из `edit.bindings.json` ведут его в `Krea2EditModelPatch.source_latent_b` + `source_image_b` и в `image_b` обоих `Krea2EditGroundedEncode`. Порядок фиксирован: сцена — основные входы, донор — `_b`. По тултипу ноды `ref_boost` действует на **последний** референс (донор, ≤ 2), `ref_boost_a` — на первый (сцена, 1–4). Так же собран эталонный граф авторов нод (`workflows/krea2_identity_edit.json`, группа 2). У ноды есть ещё `ref_boost_mask` — усиление только по области референса (например, лицо донора), не тестировалось.
-- `POST /api/simple/generate` в режиме `edit` принимает `edit_profile` и `subject_image` (data URL; загружается как `input/cmv/cmv_subject_<uuid>.png`), отвечает `edit_profile` и `seconds_per_image`; профиль пишется в черновик и в `extra_pnginfo` (`cmv_edit_profile`). В других режимах эти поля — ошибка `edit_only`. `/api/simple/models` отдаёт `edit_profiles` (id, подпись, описание, число фото, время).
+- `POST /api/simple/generate` в режиме `edit` принимает `edit_profile` и `subject_image` (data URL; загружается как `input/mediastudio/mediastudio_subject_<uuid>.png`), отвечает `edit_profile` и `seconds_per_image`; профиль пишется в черновик и в `extra_pnginfo` (`mediastudio_edit_profile`). В других режимах эти поля — ошибка `edit_only`. `/api/simple/models` отдаёт `edit_profiles` (id, подпись, описание, число фото, время).
 - Авторский граф нод: `euler` / `simple`, 10 шагов, CFG 1, ref_boost 4. Их CHANGELOG предупреждает, что SDE-сэмплеры мешают каналу копирования референса при outpaint; на наших 16:9 / 1:1 (5.1) расширение вышло связным, но для смены пропорций держать `euler` запасным вариантом (этап 1c).
 
 ### 4.3 «Улучшить детали» (ещё не реализовано)
@@ -101,11 +101,11 @@ LoadImage(результат) -> VAEEncode -> LatentUpscaleBy(bicubic, 1.5)
 -> VAEDecode -> ColorTransfer(mkl_lab, strength ~0.22, ref = исходный кадр) -> SaveImage
 ```
 
-Выход ~2,25 МП. Промпт берётся из метаданных результата (`cmv_prompt`). Автор усиливает этот проход LoRA `krea2_turbo_4step_rank_64` (0.5) — её нет, начинать без неё. Позже — кнопка «4K» (SeedVR2, отдельный набор нод и тяжёлые модели).
+Выход ~2,25 МП. Промпт берётся из метаданных результата (`mediastudio_prompt`). Автор усиливает этот проход LoRA `krea2_turbo_4step_rank_64` (0.5) — её нет, начинать без неё. Позже — кнопка «4K» (SeedVR2, отдельный набор нод и тяжёлые модели).
 
 ## 5. Калибровка 2026-10-10
 
-Промпт: портрет в кафе (кожа, веснушки, руки), 896×1152, сид 20261010, ~43–48 с на кадр. Картинки: `ComfyUI-Shared/output/CMV/Calibration/`. Скрипт: [`scripts/krea2_calibrate.py`](../scripts/krea2_calibrate.py).
+Промпт: портрет в кафе (кожа, веснушки, руки), 896×1152, сид 20261010, ~43–48 с на кадр. Картинки: `ComfyUI-Shared/output/MediaStudio/Calibration/`. Скрипт: [`scripts/krea2_calibrate.py`](../scripts/krea2_calibrate.py).
 
 | Вариант | Итог |
 |---|---|
@@ -118,7 +118,7 @@ LoadImage(результат) -> VAEEncode -> LatentUpscaleBy(bicubic, 1.5)
 
 ### 5.1 Калибровка правки 2026-10-11
 
-Исходник — кадр C из раздела 5 (`krea2_C_dpmpp2msde_sgm_00001_.png`, 896×1152), сид 20261011, граф собирается боевым `compile_edit_workflow` профиля. Команда: заменить кремовый свитер на чёрный атласный топ на тонких бретелях с открытыми плечами, сохранив лицо, веснушки, глаза, волосы, помаду, чашку в правой руке, левое предплечье на столе, блокнот, свет из окна и кафе. Картинки: `ComfyUI-Shared/output/CMV/CalibrationEdit/`. Скрипт: [`scripts/krea2_edit_calibrate.py`](../scripts/krea2_edit_calibrate.py). ~112–120 с на кадр 1 МП (в ~2,5 раза дольше txt2img: токены референса удлиняют последовательность).
+Исходник — кадр C из раздела 5 (`krea2_C_dpmpp2msde_sgm_00001_.png`, 896×1152), сид 20261011, граф собирается боевым `compile_edit_workflow` профиля. Команда: заменить кремовый свитер на чёрный атласный топ на тонких бретелях с открытыми плечами, сохранив лицо, веснушки, глаза, волосы, помаду, чашку в правой руке, левое предплечье на столе, блокнот, свет из окна и кафе. Картинки: `ComfyUI-Shared/output/MediaStudio/CalibrationEdit/`. Скрипт: [`scripts/krea2_edit_calibrate.py`](../scripts/krea2_edit_calibrate.py). ~112–120 с на кадр 1 МП (в ~2,5 раза дольше txt2img: токены референса удлиняют последовательность).
 
 | Вариант | Итог |
 |---|---|
@@ -135,7 +135,7 @@ LoadImage(результат) -> VAEEncode -> LatentUpscaleBy(bicubic, 1.5)
 
 ### 5.2 Сценарии правки 2026-10-11
 
-Исходник и сид те же (5.1). Метки — файлы `CMV/CalibrationEdit/edit_<метка>_00001_.png`; доноры `ref_woman_red`, `ref_man_denim`, `ref_tattoo_snake` сгенерированы там же. Один сид на вариант — выводы направленные. Время — чистое исполнение по истории ComfyUI.
+Исходник и сид те же (5.1). Метки — файлы `MediaStudio/CalibrationEdit/edit_<метка>_00001_.png`; доноры `ref_woman_red`, `ref_man_denim`, `ref_tattoo_snake` сгенерированы там же. Один сид на вариант — выводы направленные. Время — чистое исполнение по истории ComfyUI.
 
 | Правка | Что сработало | Что нет |
 |---|---|---|
@@ -305,7 +305,7 @@ Identity Edit копирует тело с исходника — слайдер
 |---|---|---|---|
 | Direct (OpenAI-compatible) | `data_url` | — | работает |
 | **OpenCode** (npm CLI v1 и десктоп v2) | `file_path` | да | **по умолчанию**; бесплатные Zen работают через штатный агент `plan` (подробности ниже); правка/текст ~16 с (десктоп) и ~36 с (npm CLI) на коротком задании, полная инструкция Create — ~30–42 с |
-| Claude Code (`claude` → npm `claude.cmd`) | `file_path` (инструмент Read) | нет | исправлен 2026-10-11, живой прогон из CMV — не делался (нет профиля) |
+| Claude Code (`claude` → npm `claude.cmd`) | `file_path` (инструмент Read) | нет | исправлен 2026-10-11, живой прогон из VEIL — не делался (нет профиля) |
 | Antigravity (`agy.exe`) | `file_path` (файл в папке прогона, 2026-10-11) | да | адаптер работает; **аккаунт отклонён по региону** («not eligible… not available in your location») |
 | **Codex** (`codex exec`, 2026-10-11) | `file_path` → `--image` | нет | **живой прогон OK**: текст 63 с / 384 слова, правка с фото 53 с, профиль `light` выбран сам |
 
@@ -313,17 +313,17 @@ Identity Edit копирует тело с исходника — слайдер
 
 - **Две установки.** npm CLI (`%APPDATA%\npm\opencode.cmd`, 1.18.x, поколение 1) и десктоп-приложение (Electron, `%LOCALAPPDATA%\Programs\@opencode-aidesktop\OpenCode.exe` со встроенным `resources\opencode-cli.exe`, 2.0.x, поколение 2). Поколение — по `--version`. Диалекты: v1 — `--pure --print-logs --log-level ERROR run … MESSAGE --file=X`; v2 — `run --standalone … --file X MESSAGE` (без `--pure`; без `--standalone` идёт в фоновый сервис десктопа).
 - **Модели.** v1 — `models [provider] --verbose` (заголовок + JSON: `capabilities.input.image`, `cost`); v2 — `api GET /api/model --param location[directory]=…` через фоновый сервис (`capabilities.input` списком, `cost` списком тарифов; холодная локация может один раз вернуть пустой список — повтор). Бесплатные Zen на 2026-10-11: big-pickle, ling-3.0/3.1, nemotron-3-ultra/3.5-lightning (текст); exo, fledge-alpha (v1), longcat-2.5, mimo-v2.6, muse-spark-1.3, space-bunny, step-5 (видят картинки). ID меняются (muse-spark 1.2 → 1.3 — из-за этого был «отказ» в старом профиле).
-- **Free tier.** Zen free отвечает только **штатному агенту OpenCode со штатными инструментами**: свой агент (`cmv-prompt-smoke`, `permission: {"*": "deny"}`) с `prompt` или без, и `plan` с запретом edit/bash/webfetch в конфиге проекта получают `FreeTierError 403` «free tier can only be used from within OpenCode». Эвристику сервера не обходим — для провайдера `opencode` берём штатный `plan`; прочие провайдеры — прежний агент без инструментов. Код ошибки `free_tier_refused`.
-- **Изоляция.** Каждый прогон: пустая папка проекта + пустой `XDG_CONFIG_HOME` (глобальный `~/.config/opencode` не грузится; авторизация в `~/.local/share/opencode` работает). Проверено по логам: в глобальном конфиге пользователя плагин **Forma** (`plugins/forma.js` → `F:\projects\image_gen`) вешает хук на каждый промпт (дописывает `[Forma preferences]`, перехватывает вложения) и даёт инструменты `forma_prompt` / `comfy_manage` / `comfy_monitor`, плюс `memory-plugin.js`, MCP-серверы и скиллы forma/image-*. Фоновый сервис десктопа всегда работает с ними, поэтому прогоны CMV идут только через `--standalone`; через сервис — лишь чтение списка моделей.
+- **Free tier.** Zen free отвечает только **штатному агенту OpenCode со штатными инструментами**: свой агент (`mediastudio-prompt-smoke`, `permission: {"*": "deny"}`) с `prompt` или без, и `plan` с запретом edit/bash/webfetch в конфиге проекта получают `FreeTierError 403` «free tier can only be used from within OpenCode». Эвристику сервера не обходим — для провайдера `opencode` берём штатный `plan`; прочие провайдеры — прежний агент без инструментов. Код ошибки `free_tier_refused`.
+- **Изоляция.** Каждый прогон: пустая папка проекта + пустой `XDG_CONFIG_HOME` (глобальный `~/.config/opencode` не грузится; авторизация в `~/.local/share/opencode` работает). Проверено по логам: в глобальном конфиге пользователя плагин **Forma** (`plugins/forma.js` → `F:\projects\image_gen`) вешает хук на каждый промпт (дописывает `[Forma preferences]`, перехватывает вложения) и даёт инструменты `forma_prompt` / `comfy_manage` / `comfy_monitor`, плюс `memory-plugin.js`, MCP-серверы и скиллы forma/image-*. Фоновый сервис десктопа всегда работает с ними, поэтому прогоны VEIL идут только через `--standalone`; через сервис — лишь чтение списка моделей.
 - **Раннер.** `run_managed_command` (Job Object) читает вывод потоками: `env_overrides`, `output_limit` (длинные JSON-события не режутся на 16 000 символах), `on_output_chunk`.
 - **Без настроек.** Если в Integrations нет ни одного агента, Create берёт новейшую установку OpenCode и бесплатную модель (vision первой: muse-spark → mimo → exo → longcat → space-bunny → step), `create_agent.implicit_opencode_profile`.
 - **Поток текста.** OpenCode CLI текст **не стримит** ни в `--format json` (события `step_start` → `reasoning` с пустым текстом → `text` целиком), ни в обычном выводе (весь ответ одним куском в конце). Посимвольный поток возможен только через серверный API OpenCode с подпиской на события.
 
 - **Баги (были):** оба исполнителя передавали всю инструкцию аргументом командной строки (лимиты cmd.exe 8191, CreateProcess 32 767). Кроме того, адаптер Claude Code ждал `cli_type="claude_code"`, а профили сохраняются с `"claude"` — роутер вообще не находил исполнителя; путь к бинарю брался из несуществующего `custom_path` вместо `executable`.
 - **Сделано:** общий модуль [`agent_cli.py`](../app/ai/execution/agent_cli.py) — папка прогона во временном каталоге, копия картинки `input.<ext>`, пакет задачи, разбор блока кода. `run_command` умеет `input_text` (stdin) и `env_overrides` (снимаем `CLAUDECODE`, иначе Claude Code, запущенный из-под сессии Claude Code, отказывается стартовать).
-  - Claude Code: пакет через stdin; `--print --output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --system-prompt <короткий CMV>`; без картинки `--tools ""`, с картинкой `--tools Read --allowedTools Read`; ответ берётся из `result` JSON-конверта, `is_error` → `cli_authentication`/`provider_error`. Тест подключения «с картинкой» в настройках теперь работает и для Claude Code.
-  - `agy`: пакет — файл `cmv-task.md` в папке прогона, аргумент — только короткая команда прочитать его; `--print-timeout`, `--disable-slash-commands`, `--sandbox`. Чтение stdin и картинок у `agy` не задокументировано — проверяется пробой [`scripts/agent_cli_probe.py`](../scripts/agent_cli_probe.py) (запуск из обычного терминала с сетью); после пробы решить: stdin вместо файла и `image_inputs=("file_path",)`.
-- **Codex** ([`codex.py`](../app/ai/execution/codex.py)): `codex exec --image input.<ext> --skip-git-repo-check --ephemeral --sandbox read-only --color never --output-last-message cmv-last-message.txt [--model M] -`, пакет задачи через stdin, ответ — из файла последнего сообщения (stdout — журнал). Модель `default` / пусто — из `~/.codex/config.toml`. Тест подключения в Integrations — тот же вызов.
+  - Claude Code: пакет через stdin; `--print --output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --system-prompt <короткий VEIL>`; без картинки `--tools ""`, с картинкой `--tools Read --allowedTools Read`; ответ берётся из `result` JSON-конверта, `is_error` → `cli_authentication`/`provider_error`. Тест подключения «с картинкой» в настройках теперь работает и для Claude Code.
+  - `agy`: пакет — файл `mediastudio-task.md` в папке прогона, аргумент — только короткая команда прочитать его; `--print-timeout`, `--disable-slash-commands`, `--sandbox`. Чтение stdin и картинок у `agy` не задокументировано — проверяется пробой [`scripts/agent_cli_probe.py`](../scripts/agent_cli_probe.py) (запуск из обычного терминала с сетью); после пробы решить: stdin вместо файла и `image_inputs=("file_path",)`.
+- **Codex** ([`codex.py`](../app/ai/execution/codex.py)): `codex exec --image input.<ext> --skip-git-repo-check --ephemeral --sandbox read-only --color never --output-last-message mediastudio-last-message.txt [--model M] -`, пакет задачи через stdin, ответ — из файла последнего сообщения (stdout — журнал). Модель `default` / пусто — из `~/.codex/config.toml`. Тест подключения в Integrations — тот же вызов.
 - **Папка прогона на Windows:** `agy` оставляет фоновый процесс с рабочей папкой прогона, и удаление временной папки падало с `WinError 32`, теряя готовый ответ. Теперь `ignore_cleanup_errors=True` (`agent_cli.agent_run_workspace`).
 - Тесты: [`tests/test_agent_hosts.py`](../tests/test_agent_hosts.py), [`tests/test_create_agent.py`](../tests/test_create_agent.py) (сборка пакета по режимам, триггер интимного модуля, выбор агента, картинки для агента, маршрут `/api/simple/agent`, Codex).
 - Старый путь `simple_routes._prepare_prompt` (`SceneAnalysisService`) и чат `/api/simple/assistant/chat` удалены; промпт пишет агент Create.
@@ -366,7 +366,7 @@ Identity Edit копирует тело с исходника — слайдер
 
 - Профиль `krea2_moody_v40` (сортируется первым → профиль по умолчанию): `manifest.json` (`modes`, `sda_modes`, `max_batch`, `quality_presets: []`), `resources.json` (SHA256 + `custom_nodes`), `workflow.json` + `bindings.json`, `edit.workflow.json` + `edit.bindings.json`. Инструкции агента находятся в `app/ai/prompting/content/create/krea2/`; неиспользуемый дубликат `prompt_style.md` удалён.
 - [`simple_profiles.py`](../app/comfyui/simple_profiles.py): `CustomNodeRequirement`, поля профиля, привязки со списком целей, `resolve_dimensions`, `compile_edit_workflow`, `has_edit_workflow`; health: `missing_nodes`, `nodes_known`, `restart_required`, `modes_ready` (нехватка нод блокирует только `edit`).
-- [`node_packs.py`](../app/comfyui/node_packs.py): установка архива закреплённого коммита (защита от `../`, сверка SHA256 входного файла, staging + rename, метка `.cmv-node-pack.json`, чужие папки не трогает).
+- [`node_packs.py`](../app/comfyui/node_packs.py): установка архива закреплённого коммита (защита от `../`, сверка SHA256 входного файла, staging + rename, метка `.mediastudio-node-pack.json`, чужие папки не трогает).
 - [`simple_routes.py`](../app/comfyui/simple_routes.py): `POST /api/simple/models/<id>/install` ставит и ноды (`node_packs`, `restart_required`, `manual_install`); `POST /api/simple/generate` принимает `mode` (`text`/`reference`/`edit`), для профилей без пресетов — `_generate_fixed`: N задач с сидами подряд, загрузка исходника для правки, ответ с `run_ids`, `width`/`height`. Старые профили `model_01…08` идут прежним путём до этапа 3.
 - Тесты: [`tests/test_create_krea2.py`](../tests/test_create_krea2.py) (17), обновлён `tests/test_simple_mode.py`; `lint.ps1` зелёный.
 - Живые проверки: txt2img `text` (SDA) и `reference` (SDA 0) через скомпилированный граф профиля.
@@ -386,7 +386,7 @@ Identity Edit копирует тело с исходника — слайдер
 
 - Исправлены передача инструкции (stdin / файл задачи вместо аргумента), роутинг `cli_type="claude"`, путь к бинарю из `executable`; картинки для Claude Code через инструмент Read; тест подключения «с картинкой» для Claude Code; общий модуль `agent_cli.py`; проба [`scripts/agent_cli_probe.py`](../scripts/agent_cli_probe.py) (7.4).
 - Тесты [`tests/test_agent_hosts.py`](../tests/test_agent_hosts.py) (16); `lint.ps1` зелёный (585 тестов).
-- Живой прогон CLI из сессии агента невозможен: песочница Claude Code закрывает исходящую сеть — проверять из обычного терминала или из CMV.
+- Живой прогон CLI из сессии агента невозможен: песочница Claude Code закрывает исходящую сеть — проверять из обычного терминала или из VEIL.
 
 ### Этап 1c и графовая часть этапа 2 (2026-10-11)
 
@@ -398,9 +398,9 @@ Identity Edit копирует тело с исходника — слайдер
 ### Агент, Codex и UI — рабочий прототип (2026-10-11, вечер)
 
 - **Агент Create** ([`create_agent.py`](../app/comfyui/create_agent.py)): инструкция модулями (7.1), `CreateInstructionBundle` без шапки «family/scenario», `PromptOperation.EDIT` (только Create), выбор агента из умолчаний Integrations (`multimodal_profile_id` для фото, `text_profile_id` для текста, переводчики не берутся), таймаут агента ≥ 240 с, картинка для агента — JPEG ≤ 1536 px, с донором — лист «фото 1 | фото 2», `edit_profile` агента проверяется по числу фото (иначе дефолт). `PromptResult` получил необязательные `edit_profile` и `note`; `ExecutionRouter.execute(bundle=…)`.
-- **API:** `POST /api/simple/agent`, `GET /api/simple/agent-status`; `/api/simple/generate` принимает готовый промпт + `user_request`, `agent_name` (в метаданные `cmv_agent`); удалены `/api/simple/ai-status`, `/api/simple/assistant/chat`, ветка пресетов качества, `QualityPresetLevel`, профили `model_01…08`. OpenAPI и `docs/core/api.md` синхронизированы.
+- **API:** `POST /api/simple/agent`, `GET /api/simple/agent-status`; `/api/simple/generate` принимает готовый промпт + `user_request`, `agent_name` (в метаданные `mediastudio_agent`); удалены `/api/simple/ai-status`, `/api/simple/assistant/chat`, ветка пресетов качества, `QualityPresetLevel`, профили `model_01…08`. OpenAPI и `docs/core/api.md` синхронизированы.
 - **UI** ([`create.html`](../app/templates/create.html), [`simple-mode-v2.js`](../app/static/js/features/simple-mode-v2.js), [`simple-mode.css`](../app/static/css/features/simple-mode.css)): переключатель режимов «From photo / Edit photo / From text», слоты фото (выбор, перетаскивание, Ctrl+V и кнопка Paste — в слот с фокусом; вставка в режиме текста переключает на «From photo» с подсказкой; текст из буфера не перехватывается), «Second photo» в правке, «As photo» в пресетах, строка агента и строка готовности без названия модели, панель «Download missing», три колонки «Before / Controls / After» (ниже 1050 px — стопкой), прогресс «агент · N с → Image k of N · about X left», «Stop», результаты по мере готовности, действия **Download / Edit this / Refine / Prompt / Library**, диалог промпта с «Generate again without the agent», журнал **Session** (запрос, промпт, агент, заметка, миниатюры) и ссылки на файлы инструкции. Манифест: подписи профилей правки на английском.
-- **Живая проверка:** Codex по описанию (63 с, 384 слова, раскладка по композиционному мануалу) и правка с фото (53 с, `light`) → `/api/simple/generate` → Identity Edit 132 с: свитер → чёрный атласный топ, обе руки открыты, лицо/чашка/книга/кафе 1:1 (`ComfyUI-Shared/output/CMV/Create/krea2_edit_00001_.png`). Скриншоты UI — Playwright + системный Edge.
+- **Живая проверка:** Codex по описанию (63 с, 384 слова, раскладка по композиционному мануалу) и правка с фото (53 с, `light`) → `/api/simple/generate` → Identity Edit 132 с: свитер → чёрный атласный топ, обе руки открыты, лицо/чашка/книга/кафе 1:1 (`ComfyUI-Shared/output/MediaStudio/Create/krea2_edit_00001_.png`). Скриншоты UI — Playwright + системный Edge.
 - `lint.ps1` зелёный: 623 pytest, node-тесты, ESLint, Ruff, Pyrefly, контракты.
 
 ### OpenCode по умолчанию (2026-10-11, ночь)
@@ -433,10 +433,10 @@ Identity Edit копирует тело с исходника — слайдер
 ### Вариация, действия с результатом и папка output (2026-10-13)
 
 - **Сохранение задания при переходах (13.10.2026):** Create использует `/api/simple/tasks`: сервер сохраняет исходный запрос и фото в `workflow_drafts` и сам выполняет агент → очередь → импорт всех результатов. Уход в Library/Viewer и reload не обрывают цепочку. Страница восстанавливает режим, фото, запрос, прогресс и весь пакет результатов по сохранённому ID; повтор отправки с тем же ID не запускает новый пакет. Backend закреплён за заданием. Stop во время агента запрещает дальнейшую генерацию, а при гонке с ответом очереди сохраняет и отменяет уже принятый run. После остановки сервера стадия агента не повторяется автоматически; известные run ID можно продолжить отслеживать.
-- **Viewer и подпапки output:** активная папка output индексируется с подпапками (включая `CMV/Create` и изображения, сделанные вне CMV); при старте приложения подхватываются прежние результаты. Импорт использует ID физического файла вместо второй копии в Uploads, если файл совпадает с результатом по содержимому. Явно отключённый источник остаётся отключённым. SSE папок отправляет heartbeat и при неизменных данных: ушедшие страницы освобождают HTTP-потоки.
+- **Viewer и подпапки output:** активная папка output индексируется с подпапками (включая `MediaStudio/Create` и изображения, сделанные вне VEIL); при старте приложения подхватываются прежние результаты. Импорт использует ID физического файла вместо второй копии в Uploads, если файл совпадает с результатом по содержимому. Явно отключённый источник остаётся отключённым. SSE папок отправляет heartbeat и при неизменных данных: ушедшие страницы освобождают HTTP-потоки.
 - **Проверка переходов:** `node scripts/create_navigation_smoke.cjs` — настоящий UI в Edge с управляемым тестовым агентом/ComfyUI, без реальной генерации: Create → Library → Viewer → Create на стадии агента, ещё один переход на стадии генерации, завершение двух кадров в фоне, их показ в Viewer и восстановление после reload без повторного запуска. Проверяет также отсутствие ошибок JS. Нового живого прогона OpenCode/GPU эта проверка не подтверждает.
 
-- Режим **Variation** (4.1a): кнопка в переключателе режимов, блок «Photo to vary» слева, ползунок **Noise** с цветными зонами и всплывающей подсказкой вместо выбора пропорций; шум хранится в сессии и в метаданных PNG (`cmv_denoise`).
+- Режим **Variation** (4.1a): кнопка в переключателе режимов, блок «Photo to vary» слева, ползунок **Noise** с цветными зонами и всплывающей подсказкой вместо выбора пропорций; шум хранится в сессии и в метаданных PNG (`mediastudio_denoise`).
 - **Действия поверх результата:** «Regenerate» (тот же промпт, фото, тип правки и шум, новый сид, без агента), «Edit» (результат становится фото для правки, описать изменение текстом), «Edit with reference» (то же и подсвеченный второй блок для референса: человек, одежда, тату — дальше работают профили правки `donor` / `donor_detail`). Панель видна при наведении, на сенсорных экранах всегда.
 - **Правка — один режим** (2026-10-13, раздел 14): слева блок 1 «Photo to edit» (обязателен) и блок 2 «Reference» (необязателен: человек, одежда или тату). Пустой блок 2 — правка по одному фото, заполненный — профили `donor` / `donor_detail`; подсказка и кнопка меняются на «Edit with reference». Прежний переключатель «By text / With a reference» убран: оба варианта были одним графом Identity Edit. Номер блока виден, только когда блоков два. Кнопки режимов — иконка над подписью в одну строку; подсказки режимов — не длиннее двух строк, чтобы карточка помещалась на 1280×720.
 - **Шкала шума** — одна полоса: заполненная часть плавно меняет цвет по значению (синий → янтарный → зелёный → фиолетовый → серый, смешивание в OKLab, на стыках зон цвет проходит через приглушённый нейтральный), затухает к нулю, смена цвета анимирована (`@property --denoise-color`).
@@ -444,8 +444,8 @@ Identity Edit копирует тело с исходника — слайдер
 - **Пакет из нескольких картинок** (проверено на Colab G4, 4 × 3:4): картинки приходят по одной, лента миниатюр растёт 2 → 3 → 4, над картинкой «Image 3 of 4 · …»; в библиотеке и в output — 4 разных файла. Миниатюры крупнее (`clamp(46px, 6.5vh, 62px)`, неактивные — 0,8), иначе тёмные кадры на 22 px выглядели пустыми. Картинка с Colab в библиотеке называется так же, как её файл в output (VM нумерует заново для каждого задания).
 - **Поле промпта** забирает свободную высоту карточки и растёт с текстом, пока у карточки есть запас до её предельной высоты (в одну колонку — до 40% окна); длиннее — прокрутка внутри поля, кнопка Create всегда на виду. **Переключатель This PC / Colab** — справа от «What are we creating?»; строка статуса появляется, только когда есть проблема или следующий шаг.
 - **Агент выбирается прямо в Create:** строка под промптом — «хост · модель · уровень рассуждения» (без лампочки). Меню получает каталоги OpenCode, Antigravity, Codex и Claude Code без запуска генерации и создания профилей. OpenCode берёт `vision/free/variants` из карточек (2.x: `provider/model#variant`); Codex — модели, `inputModalities` и reasoning из `app-server model/list`; Claude Code — список алиасов из stream-JSON initialization; Antigravity — модели и уровни из `agy models` (точный ID уровня передаётся исполнителю). Каталоги запрашиваются параллельно, кэшируются 10 минут; Refresh обновляет все, ошибка одного не скрывает остальные. Явные типы входа приоритетны: GPT-OSS — «Text only», известные Gemini/Claude без метаданных — «Photos*» с пояснением о выводе по семейству, неизвестные — «Photos unknown». В фото-режимах модели без подтверждённого зрения приглушены, строка предупреждает; сервер повторно проверяет выбор. Остальные профили Integrations остаются в меню без дублей. Какие модели OpenCode показывать — по-прежнему Integrations › Local AI tools › Display settings. Выбор хранится в браузере; «Use the Integrations defaults» возвращает прежнее поведение. Проверено 13.10.2026 в Edge: все четыре реальных каталога, выбор Codex/high и восстановление после reload, выбор Claude/Sonnet, предупреждение GPT-OSS, меню на ширине 390 px, Escape возвращает фокус. Это проверка каталога и UI; новые LLM-прогоны не запускались.
-- **Кэш каталогов агентов (13.10.2026):** карточки OpenCode, Antigravity, Codex и Claude Code сохраняются в `cache/model-catalogs` текущего профиля (с учётом `COMFY_META_CACHE_DIR`), повторно используются после перезапуска сервера до истечения 10 минут и обновляются при замене CLI. Create сохраняет последний список в браузере отдельно от настроек отображения: сразу показывает его после reload, а просроченный обновляет в фоне. Refresh запрашивает свежие каталоги; медленный ответ или ошибка не убирают сохранённые карточки. Возможности моделей и уровни рассуждения сохраняются без догадок; учётные данные в кэш не записываются. Проверки: восстановление четырёх каталогов после сброса памяти процесса, TTL/замена CLI/ошибка обновления; Edge — reload без нового запроса, сохранённый список во время медленного обновления и после ошибки.
-- **Папка output:** результаты Create попадают в `CMV/Create` папки output ComfyUI и с Colab: CMV копирует скачанный файл туда под следующим свободным именем в стиле ComfyUI (`comfyui_output_dir`: своя папка CMV, иначе папка Desktop, иначе `<ComfyUI>/output`).
+- **Кэш каталогов агентов (13.10.2026):** карточки OpenCode, Antigravity, Codex и Claude Code сохраняются в `cache/model-catalogs` текущего профиля (с учётом `MEDIASTUDIO_CACHE_DIR`), повторно используются после перезапуска сервера до истечения 10 минут и обновляются при замене CLI. Create сохраняет последний список в браузере отдельно от настроек отображения: сразу показывает его после reload, а просроченный обновляет в фоне. Refresh запрашивает свежие каталоги; медленный ответ или ошибка не убирают сохранённые карточки. Возможности моделей и уровни рассуждения сохраняются без догадок; учётные данные в кэш не записываются. Проверки: восстановление четырёх каталогов после сброса памяти процесса, TTL/замена CLI/ошибка обновления; Edge — reload без нового запроса, сохранённый список во время медленного обновления и после ошибки.
+- **Папка output:** результаты Create попадают в `MediaStudio/Create` папки output ComfyUI и с Colab: VEIL копирует скачанный файл туда под следующим свободным именем в стиле ComfyUI (`comfyui_output_dir`: своя папка VEIL, иначе папка Desktop, иначе `<ComfyUI>/output`).
 
 ## 10. Дальше
 
@@ -470,8 +470,8 @@ Identity Edit копирует тело с исходника — слайдер
 - [x] Поток агента (SSE, быстрый вариант): фазы, журнал Codex/`agy`, промпт сразу после ответа (9).
 - [ ] Посимвольный поток для OpenCode — только через серверный API OpenCode с подпиской на события (7.4), по желанию.
 - [x] Починить Claude Code и `agy`: stdin/файл, картинки файлами; тесты на длинную инструкцию (7.4).
-- [x] Адаптер Codex + тест подключения; живой прогон Codex из CMV-кода.
-- [ ] Живой прогон Claude Code из CMV (нужен профиль в Integrations); `agy` — после решения вопроса с регионом аккаунта.
+- [x] Адаптер Codex + тест подключения; живой прогон Codex из VEIL-кода.
+- [ ] Живой прогон Claude Code из VEIL (нужен профиль в Integrations); `agy` — после решения вопроса с регионом аккаунта.
 - [x] OpenCode по умолчанию: npm CLI и десктоп, каталог с vision/free, штатный агент для Zen, изоляция от глобального конфига (Forma), профили пользователя и умолчания (9).
 - [x] Профили правки в графе (4.2): привязки `edit.bindings.json`, восемь профилей в манифесте, `edit_profile` в `/api/simple/generate`.
 - [x] Второй референс: фрагмент `edit.subject.workflow.json` + `subject_links`, `subject_image` в запросе, загрузка донора, тесты с донором и без.
@@ -500,7 +500,7 @@ Identity Edit копирует тело с исходника — слайдер
 ## 11. Открытые вопросы
 
 - Подтвердить правило SDA: вкл. для `text`, выкл. для `reference`.
-- Перезапуск ComfyUI Desktop из CMV: Desktop запускает ComfyUI с `--enable-manager`, встроенный ComfyUI-Manager V4.2.2 отвечает на `/v2/manager/version`, значит есть и `/v2/manager/reboot`. Как он ведёт себя под Desktop, не проверено (2026-10-11 перезапускали вручную из Desktop). Решить, делать ли кнопку перезапуска через Manager.
+- Перезапуск ComfyUI Desktop из VEIL: Desktop запускает ComfyUI с `--enable-manager`, встроенный ComfyUI-Manager V4.2.2 отвечает на `/v2/manager/version`, значит есть и `/v2/manager/reboot`. Как он ведёт себя под Desktop, не проверено (2026-10-11 перезапускали вручную из Desktop). Решить, делать ли кнопку перезапуска через Manager.
 - BFS bodyswap в v1: рекомендация — не включать (5.2); ждёт решения пользователя.
 - ~~Новая инструкция Krea2 с нуля (7.1)~~ — решено: инструкция собрана из `instruction.md` пользователя модулями (7.1).
 - Триггер интимного модуля — список слов в `create_agent._INTIMATE_RE`; без триггера откровенные референсы описываются только по правилам `base.md`. Если нужно всегда грузить модуль для фото-режимов — одна строка в `build_create_bundle`.
@@ -531,7 +531,7 @@ Identity Edit копирует тело с исходника — слайдер
 
 Проверка: полный гейт (ESLint, 67 Node-тестов, Ruff, Pyrefly, контракты, 775 pytest и 92 subtests), браузерный smoke `scripts/create_edit_modes_smoke.cjs` и существующий smoke навигации; после смены сэмплера — 97 проверок контура Create. Первые прогоны с кружками проверили маршрутизацию и выбор `remove`/`donor_detail`, но пользователь верно указал, что этого недостаточно для приёмки редактирования человека.
 
-Живая визуальная проверка проведена через настоящую Colab-интеграцию CMV на G4 (RTX PRO 6000 Blackwell 96 ГБ), на предоставленном пользователем фото: сложная поза, подробная одежда и лицо под наклейкой. Агент — LongCat 2.5 Preview Free, seed 20261013, исходные пропорции около 1 МП. Сначала сохранён прогон SDE, затем три правки и контрольный `heavy` повторены на `euler/simple` с теми же подготовленными промптами.
+Живая визуальная проверка проведена через настоящую Colab-интеграцию VEIL на G4 (RTX PRO 6000 Blackwell 96 ГБ), на предоставленном пользователем фото: сложная поза, подробная одежда и лицо под наклейкой. Агент — LongCat 2.5 Preview Free, seed 20261013, исходные пропорции около 1 МП. Сначала сохранён прогон SDE, затем три правки и контрольный `heavy` повторены на `euler/simple` с теми же подготовленными промптами.
 
 | Режим | Параметры | Наблюдение на фото |
 |---|---|---|
@@ -543,7 +543,7 @@ Identity Edit копирует тело с исходника — слайдер
 
 Пользователь положительно оценил Variation и последние три картинки Euler. Это подтверждение качества этих результатов, а не обещание точного сохранения всех деталей на произвольном входе; скрытое исходное лицо неизвестно. SDE-версия remove оставляла белые артефакты на лице; этот дефект не наблюдался в повторе Euler. Для двух режимов с LoRA зафиксирована одна и та же пара `euler/simple`, роли фото остаются раздельными. Colab остановлен после проверок.
 
-Артефакты: `reports/create-edit-2026-10-13/` — исходник, сравнение, результаты, точные промпты и receipts. `*.captured.api.json` сохраняют графы запусков, `variation.api.json` и `reference_edit.api.json` пригодны для повторного API-запуска с `source.png` и (для переноса) `garment_reference.png` в ComfyUI input. Веса и приватные ключи в экспорт не включены. Генерации Colab сохранены также в штатной папке ComfyUI output `CMV/Create`.
+Артефакты: `reports/create-edit-2026-10-13/` — исходник, сравнение, результаты, точные промпты и receipts. `*.captured.api.json` сохраняют графы запусков, `variation.api.json` и `reference_edit.api.json` пригодны для повторного API-запуска с `source.png` и (для переноса) `garment_reference.png` в ComfyUI input. Веса и приватные ключи в экспорт не включены. Генерации Colab сохранены также в штатной папке ComfyUI output `MediaStudio/Create`.
 
 ## 13. Original: описание без идеализации (2026-10-13)
 
@@ -582,7 +582,7 @@ git diff --check. Проверены включение модуля во все
 
 Исправление (инструкция версии 4): `build_user_input` получает размер фото 1; `simple_profiles.edit_frame_change` повторяет порог ноды и даёт строку `FRAME CHANGE` (полосы `sides` или `top and bottom`). Раздел `edit.md` «Frame change»: одно предложение о продолжении только того, что уже есть на фото, тот же размер и место людей, без новых людей/текста/предметов, предпочтительно `light`, в `note` — что края дорисованы и «As photo» сохраняет кадр.
 
-Живая проверка через Colab-интеграцию CMV (G4, seed 20261013, профиль `light`, исходник — портрет в кафе 896×1152 из раздела 5.1; правка: свитер → тёмно-зелёная джинсовая куртка поверх белой футболки). Агент — OpenCode Muse Spark 1.3 Free (medium), 21 с: выбрал `light`, добавил «Keep her at the same size and position. Extend the frame at the left and right: …» и заметку про «As photo». Время генерации на тёплом G4 — 15 с.
+Живая проверка через Colab-интеграцию VEIL (G4, seed 20261013, профиль `light`, исходник — портрет в кафе 896×1152 из раздела 5.1; правка: свитер → тёмно-зелёная джинсовая куртка поверх белой футболки). Агент — OpenCode Muse Spark 1.3 Free (medium), 21 с: выбрал `light`, добавил «Keep her at the same size and position. Extend the frame at the left and right: …» и заметку про «As photo». Время генерации на тёплом G4 — 15 с.
 
 | Прогон | Результат |
 |---|---|
@@ -590,7 +590,7 @@ git diff --check. Проверены включение модуля во все
 | 16:9, та же команда без фразы о кадре | кадр перекомпонован: девушка крупнее и сдвинута, окно на полкадра, за ним улица |
 | 16:9, команда агента с фразой о кадре | девушка того же размера в центре; слева продолжена кирпичная стена, справа стойка и стулья; на старых границах нет двоящейся полосы |
 
-Замечание по агенту: в той же команде «bare right hand and forearm» противоречит «long sleeves covering both arms»; на результате рукава закрыты. Файлы: ComfyUI output `CMV/Create/krea2_edit_00014_` (с фразой), `00015_` (без), `00016_` (As photo).
+Замечание по агенту: в той же команде «bare right hand and forearm» противоречит «long sleeves covering both arms»; на результате рукава закрыты. Файлы: ComfyUI output `MediaStudio/Create/krea2_edit_00014_` (с фразой), `00015_` (без), `00016_` (As photo).
 
 Проверка на фото пользователя (агент OpenCode Muse Spark 1.3 Free, Colab G4, seed 20261013, один прогон на вариант):
 
@@ -612,7 +612,7 @@ git diff --check. Проверены включение модуля во все
 содержать Markdown, несколько JSON-фрагментов, числовую `schema_version` и
 служебные `toolAction` / `toolSummary`; удаление Markdown-ограждения этого не решает.
 
-Адаптер теперь запускает agy с `--output-format json --json-schema cmv-result.schema.json`.
+Адаптер теперь запускает agy с `--output-format json --json-schema mediastudio-result.schema.json`.
 Схема строится из `PromptResult`, требует все пять полей и запрещает дополнительные.
 Читается только `structured_output` из конверта со статусом `SUCCESS`, затем результат
 проходит обычную Pydantic-валидацию. Поле `response` остаётся диагностическим журналом
@@ -678,8 +678,8 @@ Native agy Gemini 3.8 Flash Low вернул валидный `PromptResult` з�
 Замена только stdin дочернего процесса на `subprocess.DEVNULL` дала готовность
 того же интерпретатора за 0,12 с. Этот stdin не является протоколом ComfyUI.
 
-`ComfyUIManager.start_managed` теперь всегда отделяет stdin ComfyUI от CMV.
-Kill-on-close Job Object и протокол завершения самого CMV сохраняются.
+`ComfyUIManager.start_managed` теперь всегда отделяет stdin ComfyUI от VEIL.
+Kill-on-close Job Object и протокол завершения самого VEIL сохраняются.
 Монитор использует монотонные часы и записывает таймаут один раз за запуск.
 Настоящий ComfyUI Desktop через настоящий Electron/`DesktopBackend` достиг
 `online=true`, `status=ready` за 133,47 с; PID не менялся. Поэтому Create,
@@ -689,7 +689,7 @@ Kill-on-close Job Object и протокол завершения самого C
 Регрессионные тесты проверяют запуск дочернего Python при читающем stdin
 родителе (реальные Windows-процессы), единственную запись таймаута и готовность
 API позже двух минут. До исправления первые два теста падали. Native-проверка
-использовала отдельный профиль CMV, пустую выходную папку и свободный порт;
+использовала отдельный профиль VEIL, пустую выходную папку и свободный порт;
 новую картинку не генерировала. Отчёт: `reports/desktop-startup-electron-20261014.json`.
 
 Полный финальный `lint.ps1`: 839 pytest + 92 subtests, 69 Node, ESLint, Ruff,
@@ -736,13 +736,13 @@ Viewer Remix открывает `/create?photo=<id>&mode=variation` с ориг�
    - **Специализация:** Механика обнажения и снятия одежды (`roll up tops`, `pull down panties`,
      `remove clothes`, анатомические позы без деформации окружения).
    - **Диапазон силы:** 0.5–2.0 (не ломает композицию и окружение исходного кадра).
-   - **Потенциальная роль в CMV:** Второй LoRA-слот в `edit.workflow.json` для профилей `light`
+   - **Потенциальная роль в VEIL:** Второй LoRA-слот в `edit.workflow.json` для профилей `light`
      и `remove` при наличии интимных триггеров.
 
 2. **`SNOFS (Sex, Nudes, Other Fun Stuff) v1.5` (Civitai ID `1972981`, файл `snofs_krea_v1_5.safetensors`, автор `Ashen3`)**
    - **Специализация:** Глубокая база natural language для сексуального контента, поз и контакта.
    - **Диапазон силы:** 0.2–0.4 (на высоких весах конкурирует с сохранением сцены фото 1).
-   - **Потенциальная роль в CMV:** Фоновый лексический усилитель анатомии для сложных поз и контакта.
+   - **Потенциальная роль в VEIL:** Фоновый лексический усилитель анатомии для сложных поз и контакта.
 
 3. **Анатомические микро-слайдеры (эстетический контроль):**
    - **`Innie / Labia Minora Slider - Krea2`** (Civitai ID `2811308`): соблюдение гайдлайна

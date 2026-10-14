@@ -18,7 +18,7 @@ from app.config_store import ConfigStore
 
 CIVITAI_SECRET = "model-source:civitai"
 CIVITAI_ME_URL = "https://civitai.com/api/v1/me"
-USER_AGENT = "comfy-meta-viewer"
+USER_AGENT = "mediastudio"
 
 _lock = threading.Lock()
 

@@ -1,6 +1,6 @@
-# ComfyUI Meta Viewer — Project Roadmap
+# VEIL — Project Roadmap
 
-Этот документ отражает стратегический план развития проекта **ComfyUI Meta Viewer (CMV)**. Подробные архитектурные спецификации и технические задания по каждому этапу находятся в директории [`dev_docs/roadmap/`](dev_docs/roadmap/README.md).
+Этот документ отражает стратегический план развития проекта **VEIL (VEIL)**. Подробные архитектурные спецификации и технические задания по каждому этапу находятся в директории [`dev_docs/roadmap/`](dev_docs/roadmap/README.md).
 
 ---
 

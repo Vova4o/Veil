@@ -49,21 +49,21 @@ test('getStoredTheme defaults to dark', () => {
 });
 
 test('getStoredTheme retrieves valid stored themes', () => {
-    localStorage.setItem('cmv_theme', 'light');
+    localStorage.setItem('mediastudio_theme', 'light');
     assert.equal(getStoredTheme(), 'light');
 
-    localStorage.setItem('cmv_theme', 'strawberry');
+    localStorage.setItem('mediastudio_theme', 'strawberry');
     assert.equal(getStoredTheme(), 'strawberry');
 
-    localStorage.setItem('cmv_theme', 'strawberry-dark');
+    localStorage.setItem('mediastudio_theme', 'strawberry-dark');
     assert.equal(getStoredTheme(), 'strawberry-dark');
 
-    localStorage.setItem('cmv_theme', 'system');
+    localStorage.setItem('mediastudio_theme', 'system');
     assert.equal(getStoredTheme(), 'system');
 });
 
 test('getStoredTheme falls back on corrupted or unknown theme names', () => {
-    localStorage.setItem('cmv_theme', 'invalid-theme-123');
+    localStorage.setItem('mediastudio_theme', 'invalid-theme-123');
     assert.equal(getStoredTheme(), 'dark');
 });
 
@@ -78,9 +78,9 @@ test('resolveEffectiveTheme returns the direct theme or resolves system', () => 
 test('applyTheme sets data-theme attribute on documentElement and saves to localStorage', () => {
     applyTheme('strawberry');
     assert.equal(document.documentElement.getAttribute('data-theme'), 'strawberry');
-    assert.equal(localStorage.getItem('cmv_theme'), 'strawberry');
+    assert.equal(localStorage.getItem('mediastudio_theme'), 'strawberry');
 
     applyTheme('light');
     assert.equal(document.documentElement.getAttribute('data-theme'), 'light');
-    assert.equal(localStorage.getItem('cmv_theme'), 'light');
+    assert.equal(localStorage.getItem('mediastudio_theme'), 'light');
 });

@@ -149,9 +149,9 @@ class AIProviderStoreTest(unittest.TestCase):
             self.store.create({"template": "no-such-template", "api_key": "key"})
 
     def test_environment_and_no_key_providers_do_not_touch_keyring(self):
-        with patch.dict(os.environ, {"CMV_TEST_PROVIDER_KEY": "from-env"}):
+        with patch.dict(os.environ, {"MEDIASTUDIO_TEST_PROVIDER_KEY": "from-env"}):
             provider = self.store.create(custom_payload(
-                api_key_source="environment", api_key_env="CMV_TEST_PROVIDER_KEY", api_key="",
+                api_key_source="environment", api_key_env="MEDIASTUDIO_TEST_PROVIDER_KEY", api_key="",
             ))
             self.assertTrue(provider["has_credentials"])
             profile = agents.provider_profile_base(self.store.get("myprovider"))
@@ -581,7 +581,7 @@ class CLIDetectionTest(unittest.TestCase):
         self.assertEqual(generation_for("C:/x/opencode-cli.exe", ""), 2)
 
     def test_opencode_run_commands_follow_each_dialect(self):
-        files = [Path("C:/w/cmv-task.md"), Path("C:/w/input.jpg")]
+        files = [Path("C:/w/mediastudio-task.md"), Path("C:/w/input.jpg")]
         cmd = build_opencode_run_command(
             "opencode-cli.exe", generation=2, model="opencode/m", agent="plan",
             title="t", message="go", files=files,
@@ -700,7 +700,7 @@ class CLIDetectionTest(unittest.TestCase):
             @staticmethod
             def read(_maximum):
                 return json.dumps({
-                    "choices": [{"message": {"content": "CMV_OK"}}]
+                    "choices": [{"message": {"content": "MEDIASTUDIO_OK"}}]
                 }).encode()
 
         with patch("app.ai.transport._open_url", return_value=FakeResponse()):
@@ -708,7 +708,7 @@ class CLIDetectionTest(unittest.TestCase):
                 profile, api_key="test-key", multimodal=True
             )
         self.assertTrue(result["ok"])
-        self.assertEqual(result["response_preview"], "CMV_OK")
+        self.assertEqual(result["response_preview"], "MEDIASTUDIO_OK")
 
     def test_content_policy_errors_have_a_stable_user_message(self):
         profile = direct_profile()
@@ -741,7 +741,7 @@ class CLIDetectionTest(unittest.TestCase):
             "model": "provider/model",
             "timeout_seconds": 20,
         }
-        output = json.dumps({"part": {"text": "CMV_OK"}})
+        output = json.dumps({"part": {"text": "MEDIASTUDIO_OK"}})
         with (
             patch("app.ai.cli.find_executable", return_value=profile["executable"]),
             patch("app.ai.cli.run_command", return_value=CommandResult(
@@ -752,7 +752,7 @@ class CLIDetectionTest(unittest.TestCase):
             )),
         ):
             result = run_cli_test(profile)
-        self.assertEqual(result["response_preview"], "CMV_OK")
+        self.assertEqual(result["response_preview"], "MEDIASTUDIO_OK")
 
     def test_opencode_multimodal_test_attaches_bundled_image_as_one_argument(self):
         profile = {
@@ -761,7 +761,7 @@ class CLIDetectionTest(unittest.TestCase):
             "model": "provider/model",
             "timeout_seconds": 20,
         }
-        output = json.dumps({"part": {"text": "CMV_OK"}})
+        output = json.dumps({"part": {"text": "MEDIASTUDIO_OK"}})
         captured = {}
 
         def fake_run(args, **kwargs):
@@ -793,7 +793,7 @@ class CLIDetectionTest(unittest.TestCase):
             self.assertGreater(image.width, 1)
             self.assertGreater(image.height, 1)
         self.assertTrue(any("attached garden image" in arg for arg in args))
-        self.assertEqual(result["response_preview"], "CMV_OK")
+        self.assertEqual(result["response_preview"], "MEDIASTUDIO_OK")
 
     def test_opencode_free_tier_refusal_is_reported_plainly(self):
         profile = {

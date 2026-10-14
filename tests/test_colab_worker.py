@@ -13,7 +13,7 @@ import pytest
 
 from app.remote import colab_worker as cw
 
-WORKFLOW = {"9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "CMV/Create/krea2"}}}
+WORKFLOW = {"9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "MediaStudio/Create/krea2"}}}
 JOB = "0f8b9e2c-4d3a-4c1e-9b7a-2e6d5c4b3a21"
 EARLY = "11111111-2222-4333-8444-555555555555"
 LATE = "66666666-7777-4888-9999-aaaaaaaaaaaa"
@@ -22,10 +22,10 @@ LATE = "66666666-7777-4888-9999-aaaaaaaaaaaa"
 def _job(**overrides):
     job = {
         "id": JOB,
-        "client_id": "cmv-create-x",
+        "client_id": "mediastudio-create-x",
         "workflow": WORKFLOW,
-        "extra_data": {"extra_pnginfo": {"cmv_prompt": "a lighthouse"}},
-        "inputs": ["cmv/cmv_source_abc.png"],
+        "extra_data": {"extra_pnginfo": {"mediastudio_prompt": "a lighthouse"}},
+        "inputs": ["mediastudio/mediastudio_source_abc.png"],
         "resources": [{
             "folder": "diffusion_models", "filename": "model.safetensors",
             "url": "https://example.com/model.safetensors", "sha256": "A" * 64,
@@ -37,7 +37,7 @@ def _job(**overrides):
 
 def test_parse_job_keeps_only_safe_names():
     job = cw.parse_job(_job())
-    assert job["inputs"] == ["cmv_source_abc.png"]
+    assert job["inputs"] == ["mediastudio_source_abc.png"]
     assert job["resources"][0]["sha256"] == "a" * 64
     for bad in (
         {"id": "../escape"},
@@ -66,9 +66,9 @@ def test_hf_parts_and_watchdog():
 
 
 def test_output_files_and_archive_members():
-    outputs = {"9": {"images": [{"filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output"}]}}
+    outputs = {"9": {"images": [{"filename": "krea2_00001_.png", "subfolder": "MediaStudio/Create", "type": "output"}]}}
     assert cw.output_files(outputs) == [{
-        "filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output", "node_id": "9", "media_key": "images",
+        "filename": "krea2_00001_.png", "subfolder": "MediaStudio/Create", "type": "output", "node_id": "9", "media_key": "images",
     }]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -79,7 +79,7 @@ def test_output_files_and_archive_members():
 
 
 def test_event_log_and_attach_resume_after_a_sequence(tmp_path, capsys):
-    worker = cw.Worker(root=tmp_path / "cmv", comfy_dir=tmp_path / "ComfyUI")
+    worker = cw.Worker(root=tmp_path / "mediastudio", comfy_dir=tmp_path / "ComfyUI")
     for index in range(3):
         worker.log.emit("boot", stage=f"s{index}")
     worker.attach(after_seq=1, seconds=0.05)
@@ -87,7 +87,7 @@ def test_event_log_and_attach_resume_after_a_sequence(tmp_path, capsys):
     events = [json.loads(line[len(cw.EVENT_PREFIX):]) for line in lines if line.startswith(cw.EVENT_PREFIX)]
     assert [event["seq"] for event in events] == [2, 3]
     assert lines[-1] == cw.ATTACH_END_PREFIX + json.dumps({"last_seq": 3})
-    stored = (tmp_path / "cmv" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    stored = (tmp_path / "mediastudio" / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert [json.loads(line)["stage"] for line in stored] == ["s0", "s1", "s2"]
 
 
@@ -117,13 +117,13 @@ class _FakeComfy:
 
 @pytest.fixture
 def worker(tmp_path):
-    item = cw.Worker(root=tmp_path / "cmv", comfy_dir=tmp_path / "ComfyUI")
+    item = cw.Worker(root=tmp_path / "mediastudio", comfy_dir=tmp_path / "ComfyUI")
     item._prep = _Inline()
     item.ready.set()
     model = tmp_path / "ComfyUI" / "models" / "diffusion_models" / "model.safetensors"
     model.parent.mkdir(parents=True)
     model.write_bytes(b"weights")
-    (item.inputs / "cmv_source_abc.png").write_bytes(b"png")
+    (item.inputs / "mediastudio_source_abc.png").write_bytes(b"png")
     return item
 
 
@@ -143,17 +143,17 @@ def test_inbox_job_is_prepared_and_queued(worker):
     (worker.inbox / f"{JOB}.job.json").write_text(_job(), encoding="utf-8")
     worker._scan_inbox()
     assert worker.jobs[JOB]["state"] == "queued"
-    assert (worker.comfy_dir / "input" / "cmv" / "cmv_source_abc.png").read_bytes() == b"png"
+    assert (worker.comfy_dir / "input" / "mediastudio" / "mediastudio_source_abc.png").read_bytes() == b"png"
     method, path, payload = comfy.calls[-1]
     assert (method, path) == ("POST", "/prompt")
     assert payload["prompt_id"] == JOB and payload["client_id"] == worker.client_id
-    assert payload["extra_data"]["extra_pnginfo"]["cmv_prompt"] == "a lighthouse"
+    assert payload["extra_data"]["extra_pnginfo"]["mediastudio_prompt"] == "a lighthouse"
     assert [event["ev"] for event in worker.log.after(0)] == ["job_received", "job_queued"]
 
 
 def test_missing_input_fails_the_job(worker):
     worker._api = _FakeComfy()
-    (worker.inputs / "cmv_source_abc.png").unlink()
+    (worker.inputs / "mediastudio_source_abc.png").unlink()
     (worker.inbox / f"{JOB}.job.json").write_text(_job(), encoding="utf-8")
     worker._scan_inbox()
     assert worker.jobs[JOB]["state"] == "failed"
@@ -185,10 +185,10 @@ def test_cancel_before_queueing_and_while_running(worker):
 
 
 def test_finish_copies_outputs_and_collect_removes_everything(worker):
-    output = worker.comfy_dir / "output" / "CMV" / "Create" / "krea2_00001_.png"
+    output = worker.comfy_dir / "output" / "MediaStudio" / "Create" / "krea2_00001_.png"
     output.parent.mkdir(parents=True)
     output.write_bytes(b"result")
-    outputs = {"9": {"images": [{"filename": "krea2_00001_.png", "subfolder": "CMV/Create", "type": "output"}]}}
+    outputs = {"9": {"images": [{"filename": "krea2_00001_.png", "subfolder": "MediaStudio/Create", "type": "output"}]}}
     history = {JOB: {"status": {"status_str": "success", "messages": []}, "outputs": outputs}}
     comfy = worker._api = _FakeComfy(history=history)
     (worker.inbox / f"{JOB}.job.json").write_text(_job(), encoding="utf-8")
@@ -202,7 +202,7 @@ def test_finish_copies_outputs_and_collect_removes_everything(worker):
     worker._scan_inbox()
     assert not (worker.outbox / JOB).exists()
     assert not output.exists()
-    assert not (worker.inputs / "cmv_source_abc.png").exists()
+    assert not (worker.inputs / "mediastudio_source_abc.png").exists()
     assert JOB not in worker.jobs
     assert ("POST", "/history", {"delete": [JOB]}) in comfy.calls
 
@@ -213,8 +213,8 @@ def test_a_shared_photo_stays_until_the_last_job_of_the_batch_is_collected(worke
     for job_id in (JOB, second):
         (worker.inbox / f"{job_id}.job.json").write_text(_job(id=job_id), encoding="utf-8")
     worker._scan_inbox()
-    shared = worker.inputs / "cmv_source_abc.png"
-    copied = worker.comfy_dir / "input" / "cmv" / "cmv_source_abc.png"
+    shared = worker.inputs / "mediastudio_source_abc.png"
+    copied = worker.comfy_dir / "input" / "mediastudio" / "mediastudio_source_abc.png"
     _age(worker.inbox / f"{JOB}.collected", write=True)
     worker._scan_inbox()
     assert shared.exists() and copied.exists(), "the batch's other job still needs the photo"
@@ -268,7 +268,7 @@ def test_http_download_checks_sha256(worker, file_server):
 
 
 def test_detach_ends_attach_and_a_stale_marker_is_ignored(tmp_path, capsys):
-    worker = cw.Worker(root=tmp_path / "cmv", comfy_dir=tmp_path / "ComfyUI")
+    worker = cw.Worker(root=tmp_path / "mediastudio", comfy_dir=tmp_path / "ComfyUI")
     worker.log.emit("boot", stage="comfyui")
     (worker.inbox / "detach").write_text("", encoding="utf-8")  # left from an earlier stream
     timer = threading.Timer(0.3, lambda: (worker.inbox / "detach").write_text("", encoding="utf-8"))

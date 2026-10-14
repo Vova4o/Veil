@@ -14,13 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def media_tool(name: str, override: str | None) -> Path:
     suffix = ".exe" if sys.platform == "win32" else ""
-    directory = override or os.environ.get("COMFY_META_MEDIA_TOOLS_DIR")
+    directory = override or os.environ.get("MEDIASTUDIO_MEDIA_TOOLS_DIR")
     if directory:
         candidate = Path(directory) / f"{name}{suffix}"
     else:
         found = shutil.which(name)
         if not found:
-            raise SystemExit(f"Install {name} or set COMFY_META_MEDIA_TOOLS_DIR before building.")
+            raise SystemExit(f"Install {name} or set MEDIASTUDIO_MEDIA_TOOLS_DIR before building.")
         candidate = Path(found)
         # Chocolatey's PATH executables are launcher shims, not distributable tools.
         chocolatey = os.environ.get("ChocolateyInstall")
@@ -44,12 +44,12 @@ def build() -> None:
         raise SystemExit("Build paths escaped the workspace.")
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
-        "--name", "comfy-meta-backend", "--distpath", str(output),
+        "--name", "mediastudio-backend", "--distpath", str(output),
         "--workpath", str(work), "--specpath", str(work), "--paths", str(ROOT),
         "--collect-data", "app", "--collect-submodules", "keyring.backends",
         str(ROOT / "desktop/backend_entry.py"),
     ], cwd=ROOT, check=True)
-    tool_output = output / "comfy-meta-backend/tools"
+    tool_output = output / "mediastudio-backend/tools"
     tool_output.mkdir(parents=True, exist_ok=True)
     for executable in tools:
         shutil.copy2(executable, tool_output / executable.name)

@@ -140,7 +140,7 @@ def _catalog_session(args: list[str], *, timeout: float = 30):
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     env["NO_COLOR"] = "1"
-    with tempfile.TemporaryDirectory(prefix="cmv-models-", ignore_cleanup_errors=True) as work:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-models-", ignore_cleanup_errors=True) as work:
         try:
             process = subprocess.Popen(
                 args, cwd=work, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -170,7 +170,7 @@ def _catalog_session(args: list[str], *, timeout: float = 30):
 def _codex_models(executable: str) -> list[dict[str, Any]]:
     with _catalog_session([executable, "app-server"]) as session:
         session.send({"id": 1, "method": "initialize", "params": {
-            "clientInfo": {"name": "comfy_meta_viewer", "title": "Comfy Meta Viewer", "version": "1.0"},
+            "clientInfo": {"name": "mediastudio", "title": "MediaStudio", "version": "1.0"},
         }})
         reply = session.receive(lambda value: value.get("id") == 1)
         if "error" in reply:

@@ -1,9 +1,9 @@
 /* Create page continuity: preserve active work across navigation and enrich long-running task UI. */
 
 const CREATE_PATH = '/create';
-const RUN_KEY = 'cmv_simple_active_run';
-const RUN_PROGRESS_KEY = 'cmv_simple_active_run_progress';
-const PROMPT_KEY = 'cmv_simple_prompt_draft';
+const RUN_KEY = 'mediastudio_simple_active_run';
+const RUN_PROGRESS_KEY = 'mediastudio_simple_active_run_progress';
+const PROMPT_KEY = 'mediastudio_simple_prompt_draft';
 const POLL_MS = 1000;
 
 if (typeof window !== 'undefined' && window.location.pathname === CREATE_PATH) {
@@ -71,15 +71,15 @@ if (typeof window !== 'undefined' && window.location.pathname === CREATE_PATH) {
     }
 
     function injectStyles() {
-        if (document.getElementById('cmv-continuity-styles')) return;
+        if (document.getElementById('mediastudio-continuity-styles')) return;
         const style = document.createElement('style');
-        style.id = 'cmv-continuity-styles';
+        style.id = 'mediastudio-continuity-styles';
         style.textContent = `
             .model-download-copy{position:relative}
-            .cmv-download-percent{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:20px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--accent,#ed6f9b) 11%,transparent);color:var(--accent,#ed6f9b);font-size:9px;font-weight:800;font-variant-numeric:tabular-nums}
-            .cmv-download-cancel{border-color:color-mix(in srgb,#d87575 38%,var(--border-subtle,rgba(255,255,255,.09)))!important;color:#d98a8a!important}
-            .cmv-download-cancel:hover{background:rgba(216,117,117,.08)!important;color:#efaaaa!important}
-            .cmv-download-cancel:disabled{opacity:.5;cursor:wait}
+            .mediastudio-download-percent{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:20px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--accent,#ed6f9b) 11%,transparent);color:var(--accent,#ed6f9b);font-size:9px;font-weight:800;font-variant-numeric:tabular-nums}
+            .mediastudio-download-cancel{border-color:color-mix(in srgb,#d87575 38%,var(--border-subtle,rgba(255,255,255,.09)))!important;color:#d98a8a!important}
+            .mediastudio-download-cancel:hover{background:rgba(216,117,117,.08)!important;color:#efaaaa!important}
+            .mediastudio-download-cancel:disabled{opacity:.5;cursor:wait}
         `;
         document.head.appendChild(style);
     }
@@ -111,11 +111,11 @@ if (typeof window !== 'undefined' && window.location.pathname === CREATE_PATH) {
                 }
 
                 const percent = percentFor(item);
-                let badge = actions.querySelector('.cmv-download-percent');
+                let badge = actions.querySelector('.mediastudio-download-percent');
                 if (percent !== null) {
                     if (!badge) {
                         badge = document.createElement('span');
-                        badge.className = 'cmv-download-percent';
+                        badge.className = 'mediastudio-download-percent';
                         actions.prepend(badge);
                     }
                     const text = `${percent}%`;
@@ -125,12 +125,12 @@ if (typeof window !== 'undefined' && window.location.pathname === CREATE_PATH) {
                 }
 
                 const canCancel = ['queued', 'downloading', 'paused'].includes(item.status) && Number(item.id) > 0;
-                let cancel = actions.querySelector('.cmv-download-cancel');
+                let cancel = actions.querySelector('.mediastudio-download-cancel');
                 if (canCancel && !cancel) {
                     cancel = document.createElement('button');
                     cancel.type = 'button';
-                    cancel.className = 'download-mini-btn cmv-download-cancel';
-                    cancel.dataset.cmvDownloadCancel = String(item.id);
+                    cancel.className = 'download-mini-btn mediastudio-download-cancel';
+                    cancel.dataset.mediaStudioDownloadCancel = String(item.id);
                     cancel.textContent = 'Отмена';
                     actions.appendChild(cancel);
                 } else if (!canCancel && cancel) {
@@ -296,7 +296,7 @@ if (typeof window !== 'undefined' && window.location.pathname === CREATE_PATH) {
         }
     }
 
-    window.fetch = async function cmvContinuityFetch(input, init) {
+    window.fetch = async function mediaStudioContinuityFetch(input, init) {
         const url = requestUrl(input);
         const method = requestMethod(input, init);
         const response = await nativeFetch(input, init);
@@ -331,10 +331,10 @@ if (typeof window !== 'undefined' && window.location.pathname === CREATE_PATH) {
     }, true);
 
     document.addEventListener('click', async event => {
-        const cancel = event.target.closest?.('[data-cmv-download-cancel]');
+        const cancel = event.target.closest?.('[data-mediastudio-download-cancel]');
         if (cancel) {
             event.preventDefault();
-            const id = Number(cancel.dataset.cmvDownloadCancel);
+            const id = Number(cancel.dataset.mediaStudioDownloadCancel);
             if (!id || cancel.disabled) return;
             cancel.disabled = true;
             cancel.textContent = 'Отмена…';

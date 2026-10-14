@@ -75,8 +75,8 @@ const VISION_MODES = new Set(['reference', 'variation']);
 const AGENT_HOSTS = { opencode: 'OpenCode', codex: 'Codex', claude: 'Claude Code', antigravity: 'Antigravity' };
 const AGENT_HOST_RE = /^(?:opencode|claude|codex|antigravity|api:[a-z0-9][a-z0-9_-]{0,47})$/;
 // The models Integrations › Models shows; Integrations stamps every change here.
-const AGENT_CATALOG_KEY = 'cmv_create_agent_catalog_v2';
-const MODELS_CHANGED_KEY = 'cmv_ai_models_changed_at';
+const AGENT_CATALOG_KEY = 'mediastudio_create_agent_catalog_v2';
+const MODELS_CHANGED_KEY = 'mediastudio_ai_models_changed_at';
 const AGENT_CATALOG_TTL = 10 * 60 * 1000;
 
 const state = {
@@ -152,38 +152,38 @@ function catalog() {
 
 function restore() {
     try {
-        const mode = localStorage.getItem('cmv_create_mode');
+        const mode = localStorage.getItem('mediastudio_create_mode');
         if (MODE_COPY[mode]) state.mode = mode;
-        const choice = JSON.parse(localStorage.getItem('cmv_create_agent') || 'null');
+        const choice = JSON.parse(localStorage.getItem('mediastudio_create_agent') || 'null');
         if (AGENT_HOST_RE.test(choice?.agentKind || '') && choice.model) state.agentChoice = choice;
-        const ratio = localStorage.getItem('cmv_simple_ratio');
+        const ratio = localStorage.getItem('mediastudio_simple_ratio');
         if (RATIOS.includes(ratio)) state.ratio = ratio;
-        const photoRatio = localStorage.getItem('cmv_create_photo_ratio');
+        const photoRatio = localStorage.getItem('mediastudio_create_photo_ratio');
         if (photoRatio === 'source' || RATIOS.includes(photoRatio)) state.photoRatio = photoRatio;
-        state.batch = Math.max(1, Math.min(4, Number(localStorage.getItem('cmv_simple_batch')) || 1));
-        const denoise = localStorage.getItem('cmv_create_denoise');
+        state.batch = Math.max(1, Math.min(4, Number(localStorage.getItem('mediastudio_simple_batch')) || 1));
+        const denoise = localStorage.getItem('mediastudio_create_denoise');
         if (denoise !== null && Number(denoise) >= 0 && Number(denoise) <= 1) state.denoise = roundDenoise(Number(denoise));
-        const savedCanvasWidth = Number(localStorage.getItem('cmv_simple_canvas_width'));
+        const savedCanvasWidth = Number(localStorage.getItem('mediastudio_simple_canvas_width'));
         if (Number.isFinite(savedCanvasWidth) && savedCanvasWidth > 0) state.canvasWidth = savedCanvasWidth;
 
-        const rawInterval = localStorage.getItem('cmv_simple_ambient_interval');
+        const rawInterval = localStorage.getItem('mediastudio_simple_ambient_interval');
         state.interval = rawInterval !== null && !isNaN(Number(rawInterval)) ? Number(rawInterval) : 300000;
-        const rawOpacity = localStorage.getItem('cmv_simple_glass_opacity');
+        const rawOpacity = localStorage.getItem('mediastudio_simple_glass_opacity');
         const numOpacity = Number(rawOpacity);
         if (rawOpacity !== null && !isNaN(numOpacity) && numOpacity >= 5 && numOpacity <= 98) state.opacity = numOpacity;
         else if (rawOpacity === 'ultra') state.opacity = 18;
         else if (rawOpacity === 'high') state.opacity = 30;
         else if (rawOpacity === 'solid') state.opacity = 82;
-        const rawBlur = localStorage.getItem('cmv_simple_ambient_blur');
+        const rawBlur = localStorage.getItem('mediastudio_simple_ambient_blur');
         state.blur = rawBlur !== null && !isNaN(Number(rawBlur)) ? Number(rawBlur) : 10;
-        state.fit = localStorage.getItem('cmv_simple_ambient_fit') || 'cover';
-        state.sound = localStorage.getItem('cmv_simple_sound_alert') === 'true';
+        state.fit = localStorage.getItem('mediastudio_simple_ambient_fit') || 'cover';
+        state.sound = localStorage.getItem('mediastudio_simple_sound_alert') === 'true';
 
-        const savedPrompt = localStorage.getItem('cmv_simple_prompt');
+        const savedPrompt = localStorage.getItem('mediastudio_simple_prompt');
         if (savedPrompt !== null) $('prompt').value = savedPrompt;
-        const session = JSON.parse(localStorage.getItem('cmv_create_session') || '[]');
+        const session = JSON.parse(localStorage.getItem('mediastudio_create_session') || '[]');
         if (Array.isArray(session)) state.session = session.slice(0, SESSION_LIMIT);
-        const lastRun = JSON.parse(localStorage.getItem('cmv_create_last_run') || 'null');
+        const lastRun = JSON.parse(localStorage.getItem('mediastudio_create_last_run') || 'null');
         if (lastRun && typeof lastRun.prompt === 'string') state.lastRun = lastRun;
     } catch {}
 }
@@ -241,7 +241,7 @@ function setMode(mode, { keepRefine = false, quiet = false } = {}) {
     if (!MODE_COPY[mode]) return;
     const changed = state.mode !== mode;
     state.mode = mode;
-    save('cmv_create_mode', mode);
+    save('mediastudio_create_mode', mode);
     document.querySelectorAll('[data-mode]').forEach(button => {
         const active = button.dataset.mode === mode;
         button.classList.toggle('active', active);
@@ -326,7 +326,7 @@ function wireDenoise() {
     const control = input.closest('.denoise-control');
     input.oninput = () => {
         state.denoise = roundDenoise(Number(input.value));
-        save('cmv_create_denoise', state.denoise);
+        save('mediastudio_create_denoise', state.denoise);
         paintDenoise();
     };
     const show = on => control.classList.toggle('show-tip', on);
@@ -684,8 +684,8 @@ function paintAgentLine() {
 
 function saveAgentChoice() {
     try {
-        if (state.agentChoice) localStorage.setItem('cmv_create_agent', JSON.stringify(state.agentChoice));
-        else localStorage.removeItem('cmv_create_agent');
+        if (state.agentChoice) localStorage.setItem('mediastudio_create_agent', JSON.stringify(state.agentChoice));
+        else localStorage.removeItem('mediastudio_create_agent');
     } catch {}
     paintAgentLine();
 }
@@ -1176,7 +1176,7 @@ async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
     }, plan, job);
 }
 
-const CREATE_TASK_KEY = 'cmv_create_task';
+const CREATE_TASK_KEY = 'mediastudio_create_task';
 
 function savedCreateTask() {
     try { return localStorage.getItem(CREATE_TASK_KEY); } catch { return null; }
@@ -1588,7 +1588,7 @@ function paintResultProgress(text) {
 // --- results -------------------------------------------------------------------------
 
 function restoreLastResult() {
-    const cached = getCachedJson('cmv_simple_last_result');
+    const cached = getCachedJson('mediastudio_simple_last_result');
     const outputs = Array.isArray(cached?.outputs) ? cached.outputs : (cached ? [cached] : []);
     return renderResult(outputs, false);
 }
@@ -1598,8 +1598,8 @@ function clearLastResult() {
     state.last = null;
     state.lastOutputs = [];
     state.selectedResultIndex = 0;
-    try { localStorage.removeItem('cmv_simple_last_result'); } catch {}
-    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
+    try { localStorage.removeItem('mediastudio_simple_last_result'); } catch {}
+    try { sessionStorage.removeItem('mediastudio_simple_last_result'); } catch {}
 }
 
 async function renderResult(outputs, persist = false) {
@@ -1622,8 +1622,8 @@ async function renderResult(outputs, persist = false) {
     state.selectedResultIndex = keepIndex;
     state.last = valid[keepIndex];
     updateResultView();
-    try { sessionStorage.removeItem('cmv_simple_last_result'); } catch {}
-    setCachedJson('cmv_simple_last_result', { outputs: valid }, true);
+    try { sessionStorage.removeItem('mediastudio_simple_last_result'); } catch {}
+    setCachedJson('mediastudio_simple_last_result', { outputs: valid }, true);
     canvas('result');
     if (persist && state.sound) playSuccessChime();
 }
@@ -1929,11 +1929,11 @@ function recordTaskPlan(job, data) {
 }
 
 function persistLastRun() {
-    try { localStorage.setItem('cmv_create_last_run', JSON.stringify(sessionRecord(state.lastRun))); } catch {}
+    try { localStorage.setItem('mediastudio_create_last_run', JSON.stringify(sessionRecord(state.lastRun))); } catch {}
 }
 
 function saveSession() {
-    try { localStorage.setItem('cmv_create_session', JSON.stringify(state.session.slice(0, SESSION_LIMIT))); } catch {}
+    try { localStorage.setItem('mediastudio_create_session', JSON.stringify(state.session.slice(0, SESSION_LIMIT))); } catch {}
 }
 
 function updateSessionOutputs(runIds, outputs, durations = []) {
@@ -2003,10 +2003,10 @@ function wire() {
             const ratio = button.dataset.ratio;
             if (state.mode === 'text') {
                 state.ratio = ratio;
-                save('cmv_simple_ratio', ratio);
+                save('mediastudio_simple_ratio', ratio);
             } else {
                 state.photoRatio = ratio;
-                save('cmv_create_photo_ratio', ratio);
+                save('mediastudio_create_photo_ratio', ratio);
             }
             syncRatio();
         };
@@ -2014,7 +2014,7 @@ function wire() {
     document.querySelectorAll('[data-batch]').forEach(button => {
         button.onclick = () => {
             state.batch = Number(button.dataset.batch);
-            save('cmv_simple_batch', state.batch);
+            save('mediastudio_simple_batch', state.batch);
             syncBatch();
         };
     });
@@ -2025,7 +2025,7 @@ function wire() {
     $('prompt').oninput = () => {
         resizePrompt();
         $('prompt-clear').hidden = !$('prompt').value.trim();
-        save('cmv_simple_prompt', $('prompt').value);
+        save('mediastudio_simple_prompt', $('prompt').value);
     };
     $('prompt-clear').onclick = () => {
         $('prompt').value = '';
@@ -2150,7 +2150,7 @@ function initialAmbient() {
         const embedded = node ? JSON.parse(node.textContent) : null;
         if (Array.isArray(embedded)) return embedded;
     } catch {}
-    const cached = getCachedJson('cmv_simple_ambient_items', 30 * 60 * 1000);
+    const cached = getCachedJson('mediastudio_simple_ambient_items', 30 * 60 * 1000);
     return Array.isArray(cached) ? cached : [];
 }
 
@@ -2159,17 +2159,17 @@ async function hydrateAmbient() {
     refillAmbientDeck();
     if (!state.ambient.length) { resetAmbient(); return; }
     let last = null;
-    try { last = localStorage.getItem('cmv_simple_ambient_last'); } catch {}
+    try { last = localStorage.getItem('mediastudio_simple_ambient_last'); } catch {}
     const previous = state.ambient.find(item => typeof item === 'string' ? item === last
         : [item.original_url, item.preview_url, item.thumbnail_url].includes(last));
     if (last && previous) {
         const loaded = await setAmbient(previous);
         if (loaded === null) return; // A newer selection owns the background now.
         if (!loaded) {
-            try { localStorage.removeItem('cmv_simple_ambient_last'); } catch {}
+            try { localStorage.removeItem('mediastudio_simple_ambient_last'); } catch {}
         }
     } else if (last) {
-        try { localStorage.removeItem('cmv_simple_ambient_last'); } catch {}
+        try { localStorage.removeItem('mediastudio_simple_ambient_last'); } catch {}
     }
     if (!document.querySelector('.ambient-container.has-ambient') && state.ambient.length) {
         await ambientPick();
@@ -2206,7 +2206,7 @@ function restartAmbientTimer(force = false) {
 
 function setAmbientInterval(seconds) {
     const interval = Math.max(0, Number(seconds) || 0) * 1000;
-    save('cmv_simple_ambient_interval', interval);
+    save('mediastudio_simple_ambient_interval', interval);
     if (interval === state.interval) return;
     state.interval = interval;
     // A load started under the old interval must not switch the image early.
@@ -2264,10 +2264,10 @@ function resetAmbient() {
         }
     }
     try {
-        localStorage.removeItem('cmv_simple_ambient_last');
-        localStorage.removeItem('cmv_simple_ambient_items');
+        localStorage.removeItem('mediastudio_simple_ambient_last');
+        localStorage.removeItem('mediastudio_simple_ambient_items');
     } catch {}
-    try { sessionStorage.removeItem('cmv_simple_ambient_items'); } catch {}
+    try { sessionStorage.removeItem('mediastudio_simple_ambient_items'); } catch {}
     restartAmbientTimer();
 }
 
@@ -2484,10 +2484,10 @@ function paintDownloads() {
                     <small>${esc(downloadStatus(item))}${size ? ` · ${esc(size)}` : ''}</small>
                 </div>
                 <div class="model-download-actions">
-                    ${percent !== null && ['queued', 'downloading', 'paused'].includes(item.status) ? `<span class="cmv-download-percent">${percent}%</span>` : ''}
+                    ${percent !== null && ['queued', 'downloading', 'paused'].includes(item.status) ? `<span class="mediastudio-download-percent">${percent}%</span>` : ''}
                     ${canPause ? `<button class="download-mini-btn" type="button" data-download-action="pause" data-download-id="${item.id}">Pause</button>` : ''}
                     ${canResume ? `<button class="download-mini-btn" type="button" data-download-action="resume" data-download-id="${item.id}">${item.status === 'failed' ? 'Retry' : 'Resume'}</button>` : ''}
-                    ${canCancel ? `<button class="download-mini-btn cmv-download-cancel" type="button" data-download-action="cancel" data-download-id="${item.id}">Cancel</button>` : ''}
+                    ${canCancel ? `<button class="download-mini-btn mediastudio-download-cancel" type="button" data-download-action="cancel" data-download-id="${item.id}">Cancel</button>` : ''}
                 </div>
             </div>
             <div class="model-download-track${indeterminate ? ' is-indeterminate' : ''}"><div class="model-download-fill" style="width:${Math.max(0, Math.min(100, Number(item.progress || 0)))}%"></div></div>
@@ -2614,7 +2614,7 @@ async function loadMoreAmbient() {
             const newItems = items.filter(it => !existingIds.has(it.id || it));
             if (newItems.length) {
                 state.ambient.push(...newItems);
-                setCachedJson('cmv_simple_ambient_items', state.ambient.slice(0, 120), true);
+                setCachedJson('mediastudio_simple_ambient_items', state.ambient.slice(0, 120), true);
                 state.ambientDeck.push(...shuffleArray(newItems));
             }
         }
@@ -2634,7 +2634,7 @@ async function loadAmbient() {
         if (items.length) {
             state.ambientRequest += 1;
             state.ambient = items;
-            setCachedJson('cmv_simple_ambient_items', items, true);
+            setCachedJson('mediastudio_simple_ambient_items', items, true);
             refillAmbientDeck();
             preloadAmbientPool();
             if (!document.querySelector('.ambient-container.has-ambient')
@@ -2740,7 +2740,7 @@ function applyAmbient(url) {
         prevBg.classList.remove('active');
     }
     if (container) container.classList.add('has-ambient');
-    try { localStorage.setItem('cmv_simple_ambient_last', url); } catch {}
+    try { localStorage.setItem('mediastudio_simple_ambient_last', url); } catch {}
     state.layer = state.layer ? 0 : 1;
 }
 
@@ -2767,7 +2767,7 @@ function wireCanvasResize() {
         const nextWidth = Math.round(Math.max(limits.min, Math.min(limits.max, startWidth + event.clientX - startX)));
         state.canvasWidth = nextWidth;
         layout.style.setProperty('--canvas-column-width', `${nextWidth}px`);
-        save('cmv_simple_canvas_width', nextWidth);
+        save('mediastudio_simple_canvas_width', nextWidth);
     };
     const onUp = () => {
         window.removeEventListener('pointermove', onMove);
@@ -2790,7 +2790,7 @@ function wireCanvasResize() {
         const limits = canvasWidthLimits();
         state.canvasWidth = Math.max(limits.min, Math.min(limits.max, state.canvasWidth));
         layout.style.setProperty('--canvas-column-width', `${state.canvasWidth}px`);
-        save('cmv_simple_canvas_width', state.canvasWidth);
+        save('mediastudio_simple_canvas_width', state.canvasWidth);
     });
 }
 
@@ -3170,7 +3170,7 @@ function paintRuntimePower() {
 
 function rememberRuntimeStatus(status) {
     state.runtimeStatus = status;
-    setCachedJson('cmv_runtime_status', status, false);
+    setCachedJson('mediastudio_runtime_status', status, false);
     paintRuntimeDot();
     paintRuntimePower();
 }
@@ -3261,8 +3261,8 @@ async function runtimePowerClick() {
 }
 
 async function loadRuntimeSummary() {
-    const cachedConfig = getCachedJson('cmv_runtime_config', 120 * 1000);
-    const cachedStatus = getCachedJson('cmv_runtime_status', 30 * 1000);
+    const cachedConfig = getCachedJson('mediastudio_runtime_config', 120 * 1000);
+    const cachedStatus = getCachedJson('mediastudio_runtime_status', 30 * 1000);
     if (cachedConfig) state.runtimeConfig = cachedConfig;
     if (cachedStatus) {
         state.runtimeStatus = cachedStatus;
@@ -3274,11 +3274,11 @@ async function loadRuntimeSummary() {
     ]);
     if (configResult.status === 'fulfilled') {
         state.runtimeConfig = configResult.value;
-        setCachedJson('cmv_runtime_config', configResult.value, false);
+        setCachedJson('mediastudio_runtime_config', configResult.value, false);
     }
     if (statusResult.status === 'fulfilled') {
         state.runtimeStatus = statusResult.value;
-        setCachedJson('cmv_runtime_status', statusResult.value, false);
+        setCachedJson('mediastudio_runtime_status', statusResult.value, false);
     }
     paintRuntimeDot();
     paintRuntimePower();
@@ -3366,8 +3366,8 @@ async function pickRuntimeFolder(key) {
     const current = state.runtimeDraft.folders[key] || desktopPath;
     let path;
     try {
-        if (window.cmvDesktop?.chooseFolder) {
-            path = await window.cmvDesktop.chooseFolder({ title: FOLDER_TITLES[key], defaultPath: current });
+        if (window.mediaStudioDesktop?.chooseFolder) {
+            path = await window.mediaStudioDesktop.chooseFolder({ title: FOLDER_TITLES[key], defaultPath: current });
         } else {
             const data = await json('/api/simple/pick-comfyui-directory', {
                 method: 'POST',
@@ -3620,7 +3620,7 @@ function openStudioContextMenu(event) {
         },
         onChange: v => {
             state.opacity = v;
-            save('cmv_simple_glass_opacity', state.opacity);
+            save('mediastudio_simple_glass_opacity', state.opacity);
         },
     }));
 
@@ -3638,7 +3638,7 @@ function openStudioContextMenu(event) {
         },
         onChange: v => {
             state.blur = v;
-            save('cmv_simple_ambient_blur', state.blur);
+            save('mediastudio_simple_ambient_blur', state.blur);
         },
     }));
 
@@ -3679,7 +3679,7 @@ function openStudioContextMenu(event) {
                 active: state.fit === 'cover',
                 onClick: () => {
                     state.fit = 'cover';
-                    save('cmv_simple_ambient_fit', state.fit);
+                    save('mediastudio_simple_ambient_fit', state.fit);
                     applyVisualSettings();
                 },
             },
@@ -3688,7 +3688,7 @@ function openStudioContextMenu(event) {
                 active: state.fit === 'contain',
                 onClick: () => {
                     state.fit = 'contain';
-                    save('cmv_simple_ambient_fit', state.fit);
+                    save('mediastudio_simple_ambient_fit', state.fit);
                     applyVisualSettings();
                 },
             },
@@ -3697,7 +3697,7 @@ function openStudioContextMenu(event) {
                 active: state.fit === 'original',
                 onClick: () => {
                     state.fit = 'original';
-                    save('cmv_simple_ambient_fit', state.fit);
+                    save('mediastudio_simple_ambient_fit', state.fit);
                     applyVisualSettings();
                 },
             },
@@ -3710,7 +3710,7 @@ function openStudioContextMenu(event) {
         badge: state.sound ? 'On' : 'Off',
         onClick: () => {
             state.sound = !state.sound;
-            save('cmv_simple_sound_alert', state.sound);
+            save('mediastudio_simple_sound_alert', state.sound);
             if (state.sound) playSuccessChime();
         },
     }));

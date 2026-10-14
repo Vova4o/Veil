@@ -105,26 +105,26 @@ async function scrollGallery(page, mode) {
 }
 
 (async () => {
-    const env = { ...process.env, COMFY_META_DESKTOP_PROFILE: profile,
-        COMFY_META_DATA_DIR: path.join(profile, 'data'), COMFY_META_CACHE_DIR: path.join(profile, 'cache'),
-        COMFY_META_IMPORT_DIR: path.join(ROOT, '.comfy_meta_uploads') };
-    if (!report.cacheReuse) env.COMFY_META_IMPORT_CACHE_DIR = path.join(profile, 'missing-legacy-cache');
+    const env = { ...process.env, MEDIASTUDIO_DESKTOP_PROFILE: profile,
+        MEDIASTUDIO_DATA_DIR: path.join(profile, 'data'), MEDIASTUDIO_CACHE_DIR: path.join(profile, 'cache'),
+        MEDIASTUDIO_IMPORT_DIR: path.join(ROOT, '.mediastudio_data') };
+    if (!report.cacheReuse) env.MEDIASTUDIO_IMPORT_CACHE_DIR = path.join(profile, 'missing-legacy-cache');
     delete env.ELECTRON_RUN_AS_NODE;
     application = await _electron.launch({ ...(executable ? { executablePath: executable, args: [] } : { args: [ROOT] }), env });
     const desktop = await application.firstWindow();
     desktop.on('pageerror', error => report.errors.push(error.message));
-    await desktop.waitForURL('cmv://app/', { timeout: 90_000 });
+    await desktop.waitForURL('mediastudio://app/', { timeout: 90_000 });
     // Test-owned main-process instrumentation. The owner token never enters reports.
     await application.evaluate(({ session }) => {
-        global.__cmvPerf = {};
+        global.__mediaStudioPerf = {};
         session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1/*'] }, (details, callback) => {
-            const header = Object.entries(details.requestHeaders).find(([key]) => key.toLowerCase() === 'x-cmv-desktop-token');
-            if (header) global.__cmvPerf = { origin: new URL(details.url).origin, token: header[1] };
+            const header = Object.entries(details.requestHeaders).find(([key]) => key.toLowerCase() === 'x-mediastudio-desktop-token');
+            if (header) global.__mediaStudioPerf = { origin: new URL(details.url).origin, token: header[1] };
             callback({ requestHeaders: details.requestHeaders });
         });
     });
     await desktop.evaluate(() => fetch('/_desktop/health').then(response => response.json()));
-    const connection = await application.evaluate(() => global.__cmvPerf);
+    const connection = await application.evaluate(() => global.__mediaStudioPerf);
     if (!connection.token) throw new Error('Test-owned backend was not captured');
     await selectImages(desktop);
     await scrollGallery(desktop, 'desktop-cold');
@@ -139,7 +139,7 @@ async function scrollGallery(page, mode) {
             const resource = `/api/${kind}/${id}`;
             const direct = await application.evaluate(async ({ net }, resource) => {
                 const start = performance.now();
-                const response = await net.fetch(`${global.__cmvPerf.origin}${resource}`, { headers: { 'X-CMV-Desktop-Token': global.__cmvPerf.token } });
+                const response = await net.fetch(`${global.__mediaStudioPerf.origin}${resource}`, { headers: { 'X-MediaStudio-Desktop-Token': global.__mediaStudioPerf.token } });
                 const bytes = (await response.arrayBuffer()).byteLength;
                 return { ms: performance.now() - start, bytes, status: response.status };
             }, resource);
@@ -157,11 +157,11 @@ async function scrollGallery(page, mode) {
         }
     }
     const opened = application.waitForEvent('window');
-    await application.evaluate(({ BrowserWindow }) => { global.__cmvHttpWindow = new BrowserWindow({ show: true,
+    await application.evaluate(({ BrowserWindow }) => { global.__mediaStudioHttpWindow = new BrowserWindow({ show: true,
         width: 1440, height: 960, webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } });
-        void global.__cmvHttpWindow.loadURL('about:blank'); });
+        void global.__mediaStudioHttpWindow.loadURL('about:blank'); });
     const web = await opened;
-    await web.setExtraHTTPHeaders({ 'X-CMV-Desktop-Token': connection.token });
+    await web.setExtraHTTPHeaders({ 'X-MediaStudio-Desktop-Token': connection.token });
     await web.goto(`${connection.origin}/`);
     web.on('pageerror', error => report.errors.push(error.message));
     await selectImages(web);

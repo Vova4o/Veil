@@ -18,7 +18,7 @@ def import_legacy_library(source: Path, destination: Path) -> bool:
     if destination.exists() and any(destination.iterdir()):
         return False
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".cmv-import-", dir=destination.parent) as staging:
+    with tempfile.TemporaryDirectory(prefix=".mediastudio-import-", dir=destination.parent) as staging:
         staged = Path(staging) / "data"
         staged.mkdir()
         # SQLite backup includes committed WAL contents without copying a live WAL.

@@ -1,6 +1,6 @@
 # OpenCode real-provider smoke testing
 
-`app.ai.opencode_smoke` runs the shared CMV prompt scenarios through a saved
+`app.ai.opencode_smoke` runs the shared VEIL prompt scenarios through a saved
 OpenCode CLI profile. It is separate from `app.ai.smoke`, which uses direct
 OpenAI-compatible HTTP profiles.
 
@@ -12,9 +12,9 @@ The runner verifies the complete managed host path:
 2. select its configured `provider/model` ID;
 3. compile the canonical `PromptTask` into an `InstructionBundle`;
 4. create a temporary isolated OpenCode workspace;
-5. create a temporary primary agent named `cmv-prompt-smoke`;
+5. create a temporary primary agent named `mediastudio-prompt-smoke`;
 6. deny every OpenCode tool permission for that temporary agent;
-7. attach the compiled task package as `cmv-task.md`;
+7. attach the compiled task package as `mediastudio-task.md`;
 8. optionally attach a copied local image;
 9. execute `opencode --pure run --format json`;
 10. parse OpenCode JSON events;

@@ -1,6 +1,6 @@
 """ComfyUI Desktop installations, read from the Desktop app's own settings.
 
-CMV launches ComfyUI only from a ComfyUI Desktop installation on Windows.
+MediaStudio launches ComfyUI only from a ComfyUI Desktop installation on Windows.
 Desktop keeps its state in ``<app data>/Comfy Desktop``: ``installations.json``
 lists the installations, ``settings.json`` the shared models, input and output
 folders, and ``instance-model-paths/<id>.yaml`` the model folders of each
@@ -10,10 +10,10 @@ installation. It launches a local installation as::
         --extra-model-paths-config <app data>/instance-model-paths/<id>.yaml
         --input-directory <inputDir> --output-directory <outputDir>
 
-CMV reads these settings each time it launches or inspects ComfyUI instead of
+MediaStudio reads these settings each time it launches or inspects ComfyUI instead of
 saving copies of them, so a regenerated instance file or a moved shared folder
-never leaves CMV pointing at stale paths. CMV's own models, input and output
-folders, when set, apply over Desktop's to the ComfyUI that CMV launches;
+never leaves MediaStudio pointing at stale paths. MediaStudio's own models, input and output
+folders, when set, apply over Desktop's to the ComfyUI that MediaStudio launches;
 Desktop's files are never written.
 """
 
@@ -36,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 DESKTOP_APP_DIR = "Comfy Desktop"
 DESKTOP_DOWNLOAD_URL = "https://www.comfy.org/download"
-# CMV's models folder as a model paths config, rewritten from its settings.
-CMV_MODEL_PATHS_FILE = "comfyui-model-paths.yaml"
+# MediaStudio's models folder as a model paths config, rewritten from its settings.
+MEDIASTUDIO_MODEL_PATHS_FILE = "comfyui-model-paths.yaml"
 # ComfyUI's standard model folders (comfy/folder_paths.py).
 MODEL_FOLDERS = (
     "checkpoints", "configs", "loras", "vae", "text_encoders", "diffusion_models", "clip_vision",
@@ -45,9 +45,9 @@ MODEL_FOLDERS = (
     "latent_upscale_models", "hypernetworks", "photomaker", "classifiers", "model_patches", "audio_encoders",
 )
 FOLDER_SETTINGS = ("models_dir", "input_dir", "output_dir")
-# CMV decides the address ComfyUI listens on.
+# MediaStudio decides the address ComfyUI listens on.
 _ADDRESS_OPTIONS = {"--listen", "--port"}
-# Folders set by Desktop or by CMV's own folder settings.
+# Folders set by Desktop or by MediaStudio's own folder settings.
 _FOLDER_OPTIONS = {"--input-directory", "--output-directory"}
 _MODEL_PATHS_OPTION = "--extra-model-paths-config"
 
@@ -180,15 +180,15 @@ def launch_settings(
     state_dir: Path | None = None,
     data_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """ComfyUI settings as CMV launches them.
+    """ComfyUI settings as MediaStudio launches them.
 
     For a Desktop installation the result names its ComfyUI folder and lists,
-    in order: Desktop's launch arguments and model paths config, CMV's models
+    in order: Desktop's launch arguments and model paths config, MediaStudio's models
     folder config (so that folder is searched first), the input and output
-    folders (CMV's own, else Desktop's), then the user's own extra arguments.
+    folders (MediaStudio's own, else Desktop's), then the user's own extra arguments.
     Saved copies of Desktop's folders and instance configs are dropped from the
     user's arguments: ComfyUI refuses to start when such a file no longer exists.
-    ``models_download_dir`` names CMV's models folder when one is set.
+    ``models_download_dir`` names MediaStudio's models folder when one is set.
     """
     resolved = dict(settings)
     data_dir = data_dir or desktop_data_dir()
@@ -229,7 +229,7 @@ def launch_settings(
 
 
 def comfyui_output_dir(settings: Mapping[str, Any], data_dir: Path | None = None) -> Path | None:
-    """The folder ComfyUI saves results in: CMV's own, else Desktop's, else the ComfyUI folder's."""
+    """The folder ComfyUI saves results in: MediaStudio's own, else Desktop's, else the ComfyUI folder's."""
     own = _text(settings.get("output_dir"))
     if own:
         return Path(own)
@@ -248,11 +248,11 @@ def write_models_config(models_dir: Path, state_dir: Path | None = None) -> Path
     Listed after Desktop's config, its default entries move to the front of
     every folder's search list. Rewritten only when its content changes.
     """
-    path = (state_dir or Path(tempfile.gettempdir()) / "comfy-meta-viewer") / CMV_MODEL_PATHS_FILE
+    path = (state_dir or Path(tempfile.gettempdir()) / "mediastudio") / MEDIASTUDIO_MODEL_PATHS_FILE
     base = "'" + str(models_dir).replace("'", "''") + "'"
     content = (
         "# Written by VEIL from its ComfyUI settings; rewritten before each launch.\n"
-        f"comfy_meta_viewer:\n  base_path: {base}\n  is_default: true\n"
+        f"mediastudio:\n  base_path: {base}\n  is_default: true\n"
         + "".join(f"  {folder}: {folder}/\n" for folder in MODEL_FOLDERS)
     )
     try:
@@ -266,7 +266,7 @@ def write_models_config(models_dir: Path, state_dir: Path | None = None) -> Path
 
 
 def state_dir_of(store: Any) -> Path | None:
-    """The folder of CMV's configuration file, where CMV keeps files it writes for ComfyUI."""
+    """The folder of MediaStudio's configuration file, where MediaStudio keeps files it writes for ComfyUI."""
     path = getattr(store, "path", None)
     return Path(path).parent if path else None
 

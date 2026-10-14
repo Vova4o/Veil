@@ -8,8 +8,8 @@ import {
 } from './preferences.js';
 
 const AI_STORAGE_KEYS = [
-    'cmv_ai_connected_cli_types_v1',
-    'cmv_ai_model_catalog_v1',
+    'mediastudio_ai_connected_cli_types_v1',
+    'mediastudio_ai_model_catalog_v1',
 ];
 
 export const dom = {
@@ -349,9 +349,9 @@ export function saveState() {
     try {
         localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
         localStorage.removeItem(LEGACY_PREFERENCES_STORAGE_KEY);
-        localStorage.removeItem('cmv_state');
+        localStorage.removeItem('mediastudio_state');
         sessionStorage.removeItem(LEGACY_PREFERENCES_STORAGE_KEY);
-        sessionStorage.removeItem('cmv_state');
+        sessionStorage.removeItem('mediastudio_state');
     } catch (_error) {
         // Preference persistence must never break the application runtime.
     }
@@ -362,10 +362,10 @@ export function clearStoredPreferences() {
     try {
         localStorage.removeItem(PREFERENCES_STORAGE_KEY);
         localStorage.removeItem(LEGACY_PREFERENCES_STORAGE_KEY);
-        localStorage.removeItem('cmv_state');
+        localStorage.removeItem('mediastudio_state');
         AI_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
         sessionStorage.removeItem(LEGACY_PREFERENCES_STORAGE_KEY);
-        sessionStorage.removeItem('cmv_state');
+        sessionStorage.removeItem('mediastudio_state');
     } catch (_error) {
         // A factory reset must still succeed when browser storage is unavailable.
     }

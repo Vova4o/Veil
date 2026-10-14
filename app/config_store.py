@@ -211,7 +211,7 @@ class ConfigStore:
                     "install_path": comfyui.get("install_path"),
                     "custom_python": comfyui.get("custom_python"),
                     "desktop_installation_id": comfyui.get("desktop_installation_id"),
-                    # CMV's own folders over Desktop's; None follows Desktop.
+                    # MediaStudio's own folders over Desktop's; None follows Desktop.
                     "models_dir": comfyui.get("models_dir"),
                     "input_dir": comfyui.get("input_dir"),
                     "output_dir": comfyui.get("output_dir"),

@@ -59,7 +59,7 @@ class _InstallJob:
             process = cli.start_install()
             self.state, self.started_at, self.finished_at = "running", time.time(), None
             self.lines.clear()
-        threading.Thread(target=self._follow, args=(process,), daemon=True, name="cmv-colab-install").start()
+        threading.Thread(target=self._follow, args=(process,), daemon=True, name="mediastudio-colab-install").start()
 
     def _follow(self, process: subprocess.Popen[bytes]) -> None:
         def read(stream: Any) -> None:
@@ -235,7 +235,7 @@ def colab_logout():
 
 @remote_blueprint.route("/api/remote/colab/usage", methods=["GET"])
 def colab_usage():
-    """Compute-unit balance and rate plus the runtimes CMV started (cached for a minute)."""
+    """Compute-unit balance and rate plus the runtimes MediaStudio started (cached for a minute)."""
     now = time.monotonic()
     cached = _usage_cache["payload"]
     if cached is not None and request.args.get("refresh") != "1" and now - _usage_cache["at"] < USAGE_CACHE_SECONDS:
@@ -267,7 +267,7 @@ def _runtime_payload(store: ConfigStore) -> dict[str, Any]:
 
 @remote_blueprint.route("/api/remote/colab/runtime", methods=["GET"])
 def colab_runtime_status():
-    """CMV's Colab runtime: off, allocating, booting, ready, stopping or error, with its GPU."""
+    """MediaStudio's Colab runtime: off, allocating, booting, ready, stopping or error, with its GPU."""
     return jsonify(_runtime_payload(_config_store()))
 
 

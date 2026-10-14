@@ -500,17 +500,17 @@ def _pick_windows_directory(initial_path: str, title: str) -> str | None:
 Add-Type -AssemblyName System.Windows.Forms
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = $env:CMV_PICKER_TITLE
+$dialog.Description = $env:MEDIASTUDIO_PICKER_TITLE
 $dialog.ShowNewFolderButton = $true
-$initial = $env:CMV_INITIAL_DIRECTORY
+$initial = $env:MEDIASTUDIO_INITIAL_DIRECTORY
 if ($initial -and (Test-Path -LiteralPath $initial)) { $dialog.SelectedPath = $initial }
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     Write-Output $dialog.SelectedPath
 }
 """
     env = os.environ.copy()
-    env["CMV_INITIAL_DIRECTORY"] = initial_path
-    env["CMV_PICKER_TITLE"] = title
+    env["MEDIASTUDIO_INITIAL_DIRECTORY"] = initial_path
+    env["MEDIASTUDIO_PICKER_TITLE"] = title
     result = subprocess.run(
         [powershell, "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", script],
         capture_output=True,
@@ -726,7 +726,7 @@ def fetch_remote_image(url: str) -> dict[str, Any]:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("Paste a link that starts with http:// or https://.", "url_invalid", 400)
     request_obj = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (ComfyUI Meta Viewer)",
+        "User-Agent": "Mozilla/5.0 (MediaStudio)",
         "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.5",
     })
     try:
@@ -783,8 +783,8 @@ def _backend_not_ready_response(backend: InferenceBackend):
 
 
 def _upload_input_image(client: ComfyUIJobClient, prefix: str, data: bytes) -> str:
-    """Upload a photo to ComfyUI input/cmv and return the name a LoadImage node expects."""
-    uploaded = client.upload_image(f"{prefix}_{uuid.uuid4().hex}.png", data, subfolder="cmv")
+    """Upload a photo to ComfyUI input/mediastudio and return the name a LoadImage node expects."""
+    uploaded = client.upload_image(f"{prefix}_{uuid.uuid4().hex}.png", data, subfolder="mediastudio")
     subfolder = str(uploaded.get("subfolder") or "")
     return f"{subfolder}/{uploaded['name']}" if subfolder else str(uploaded["name"])
 
@@ -855,9 +855,9 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, bac
     source_name = subject_name = None
     if req.mode in {"edit", "variation"}:
         try:
-            source_name = _upload_input_image(client, "cmv_source", image[0])
+            source_name = _upload_input_image(client, "mediastudio_source", image[0])
             if subject:
-                subject_name = _upload_input_image(client, "cmv_subject", subject[0])
+                subject_name = _upload_input_image(client, "mediastudio_subject", subject[0])
         except ComfyUIClientError as exc:
             return jsonify({"error": f"Could not send the photo to ComfyUI: {exc}", "code": "comfyui_rejected"}), 502
 
@@ -932,7 +932,7 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, bac
                 workflow,
                 client_id=client_id,
                 extra_data={
-                    "comfy_meta_viewer": {
+                    "mediastudio": {
                         "simple_mode": True,
                         "profile_id": profile.id,
                         "mode": req.mode,
@@ -940,14 +940,14 @@ def _generate_fixed(profile: ApprovedProfile, req: SimpleGenerateRequest, *, bac
                         "batch_index": index,
                     },
                     "extra_pnginfo": {
-                        "cmv_simple_profile": profile.id,
-                        "cmv_create_mode": req.mode,
-                        "cmv_user_request": user_request,
-                        "cmv_prompt": positive_prompt,
-                        **({"cmv_agent": req.agent_name} if req.agent_name else {}),
-                        **({"cmv_edit_profile": edit_profile.id} if edit_profile else {}),
-                        **({"cmv_negative_prompt": edit_negative} if edit_negative else {}),
-                        **({"cmv_denoise": denoise} if req.mode == "variation" else {}),
+                        "mediastudio_simple_profile": profile.id,
+                        "mediastudio_create_mode": req.mode,
+                        "mediastudio_user_request": user_request,
+                        "mediastudio_prompt": positive_prompt,
+                        **({"mediastudio_agent": req.agent_name} if req.agent_name else {}),
+                        **({"mediastudio_edit_profile": edit_profile.id} if edit_profile else {}),
+                        **({"mediastudio_negative_prompt": edit_negative} if edit_negative else {}),
+                        **({"mediastudio_denoise": denoise} if req.mode == "variation" else {}),
                     },
                 },
             )
@@ -1100,7 +1100,7 @@ def _stream_agent_run(run_kwargs: dict[str, Any], finish) -> Response:
                 "technical_error": str(exc)[:4000] or None,
             }))
 
-    threading.Thread(target=worker, name="cmv-create-agent", daemon=True).start()
+    threading.Thread(target=worker, name="mediastudio-create-agent", daemon=True).start()
 
     def generate():
         while True:
@@ -1172,15 +1172,15 @@ def simple_get_run(run_id: int):
         run = WorkflowExecutionService(store=wf_store, client=client).refresh(run_id)
     except Exception as exc:
         import logging
-        logging.getLogger("comfy-meta-viewer.comfyui").warning(
-            "[CMV] refresh() failed for run %s: %s", run_id, exc,
+        logging.getLogger("mediastudio.comfyui").warning(
+            "[MediaStudio] refresh() failed for run %s: %s", run_id, exc,
         )
         run = wf_store.get_run(run_id)
 
     if run.status == "failed" and run.error:
         import logging
-        log = logging.getLogger("comfy-meta-viewer.comfyui")
-        log.error("[CMV] Run %s failed. Error: %s", run_id, run.error)
+        log = logging.getLogger("mediastudio.comfyui")
+        log.error("[MediaStudio] Run %s failed. Error: %s", run_id, run.error)
 
     outputs = [
         payload

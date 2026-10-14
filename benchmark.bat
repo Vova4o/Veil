@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title ComfyUI Meta Viewer Benchmarks
+title MediaStudio Benchmarks
 cd /d "%~dp0"
 if errorlevel 1 (
     echo [ERROR] Failed to open the application directory.

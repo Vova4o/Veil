@@ -33,7 +33,7 @@ async function fetchJson(url, options) {
 
 export let galleryDensity = 'md';
 try {
-    const stored = localStorage.getItem('cmv_gallery_density');
+    const stored = localStorage.getItem('mediastudio_gallery_density');
     if (['sm', 'md', 'lg'].includes(stored)) galleryDensity = stored;
 } catch {
     // Storage can be unavailable in restricted environments
@@ -51,7 +51,7 @@ export function setGalleryDensity(density) {
     const valid = ['sm', 'md', 'lg'].includes(density) ? density : 'md';
     galleryDensity = valid;
     try {
-        localStorage.setItem('cmv_gallery_density', valid);
+        localStorage.setItem('mediastudio_gallery_density', valid);
     } catch {
         // Fallback if localStorage unavailable
     }

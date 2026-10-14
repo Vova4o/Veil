@@ -157,7 +157,7 @@ class SourceMonitor:
         self._thread = threading.Thread(
             target=self._run,
             daemon=True,
-            name="MetaViewerSourceMonitor",
+            name="MediaStudioSourceMonitor",
         )
         self._thread.start()
         self._wake_event.set()

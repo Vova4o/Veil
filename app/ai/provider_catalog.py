@@ -1,7 +1,7 @@
 """Provider templates for Integrations › Providers, taken from models.dev.
 
 ``assets/provider_catalog.json`` is rebuilt by ``scripts/update_provider_catalog.py``
-from the copy of models.dev that OpenCode keeps. It lists the providers CMV can reach
+from the copy of models.dev that OpenCode keeps. It lists the providers MediaStudio can reach
 through an OpenAI-compatible endpoint, with their base URL, key variable and the
 cards of their models (photo input, reasoning, free, family, release date).
 """

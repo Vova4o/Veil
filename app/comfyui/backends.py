@@ -25,7 +25,7 @@ class ComfyUIJobClient(Protocol):
         filename: str,
         data: bytes,
         *,
-        subfolder: str = "cmv",
+        subfolder: str = "mediastudio",
         overwrite: bool = False,
     ) -> dict[str, Any]: ...
 

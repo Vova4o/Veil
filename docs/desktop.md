@@ -15,7 +15,7 @@ release support.
   and `.venv` dependencies and pauses on errors. `desktop.bat --packaged` runs
   `dist/desktop/win-unpacked/VEIL.exe`.
 - `npm run desktop` compiles the TypeScript shell and launches it against the
-  project's `.venv` (`COMFY_META_PYTHON` can select a different interpreter).
+  project's `.venv` (`MEDIASTUDIO_PYTHON` can select a different interpreter).
 - `start.bat --web` / `start.sh --web` retain browser development. On Windows,
   the launcher uses the imported desktop data if available. Run one runtime
   against a library at a time.
@@ -23,11 +23,11 @@ release support.
 Development prerequisites: Node.js, `npm ci`, and
 `poetry install --no-root --with dev,desktop`.
 Create the environment in `.venv` (`poetry config virtualenvs.in-project true --local`)
-or point `COMFY_META_PYTHON` at the installed interpreter.
+or point `MEDIASTUDIO_PYTHON` at the installed interpreter.
 
 ## Runtime and user data
 
-The renderer uses a stable `cmv://app` origin. A standard, secure Electron
+The renderer uses a stable `mediastudio://app` origin. A standard, secure Electron
 protocol proxies Flask pages and requests to an authenticated loopback server
 on an OS-assigned port. Streaming responses, multipart uploads and video Range
 requests retain their existing API behavior. Browser preferences therefore
@@ -50,16 +50,16 @@ clipboard reads and unrelated permissions are denied.
 The renderer never receives the backend authentication token.
 Opening an original uses a separate sandboxed window and keeps the library open.
 
-Default Windows profile: `%APPDATA%\Comfy Meta Viewer`:
+Default Windows profile: `%APPDATA%\MediaStudio`:
 
 - `data/`: SQLite, configuration and user workflow templates;
 - `cache/`: generated thumbnails, previews and cutouts;
 - `logs/desktop-backend.log`: backend startup and errors;
 - Chromium storage and `window.json`: UI preferences and window size.
 
-`COMFY_META_DESKTOP_PROFILE` selects an isolated profile. Existing
-`COMFY_META_DATA_DIR` / `COMFY_META_CACHE_DIR` overrides remain supported.
-`COMFY_META_IMPORT_DIR` imports an existing `.comfy_meta_uploads` directory only
+`MEDIASTUDIO_DESKTOP_PROFILE` selects an isolated profile. Existing
+`MEDIASTUDIO_DATA_DIR` / `MEDIASTUDIO_CACHE_DIR` overrides remain supported.
+`MEDIASTUDIO_IMPORT_DIR` imports an existing `.mediastudio_data` directory only
 into an empty target. Source-mode launch automatically finds the legacy library
 in the workspace. `start.bat` also passes that import path to a built app.
 The import uses SQLite backup (including committed WAL data), copies configuration
@@ -67,7 +67,7 @@ and user templates, checks database integrity, and publishes the staged result
 by renaming it. Existing destination data and original sources are preserved.
 `desktop-import.json` records provenance. Matching legacy thumbnails and display
 previews are reused through read-only lookup in the old `cache/` directory;
-`COMFY_META_IMPORT_CACHE_DIR` can select another legacy cache. Both databases are
+`MEDIASTUDIO_IMPORT_CACHE_DIR` can select another legacy cache. Both databases are
 compared by asset ID, source path, relative path, size, modification time, media
 type and content fingerprint. Each request rechecks the current source identity.
 Existing desktop caches take precedence. Missing/stale legacy entries generate
@@ -78,7 +78,7 @@ are changed. Removing the old cache remains safe; it only removes acceleration.
 
 `npm run desktop:package` compiles Electron, freezes the backend, bundles FFmpeg
 and FFprobe, then creates the Windows NSIS installer. Set
-`COMFY_META_MEDIA_TOOLS_DIR` if the two real binaries are not on PATH. The build
+`MEDIASTUDIO_MEDIA_TOOLS_DIR` if the two real binaries are not on PATH. The build
 resolves Chocolatey shims to their installed FFmpeg binaries when possible.
 
 Outputs:

@@ -13,7 +13,7 @@ _PRODUCT_POLICY = """PRODUCT-OBJECT BENCHMARK POLICY
 def install_intent_judge_policy(executor_class: Any) -> None:
     """Add benchmark-specific judge guidance without changing the public executor API."""
 
-    if getattr(executor_class, "_cmv_policy_installed", False):
+    if getattr(executor_class, "_mediastudio_policy_installed", False):
         return
 
     original = executor_class._render_judge_package
@@ -38,4 +38,4 @@ def install_intent_judge_policy(executor_class: Any) -> None:
         return package.replace(marker, _PRODUCT_POLICY + "\n" + marker, 1)
 
     executor_class._render_judge_package = classmethod(render_with_policy)
-    executor_class._cmv_policy_installed = True
+    executor_class._mediastudio_policy_installed = True

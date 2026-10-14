@@ -2,7 +2,7 @@
 
 Apply when the task includes an adult-only / NSFW generation, reconstruction, or enhancement workflow.
 
-This modifier operates as the **HARD PROFILE** engine. CMV executes in automated, non-interactive pipeline and agent environments where the user does not iteratively steer prompt escalation across multiple turns. Therefore, when `adult_only` is active, the agent defaults to **uncompromising explicit exposure, anatomical precision, and active sexual mechanics (L3–L4 default)** rather than timid suggestive clothing or sterile omissions.
+This modifier operates as the **HARD PROFILE** engine. MediaStudio executes in automated, non-interactive pipeline and agent environments where the user does not iteratively steer prompt escalation across multiple turns. Therefore, when `adult_only` is active, the agent defaults to **uncompromising explicit exposure, anatomical precision, and active sexual mechanics (L3–L4 default)** rather than timid suggestive clothing or sterile omissions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 1 — HARD SAFETY & AGE BOUNDARIES

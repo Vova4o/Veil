@@ -16,5 +16,5 @@
     "seed": 0, "steps": 8, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
     "model": ["18", 0], "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["17", 0]}},
   "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}},
-  "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "CMV/Create/krea2_edit", "images": ["8", 0]}}
+  "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "MediaStudio/Create/krea2_edit", "images": ["8", 0]}}
 }

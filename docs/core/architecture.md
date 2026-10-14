@@ -57,7 +57,7 @@ VEIL is a local-first web application. The browser hosts the metadata viewer plu
 ## Directory Structure
 
 ```
-comfy-meta-viewer/
+veil/
 ├── app/                          # Python backend + frontend static assets
 │   ├── main.py                   # Flask app, API routes, startup wiring
 │   ├── database.py               # SQLite CRUD and persistence helpers
@@ -105,7 +105,7 @@ comfy-meta-viewer/
 │   ├── thumbnails/               # JPEG thumbnails (*.jpg)
 │   ├── previews/                 # Bounded JPEG/WebP lightbox previews
 │   └── cutouts/                  # Transparent PNG cutouts (*.png)
-├── .comfy_meta_uploads/
+├── .mediastudio_data/
 │   ├── config.json               # Durable source paths and settings
 │   └── meta.db                   # Disposable SQLite index by default
 ├── dev_docs/                     # Internal development notes and sprint docs
@@ -444,7 +444,7 @@ api.js
 - Thumbnail, display preview, and cutout caches are stored on disk.
 - OpenAI-compatible API keys are excluded from JSON, SQLite, diagnostics, normal logs, and API responses.
 - System-stored API keys live under per-profile UUID entries in the OS credential store.
-- Local CLI authorization stays owned by the CLI; CMV stores only integration type, executable path, and model ID.
+- Local CLI authorization stays owned by the CLI; VEIL stores only integration type, executable path, and model ID.
 - Remote endpoints cannot receive credentials over plaintext HTTP; unauthenticated localhost endpoints remain supported.
 
 ## Extensibility

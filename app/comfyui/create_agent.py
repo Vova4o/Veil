@@ -78,7 +78,7 @@ class CreateInstructionBundle(InstructionBundle):
             self.task.operation.value,
         )
         blocks = [
-            "CMV CREATE TASK\n"
+            "MediaStudio CREATE TASK\n"
             "model: Moody Krea 2 (Krea 2 family, Qwen3-VL text encoder)\n"
             f"mode: {mode}\n"
             "precedence: output contract and content boundaries first, then the mode, then the base",
@@ -583,7 +583,7 @@ def run_create_agent(
     reader = progress_reader(agent, emit) if on_progress is not None else None
 
     # A host may still hold the copied photo open; a leftover folder must not fail the run.
-    with tempfile.TemporaryDirectory(prefix="cmv-create-agent-", ignore_cleanup_errors=True) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="mediastudio-create-agent-", ignore_cleanup_errors=True) as temp_dir:
         image_kwargs: dict[str, Any] = {}
         if sees and image is not None:
             try:

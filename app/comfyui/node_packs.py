@@ -14,7 +14,7 @@ from typing import Any
 
 from .simple_profiles import CustomNodeRequirement
 
-MARKER_NAME = ".cmv-node-pack.json"
+MARKER_NAME = ".mediastudio-node-pack.json"
 MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 SKIPPED_TOP_LEVEL = {"tests", ".github", "node.zip"}
 
@@ -43,7 +43,7 @@ def installed_node_packs(
 
 
 def _download(url: str) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "comfy-meta-viewer"})
+    request = urllib.request.Request(url, headers={"User-Agent": "mediastudio"})
     with urllib.request.urlopen(request, timeout=60) as response:
         data = response.read(MAX_ARCHIVE_BYTES + 1)
     if len(data) > MAX_ARCHIVE_BYTES:
@@ -104,7 +104,7 @@ def install_node_pack(
                 code="checksum_mismatch",
             )
 
-        staging = root / f".{pack.folder}.cmv-staging"
+        staging = root / f".{pack.folder}.mediastudio-staging"
         if staging.exists():
             shutil.rmtree(staging)
         try:

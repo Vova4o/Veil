@@ -1,6 +1,6 @@
 # EDITOR / STUDIO: Civitai + Free Mode Integration Plan
 
-> **Status:** active companion plan for the CMV editor / studio.
+> **Status:** active companion plan for the VEIL editor / studio.
 >
 > Read this together with [`EDITOR-STUDIO-RUNTIME-PLAN.md`](EDITOR-STUDIO-RUNTIME-PLAN.md).
 >
@@ -16,7 +16,7 @@ The main Studio runtime remains intentionally small and stable:
 moodyKrea2Mix_v40.safetensors
 + typed Visual Runtime
 + tested workflow primitives
-+ CMV execution stack
++ VEIL execution stack
 ```
 
 Civitai must not reintroduce the old model-zoo architecture into the primary Studio path.
@@ -38,7 +38,7 @@ Agent Lab
 
 ## 2. Current Civitai integration audit
 
-CMV already has a substantial Civitai implementation. It should be refactored and reused rather than replaced.
+VEIL already has a substantial Civitai implementation. It should be refactored and reused rather than replaced.
 
 ### 2.1 REST discovery and model metadata
 
@@ -87,7 +87,7 @@ Civitai model/version/file
 
 The service resolves the configured ComfyUI installation and restricts installation targets to known model folders instead of allowing arbitrary filesystem destinations.
 
-That behavior is exactly what Agent Lab needs later. The agent should discover resources, but this CMV-controlled service should remain responsible for actually writing model files.
+That behavior is exactly what Agent Lab needs later. The agent should discover resources, but this VEIL-controlled service should remain responsible for actually writing model files.
 
 ### 2.3 Persistent download state
 
@@ -129,7 +129,7 @@ A downloaded or already-installed resource can therefore be associated with its 
 
 ### 2.5 Existing browser UI
 
-CMV already contains a Civitai browser in the legacy Create editor:
+VEIL already contains a Civitai browser in the legacy Create editor:
 
 ```text
 app/static/js/features/civitai-downloader.js
@@ -156,7 +156,7 @@ The feature itself is useful, but it is currently coupled to the legacy workflow
 The current downloader resolves a Civitai token in this order:
 
 ```text
-CMV comfyui.civitai_api_token
+VEIL comfyui.civitai_api_token
     -> CIVITAI_TOKEN / CIVITAI_API_TOKEN
         -> Civitai CLI config
 ```
@@ -165,7 +165,7 @@ The fallback to environment variables and the existing Civitai CLI configuration
 
 However, storing a Civitai credential under the `comfyui` configuration namespace is an architectural coupling that should disappear during the Studio migration.
 
-CMV already has OS-keyring infrastructure in `app/ai/secrets.py`; the Civitai integration should reuse or generalize that mechanism rather than keep secrets in ordinary application JSON.
+VEIL already has OS-keyring infrastructure in `app/ai/secrets.py`; the Civitai integration should reuse or generalize that mechanism rather than keep secrets in ordinary application JSON.
 
 ## 3. What should be kept
 
@@ -257,9 +257,9 @@ VisualSession
     -> Agent Lab instruction
         -> Civitai MCP discovery
             -> candidate resources
-                -> CMV REST verification / compatibility preflight
+                -> VEIL REST verification / compatibility preflight
                     -> user approval if installation is required
-                        -> CMV Civitai downloader
+                        -> VEIL Civitai downloader
                             -> ComfyUI inventory refresh
                                 -> Comfy MCP experiment
                                     -> output asset
@@ -279,18 +279,18 @@ Primary MCP use cases:
 - obtain context that is inconvenient to expose through a rigid UI search form
 - help the agent compare candidate resources before proposing one to the user
 
-The MCP should not become CMV's file-installation authority.
+The MCP should not become VEIL's file-installation authority.
 
 For v1:
 
 ```text
 Civitai MCP = discovery / research
 Civitai REST = deterministic verification and exact file metadata
-CMV downloader = trusted installation path
+VEIL downloader = trusted installation path
 Comfy MCP = local workflow experimentation
 ```
 
-This separation keeps writes, progress, filesystem validation, and provenance inside CMV.
+This separation keeps writes, progress, filesystem validation, and provenance inside VEIL.
 
 ### Read-oriented MCP permissions first
 
@@ -302,11 +302,11 @@ Account-mutating operations such as posting, commenting, reacting, following, pu
 
 Civitai orchestration/cloud-generation MCP is explicitly out of scope for this architecture.
 
-CMV execution remains local through ComfyUI.
+VEIL execution remains local through ComfyUI.
 
 ## 7. Typed external-resource boundary
 
-The free-form research step should converge into a typed CMV contract before any installation occurs.
+The free-form research step should converge into a typed VEIL contract before any installation occurs.
 
 Suggested models:
 
@@ -343,7 +343,7 @@ class InstalledExternalResource(StrictModel):
 
 The MCP response itself is not trusted as the final installation contract.
 
-CMV should re-resolve the chosen model/version/file through its deterministic integration before queueing the download.
+VEIL should re-resolve the chosen model/version/file through its deterministic integration before queueing the download.
 
 ## 8. Compatibility policy
 
@@ -405,10 +405,10 @@ Agent behavior:
 agent finds candidate
     -> shows model/version/type/size/reason
         -> user approves installation
-            -> CMV downloader queues exact file
+            -> VEIL downloader queues exact file
 ```
 
-The agent should never bypass the CMV downloader and write arbitrary model files directly into `ComfyUI/models` in v1.
+The agent should never bypass the VEIL downloader and write arbitrary model files directly into `ComfyUI/models` in v1.
 
 ## 11. Provenance improvements
 
@@ -464,7 +464,7 @@ It is not part of the tested Studio runtime. Install it and try an experimental 
 User:
 Yes.
 
-CMV:
+VEIL:
 Download -> inventory refresh -> Comfy MCP experiment -> result
 ```
 
@@ -478,7 +478,7 @@ Civitai MCP and Comfy MCP solve different parts of the free-mode problem.
 Civitai MCP
     -> what external resource could help?
 
-CMV Civitai integration
+VEIL Civitai integration
     -> which exact file is it and may it be installed safely?
 
 Comfy MCP
@@ -586,14 +586,14 @@ Network calls should be mocked in normal tests. Real Civitai/MCP smoke tests sho
 
 - connect the official Civitai MCP for read-oriented discovery
 - translate free-form discoveries into typed candidates
-- verify selected resources through CMV REST before installation
+- verify selected resources through VEIL REST before installation
 - require explicit install permission
 
 ### Phase 6: connect the full free-mode loop
 
 ```text
 Civitai MCP research
-    -> CMV install
+    -> VEIL install
         -> Comfy inventory refresh
             -> Comfy MCP experiment
                 -> Library asset
@@ -610,7 +610,7 @@ Civitai MCP research
 
 For this plan, do not:
 
-- add Civitai cloud generation to CMV
+- add Civitai cloud generation to VEIL
 - integrate Civitai orchestration MCP
 - turn Civitai into a model picker for normal Studio
 - make downloaded checkpoints part of the official Studio runtime automatically
@@ -622,13 +622,13 @@ For this plan, do not:
 ## 19. Target architecture
 
 ```text
-CMV Studio
+VEIL Studio
 |
 +-- Typed Visual Runtime
 |   +-- moodyKrea2Mix_v40
 |   +-- skills
 |   +-- tested primitives
-|   +-- CMV execution stack
+|   +-- VEIL execution stack
 |
 +-- Agent Lab / Free Mode
     |
@@ -638,7 +638,7 @@ CMV Studio
     |   +-- semantic discovery
     |   +-- models / versions / examples / creators
     |
-    +-- CMV Civitai Integration
+    +-- VEIL Civitai Integration
     |   +-- deterministic REST verification
     |   +-- credentials
     |   +-- compatibility preflight
@@ -663,7 +663,7 @@ This integration is successful when a user can say something like:
 Find a suitable Civitai LoRA for this look and try it on the current image.
 ```
 
-and CMV can safely perform:
+and VEIL can safely perform:
 
 ```text
 natural-language discovery

@@ -1,6 +1,6 @@
 # Documentation Index
 
-> Central technical documentation for VEIL (CMV).
+> Central technical documentation for VEIL (VEIL).
 
 This directory contains the public technical and architectural documentation of the project.
 - **Public Landing & Interactive API**: [`site/`](../site/) (deployed to GitHub Pages; interactive API explorer at [`site/api/`](../site/api/index.html))

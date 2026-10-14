@@ -225,14 +225,14 @@ test('state persistence restores stable preferences but not runtime collections'
     assert.equal(state.currentFolderId, null);
     assert.equal(state.activeSidebarTab, 'albums');
 
-    localStorage.setItem('cmv_preferences', 'legacy');
-    localStorage.setItem('cmv_ai_connected_cli_types_v1', '["opencode"]');
-    localStorage.setItem('cmv_ai_model_catalog_v1', '{}');
-    sessionStorage.setItem('cmv_state', 'legacy');
+    localStorage.setItem('mediastudio_preferences', 'legacy');
+    localStorage.setItem('mediastudio_ai_connected_cli_types_v1', '["opencode"]');
+    localStorage.setItem('mediastudio_ai_model_catalog_v1', '{}');
+    sessionStorage.setItem('mediastudio_state', 'legacy');
     state.clearStoredPreferences();
     assert.equal(localStorage.getItem(PREFERENCES_STORAGE_KEY), null);
-    assert.equal(localStorage.getItem('cmv_preferences'), null);
-    assert.equal(localStorage.getItem('cmv_ai_connected_cli_types_v1'), null);
-    assert.equal(localStorage.getItem('cmv_ai_model_catalog_v1'), null);
-    assert.equal(sessionStorage.getItem('cmv_state'), null);
+    assert.equal(localStorage.getItem('mediastudio_preferences'), null);
+    assert.equal(localStorage.getItem('mediastudio_ai_connected_cli_types_v1'), null);
+    assert.equal(localStorage.getItem('mediastudio_ai_model_catalog_v1'), null);
+    assert.equal(sessionStorage.getItem('mediastudio_state'), null);
 });

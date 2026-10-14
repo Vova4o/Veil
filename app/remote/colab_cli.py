@@ -1,8 +1,8 @@
 """Google's Colab CLI (``google-colab-cli``) driven through WSL.
 
-CMV never reads the CLI's OAuth token. Sign-in is the CLI's own copy-paste flow
-(it prints a Google URL and reads the code on stdin), and CMV only checks that the
-token file exists. CMV keeps its sessions in its own ``--config`` file, so sessions
+MediaStudio never reads the CLI's OAuth token. Sign-in is the CLI's own copy-paste flow
+(it prints a Google URL and reads the code on stdin), and MediaStudio only checks that the
+token file exists. MediaStudio keeps its sessions in its own ``--config`` file, so sessions
 the user starts with ``colab`` by hand stay out of its way; the account is shared.
 """
 
@@ -23,7 +23,10 @@ from typing import Any
 
 from . import wsl
 
-SESSION_CONFIG = '"$HOME/.config/cmv-colab/sessions.json"'
+SESSION_DIR = '"$HOME/.config/mediastudio-colab"'
+SESSION_CONFIG = '"$HOME/.config/mediastudio-colab/sessions.json"'
+# Saved sessions live in a folder named after the product's codename; this moves one left under the old name.
+LEGACY_SESSION_DIR = '"$HOME/.config/cmv-colab"'
 # The runtime's Jupyter server sometimes takes longer than the kernel client's default 10 s
 # to answer; a longer wait avoids the client's retry storm that outlasts our own timeout.
 CLI_ENV = {"REQUEST_TIMEOUT": "30"}
@@ -206,7 +209,8 @@ class ColabCLI:
     @staticmethod
     def command(*args: str) -> str:
         quoted = " ".join(shlex.quote(str(arg)) for arg in args)
-        return f'mkdir -p "$HOME/.config/cmv-colab" && colab --auth oauth2 --config {SESSION_CONFIG} {quoted}'
+        migrate = f"if [ -d {LEGACY_SESSION_DIR} ] && [ ! -e {SESSION_DIR} ]; then mv {LEGACY_SESSION_DIR} {SESSION_DIR}; fi"
+        return f"{migrate}; mkdir -p {SESSION_DIR} && colab --auth oauth2 --config {SESSION_CONFIG} {quoted}"
 
     def _call(self, *args: str, timeout: float = 60.0, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
         try:
@@ -357,7 +361,7 @@ class LoginFlow:
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._output: list[str] = []
         self._readers = [
-            threading.Thread(target=self._read, args=(stream,), daemon=True, name="cmv-colab-login")
+            threading.Thread(target=self._read, args=(stream,), daemon=True, name="mediastudio-colab-login")
             for stream in (process.stderr, process.stdout)
             if stream is not None
         ]

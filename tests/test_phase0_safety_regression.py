@@ -16,8 +16,8 @@ def temp_environment():
     root = Path(temp_dir.name)
     paths = build_runtime_paths(
         {
-            "COMFY_META_DATA_DIR": str(root / "data"),
-            "COMFY_META_CACHE_DIR": str(root / "cache"),
+            "MEDIASTUDIO_DATA_DIR": str(root / "data"),
+            "MEDIASTUDIO_CACHE_DIR": str(root / "cache"),
         },
         project_root=root,
     )

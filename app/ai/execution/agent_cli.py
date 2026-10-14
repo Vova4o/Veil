@@ -20,7 +20,7 @@ from ..prompting import InstructionBundle
 MAX_USER_INPUT_CHARS = 100_000
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-TASK_FILE_NAME = "cmv-task.md"
+TASK_FILE_NAME = "mediastudio-task.md"
 
 
 class AgentCLIInputError(ValueError):
@@ -97,7 +97,7 @@ def render_task_package(
     else:
         image_block = ""
     return (
-        "# CMV agent task\n\n"
+        "# MediaStudio agent task\n\n"
         "The instruction bundle below is authoritative. Do not inspect the project, browse, "
         "run commands, or seek additional context.\n\n"
         f"{bundle.render()}\n"

@@ -127,7 +127,7 @@ async function remove() {
 
 function storageText() {
     if (civitai.storage === 'system') return 'Kept in the system credential store';
-    if (civitai.storage === 'config') return 'Kept in CMV’s settings file: no system credential store is available';
+    if (civitai.storage === 'config') return 'Kept in MediaStudio’s settings file: no system credential store is available';
     return null;
 }
 
@@ -145,7 +145,7 @@ function civitaiCard() {
         return node;
     }
     node.append(el('p', 'cli-message', saved
-        ? 'Used for Civitai downloads on this computer and for Colab runtimes. For Colab, CMV turns each Civitai link into a short-lived download link here, so the key never leaves this computer.'
+        ? 'Used for Civitai downloads on this computer and for Colab runtimes. For Colab, MediaStudio turns each Civitai link into a short-lived download link here, so the key never leaves this computer.'
         : 'Some models, such as Moody Krea2 in Create, download from Civitai only with your API key. Create one under API Keys in your Civitai account settings and paste it here.'));
 
     const badges = el('div', 'badge-row');

@@ -1,6 +1,6 @@
 export const PREFERENCES_VERSION = 2;
-export const PREFERENCES_STORAGE_KEY = 'cmv_preferences_v2';
-export const LEGACY_PREFERENCES_STORAGE_KEY = 'cmv_preferences';
+export const PREFERENCES_STORAGE_KEY = 'mediastudio_preferences_v2';
+export const LEGACY_PREFERENCES_STORAGE_KEY = 'mediastudio_preferences';
 
 const VIEW_MODES = new Set(['gallery', 'list', 'upload']);
 const SIDEBAR_TABS = new Set(['folders', 'albums', 'images']);

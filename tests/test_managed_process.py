@@ -21,11 +21,11 @@ class ManagedProcessBindingTest(unittest.TestCase):
 
     def test_normal_command_returns_output(self) -> None:
         result = run_managed_command(
-            [sys.executable, "-c", "print('CMV_MANAGED_OK')"],
+            [sys.executable, "-c", "print('MEDIASTUDIO_MANAGED_OK')"],
             timeout=10,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "CMV_MANAGED_OK")
+        self.assertEqual(result.stdout, "MEDIASTUDIO_MANAGED_OK")
 
     @mock.patch("app.ai.managed_process.os.name", "nt")
     @mock.patch("app.ai.managed_process.subprocess.CREATE_NO_WINDOW", 0x08000000, create=True)
@@ -77,7 +77,7 @@ class ManagedProcessBindingTest(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt", "Windows Job Object regression test")
 class WindowsManagedProcessTimeoutTest(unittest.TestCase):
     def test_timeout_kills_child_after_parent_exits_and_releases_workspace(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="cmv-managed-process-test-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="mediastudio-managed-process-test-") as temp_dir:
             workspace = Path(temp_dir)
             lock_path = workspace / "child-lock.txt"
             child_code = (

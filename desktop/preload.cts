@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-contextBridge.exposeInMainWorld('cmvDesktop', Object.freeze({
-    chooseFolder: (options?: { title?: string; defaultPath?: string }) => ipcRenderer.invoke('cmv:choose-folder', options),
-    retry: () => ipcRenderer.invoke('cmv:retry'),
-    openLogs: () => ipcRenderer.invoke('cmv:open-logs'),
+contextBridge.exposeInMainWorld('mediaStudioDesktop', Object.freeze({
+    chooseFolder: (options?: { title?: string; defaultPath?: string }) => ipcRenderer.invoke('mediastudio:choose-folder', options),
+    retry: () => ipcRenderer.invoke('mediastudio:retry'),
+    openLogs: () => ipcRenderer.invoke('mediastudio:open-logs'),
 }));

@@ -23,7 +23,7 @@ def _valid_png_bytes() -> bytes:
 def db_env():
     temp_dir = tempfile.TemporaryDirectory()
     old_db = database.get_db_path()
-    db_path = Path(temp_dir.name) / "cmv.sqlite3"
+    db_path = Path(temp_dir.name) / "mediastudio.sqlite3"
     database.set_db_path(db_path)
     database.init_db()
     old_config = {

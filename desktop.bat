@@ -18,7 +18,7 @@ if not exist "node_modules\electron\package.json" (
     echo Installing Node.js dependencies...
     call npm ci || goto fail
 )
-if not defined COMFY_META_PYTHON if not exist ".venv\Scripts\python.exe" (
+if not defined MEDIASTUDIO_PYTHON if not exist ".venv\Scripts\python.exe" (
     where poetry >nul 2>&1
     if errorlevel 1 (
         echo [ERROR] Python environment not found. Install Poetry: pip install poetry
@@ -39,7 +39,7 @@ if not exist "%DESKTOP_EXE%" (
     echo [ERROR] Packaged app not found. Build it with: npm run desktop:package
     goto fail
 )
-if not defined COMFY_META_IMPORT_DIR set "COMFY_META_IMPORT_DIR=%~dp0.comfy_meta_uploads"
+if not defined MEDIASTUDIO_IMPORT_DIR set "MEDIASTUDIO_IMPORT_DIR=%~dp0.mediastudio_data"
 start "" "%DESKTOP_EXE%"
 exit /b 0
 

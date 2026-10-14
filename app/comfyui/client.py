@@ -202,10 +202,10 @@ class ComfyUIClient:
         filename: str,
         data: bytes,
         *,
-        subfolder: str = "cmv",
+        subfolder: str = "mediastudio",
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        boundary = f"----cmv-{uuid.uuid4().hex}"
+        boundary = f"----mediastudio-{uuid.uuid4().hex}"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         parts: list[bytes] = []
 
@@ -256,7 +256,7 @@ class ComfyUIClient:
         timeout: float | None = None,
     ) -> Any:
         request_headers = {
-            "User-Agent": "ComfyUI-Meta-Viewer",
+            "User-Agent": "MediaStudio",
             "Accept": "application/json",
         }
         request_headers.update(headers or {})
@@ -293,7 +293,7 @@ class ComfyUIClient:
         req = urllib.request.Request(
             f"{self.base_url}{path}",
             data=data,
-            headers=headers or {"User-Agent": "ComfyUI-Meta-Viewer"},
+            headers=headers or {"User-Agent": "MediaStudio"},
             method=method,
         )
         try:

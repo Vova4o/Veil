@@ -290,7 +290,7 @@ The launcher opens the desktop window. Browser mode (`start.bat --web` or
 
 - **Custom Nodes & Workflows**: Standard built-in workflow templates cover checkpoint-contained, Flux separate-components, Pony/SDXL GGUF, reference, and video pipelines. Highly customized third-party node workflows can be imported using the mapping wizard, but complex multi-pipeline graphs may require manual node binding or mapping adjustment.
 - **Desktop Distribution**: The first Electron/Flask Windows build and NSIS installer are available locally. Public releases, signing, auto-update and native macOS/Linux desktop acceptance remain later stages.
-- **FFmpeg Dependency**: Packaged desktop builds bundle `ffmpeg` / `ffprobe`. Source/browser development requires those binaries on `PATH` or explicit `COMFY_META_FFMPEG` / `COMFY_META_FFPROBE` paths.
+- **FFmpeg Dependency**: Packaged desktop builds bundle `ffmpeg` / `ffprobe`. Source/browser development requires those binaries on `PATH` or explicit `MEDIASTUDIO_FFMPEG` / `MEDIASTUDIO_FFPROBE` paths.
 - **Platform Support**: Primary release platform is Windows; cross-platform validation is performed via GitHub Actions CI for Linux and macOS.
 
 ---
@@ -337,7 +337,7 @@ The launcher opens the desktop window. Browser mode (`start.bat --web` or
 
 ## API Reference
 
-CMV exposes a local REST API at `http://localhost:7860`. The machine-readable public contract is [`site/api/openapi.json`](site/api/openapi.json) and the interactive Scalar portal is available at [lotargo.github.io/ComfyUI-Meta-Viewer/api/](https://lotargo.github.io/ComfyUI-Meta-Viewer/api/).
+VEIL exposes a local REST API at `http://localhost:7860`. The machine-readable public contract is [`site/api/openapi.json`](site/api/openapi.json) and the interactive Scalar portal is available at [lotargo.github.io/ComfyUI-Meta-Viewer/api/](https://lotargo.github.io/ComfyUI-Meta-Viewer/api/).
 
 The public contract covers every supported `/api/*` route. The old workflow editor, `/api/editor/*`, `/editor/legacy`, `/settings/comfyui`, and `/api/ai/remix` were removed on 2026-10-14. Shared Create execution, local/Colab downloads, saved history, and user template files are preserved.
 
@@ -396,10 +396,10 @@ Full shortcuts list: [docs/core/features.md#keyboard-shortcuts](docs/core/featur
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMFY_META_PORT` | `7860` | Server port |
-| `COMFY_META_DATA_DIR` | `.comfy_meta_uploads` | Database and application data directory |
-| `COMFY_META_CACHE_DIR` | `cache` | Thumbnail, preview, and cutout cache directory |
-| `COMFY_META_UPLOAD` | - | Legacy alias for `COMFY_META_DATA_DIR` |
+| `MEDIASTUDIO_PORT` | `7860` | Server port |
+| `MEDIASTUDIO_DATA_DIR` | `.mediastudio_data` | Database and application data directory |
+| `MEDIASTUDIO_CACHE_DIR` | `cache` | Thumbnail, preview, and cutout cache directory |
+| `MEDIASTUDIO_UPLOAD` | - | Legacy alias for `MEDIASTUDIO_DATA_DIR` |
 
 Full configuration: [docs/core/configuration.md](docs/core/configuration.md)
 

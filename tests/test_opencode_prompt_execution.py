@@ -80,7 +80,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
 
         def fake_run_command(args, *, timeout, cwd=None, **_kwargs):
             workspace = Path(cwd)
-            captured["task"] = (workspace / "cmv-task.md").read_text(
+            captured["task"] = (workspace / "mediastudio-task.md").read_text(
                 encoding="utf-8"
             )
             return CommandResult(
@@ -126,7 +126,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
             captured["config"] = json.loads(
                 (workspace / "opencode.json").read_text(encoding="utf-8")
             )
-            captured["task"] = (workspace / "cmv-task.md").read_text(
+            captured["task"] = (workspace / "mediastudio-task.md").read_text(
                 encoding="utf-8"
             )
             file_idx = args.index("--file")
@@ -165,7 +165,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         self.assertTrue(captured["workspace_exists"])
         self.assertTrue(captured["task_arg_exists"])
         self.assertEqual(
-            captured["config"]["agent"]["cmv-prompt-smoke"]["permission"],
+            captured["config"]["agent"]["mediastudio-prompt-smoke"]["permission"],
             {"*": "deny"},
         )
         self.assertEqual(captured["config"]["share"], "disabled")
@@ -173,7 +173,7 @@ class OpenCodePromptExecutorTest(unittest.TestCase):
         self.assertIn("USER TASK INPUT", captured["task"])
         self.assertIn("Create a calm studio portrait.", captured["task"])
         self.assertIn("--standalone", captured["args"])
-        self.assertIn("cmv-prompt-smoke", captured["args"])
+        self.assertIn("mediastudio-prompt-smoke", captured["args"])
         self.assertIn("provider/model", captured["args"])
         self.assertEqual(captured["timeout"], 300)
 

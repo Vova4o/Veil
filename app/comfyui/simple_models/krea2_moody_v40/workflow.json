@@ -17,5 +17,5 @@
     "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["11", 0], "model": ["1", 0],
     "start_at_step": 2, "end_at_step": 10000, "return_with_leftover_noise": "disable"}},
   "8": {"class_type": "VAEDecode", "inputs": {"samples": ["12", 0], "vae": ["3", 0]}},
-  "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "CMV/Create/krea2", "images": ["8", 0]}}
+  "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "MediaStudio/Create/krea2", "images": ["8", 0]}}
 }

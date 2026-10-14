@@ -16,7 +16,7 @@ from ..judging import (
 from ..prompting import PromptResult
 from .opencode import OpenCodePromptExecutor
 
-OPENCODE_JUDGE_AGENT_NAME = "cmv-intent-judge"
+OPENCODE_JUDGE_AGENT_NAME = "mediastudio-intent-judge"
 MAX_JUDGE_INPUT_CHARS = 120_000
 
 
@@ -100,10 +100,10 @@ class OpenCodeIntentJudgeExecutor:
             )
 
         try:
-            with tempfile.TemporaryDirectory(prefix="cmv-opencode-judge-") as temp_dir:
+            with tempfile.TemporaryDirectory(prefix="mediastudio-opencode-judge-") as temp_dir:
                 workspace = Path(temp_dir)
                 self._write_isolated_config(workspace)
-                task_file = workspace / "cmv-judge-task.md"
+                task_file = workspace / "mediastudio-judge-task.md"
                 task_file.write_text(
                     self._render_judge_package(
                         family=cleaned_family,
@@ -130,7 +130,7 @@ class OpenCodeIntentJudgeExecutor:
                     "--agent",
                     OPENCODE_JUDGE_AGENT_NAME,
                     "--title",
-                    "ComfyUI Meta Viewer intent judge",
+                    "MediaStudio intent judge",
                     prompt,
                     f"--file={task_file}",
                 ]
@@ -283,7 +283,7 @@ class OpenCodeIntentJudgeExecutor:
             if required_intents
             else "- Infer the requested intent dimensions from the original request."
         )
-        return f"""# CMV intent benchmark judge task
+        return f"""# MediaStudio intent benchmark judge task
 
 Evaluate the candidate as if it came from an unknown system. The original request is intentionally short and incomplete. Reward useful visual decisions that preserve its intent. Do not reward length by itself. Penalize restatement, contradictions, generic quality slogans, and details that distort the user's goal.
 

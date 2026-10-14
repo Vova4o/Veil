@@ -9,10 +9,10 @@ const PANES = ['providers', 'models', 'social', 'remote', 'sources'];
 // Older links: Local AI tools now live in Providers.
 const PANE_ALIASES = { cli: 'providers' };
 // Model pickers reload their lists when this is newer than their copy.
-const MODELS_CHANGED_KEY = 'cmv_ai_models_changed_at';
-const COLLAPSED_KEY = 'cmv_ai_models_collapsed_v1';
+const MODELS_CHANGED_KEY = 'mediastudio_ai_models_changed_at';
+const COLLAPSED_KEY = 'mediastudio_ai_models_collapsed_v1';
 const LEGACY_KEYS = [
-    'cmv_ai_profiles_cache_v1', 'cmv_ai_connected_cli_types_v1', 'cmv_ai_model_catalog_v1', 'cmv_ai_cli_probes_v1',
+    'mediastudio_ai_profiles_cache_v1', 'mediastudio_ai_connected_cli_types_v1', 'mediastudio_ai_model_catalog_v1', 'mediastudio_ai_cli_probes_v1',
 ];
 const TOOL_DOWNLOADS = {
     opencode: 'https://opencode.ai/download',

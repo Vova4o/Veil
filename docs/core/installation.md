@@ -16,7 +16,7 @@ on `PATH` to enable those features; see the official [FFmpeg download page](http
 
 ```bash
 # Clone or download the project
-cd comfy-meta-viewer
+cd veil
 
 # Run (installs dependencies automatically)
 start.bat
@@ -25,7 +25,7 @@ start.bat
 ### Linux / macOS
 
 ```bash
-cd comfy-meta-viewer
+cd veil
 chmod +x start.sh
 ./start.sh
 ```
@@ -48,10 +48,10 @@ The app opens at `http://127.0.0.1:7860`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMFY_META_PORT` | `7860` | Server port |
-| `COMFY_META_DATA_DIR` | `.comfy_meta_uploads` | Database/application data directory |
-| `COMFY_META_CACHE_DIR` | `cache` | Generated cache directory |
-| `COMFY_META_UPLOAD` | — | Legacy alias for `COMFY_META_DATA_DIR` |
+| `MEDIASTUDIO_PORT` | `7860` | Server port |
+| `MEDIASTUDIO_DATA_DIR` | `.mediastudio_data` | Database/application data directory |
+| `MEDIASTUDIO_CACHE_DIR` | `cache` | Generated cache directory |
+| `MEDIASTUDIO_UPLOAD` | — | Legacy alias for `MEDIASTUDIO_DATA_DIR` |
 
 Relative data and cache overrides are resolved from the project root, so launching the
 application from another working directory does not create data in an unexpected location.
@@ -74,8 +74,8 @@ poetry run python -m app.main --factory-reset
 After first run:
 
 ```
-comfy-meta-viewer/
-├── .comfy_meta_uploads/
+veil/
+├── .mediastudio_data/
 │   ├── config.json      <- Saved source folders
 │   └── meta.db          <- Disposable SQLite index
 ├── cache/
@@ -127,9 +127,9 @@ poetry config virtualenvs.in-project true --local
 poetry install --no-root
 ```
 
-For development, use `poetry install --no-root --with dev`. Keep `.comfy_meta_uploads`
+For development, use `poetry install --no-root --with dev`. Keep `.mediastudio_data`
 and `cache` with the project to retain the existing library, settings, and previews.
-Review absolute `COMFY_META_DATA_DIR` / `COMFY_META_CACHE_DIR` overrides, saved source
+Review absolute `MEDIASTUDIO_DATA_DIR` / `MEDIASTUDIO_CACHE_DIR` overrides, saved source
 paths, the ComfyUI installation path, and AI CLI executable paths if those locations
 were also moved. Source folders and ComfyUI can remain outside the project.
 
@@ -140,7 +140,7 @@ pip install poetry
 
 **Port already in use:**
 ```bash
-COMFY_META_PORT=7861 poetry run python -m app.main
+MEDIASTUDIO_PORT=7861 poetry run python -m app.main
 ```
 
 **Database locked:**
@@ -150,7 +150,7 @@ The command reports the exact file if the database, WAL, SHM, or cache remains l
 **Database corrupt / app does not start:**
 Run `poetry run python -m app.main --reset-index`. This command does not need to open the
 existing database before removing it and retains source paths previously saved in
-`.comfy_meta_uploads/config.json`.
+`.mediastudio_data/config.json`.
 
 **Thumbnails not loading:**
 Delete `cache/thumbnails/` and restart. Thumbnails are auto-regenerated on request.

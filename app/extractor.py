@@ -851,7 +851,7 @@ def extract_metadata_from_bytes(data: bytes, file_name: str) -> ImageMetadata:
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            prefix="comfy-meta-",
+            prefix="mediastudio-",
             suffix=suffix,
             delete=False,
         ) as temp_file:

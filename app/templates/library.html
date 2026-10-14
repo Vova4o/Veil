@@ -18,10 +18,11 @@
     <link rel="stylesheet" href="/static/css/components/header.css">
     <link rel="stylesheet" href="/static/css/base/themes.css?v={{ static_version('css/base/themes.css') }}">
     <link rel="stylesheet" href="/static/css/base/studio-theme.css?v={{ static_version('css/base/studio-theme.css') }}">
+    <script src="/static/js/legacy-storage.js?v={{ static_version('js/legacy-storage.js') }}"></script>
     <script>
         (function() {
             try {
-                var theme = localStorage.getItem('cmv_theme') || 'dark';
+                var theme = localStorage.getItem('mediastudio_theme') || 'dark';
                 if (theme === 'system') {
                     var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                     theme = isDark ? 'dark' : 'light';

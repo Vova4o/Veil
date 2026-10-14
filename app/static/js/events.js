@@ -186,8 +186,8 @@ export function initEvents() {
     dom.btnOpenFolder?.addEventListener('click', async () => {
         try {
             let data;
-            if (window.cmvDesktop?.chooseFolder) {
-                data = { path: await window.cmvDesktop.chooseFolder() };
+            if (window.mediaStudioDesktop?.chooseFolder) {
+                data = { path: await window.mediaStudioDesktop.chooseFolder() };
             } else {
                 const response = await fetch('/api/choose-folder', { method: 'POST' });
                 data = await response.json();
@@ -219,7 +219,7 @@ export function initEvents() {
     dom.btnResetIndex?.addEventListener('click', () => performReset({
         factoryReset: false,
         title: 'Reset Index',
-        message: 'Delete the SQLite index and all generated caches? Saved source folders will be reindexed. Source files stay untouched, but virtual albums, favorites, ratings, tags, notes, and uploaded originals stored only in CMV will be permanently deleted.',
+        message: 'Delete the SQLite index and all generated caches? Saved source folders will be reindexed. Source files stay untouched, but virtual albums, favorites, ratings, tags, notes, and uploaded originals stored only in MediaStudio will be permanently deleted.',
     }));
 
     window.addEventListener('library-repaired', async () => {

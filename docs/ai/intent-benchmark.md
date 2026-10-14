@@ -253,7 +253,7 @@ The judge receives the required intent dimensions and family-specific policy. Fo
 
 OpenCode generator and judge calls use `app.ai.managed_process.run_managed_command`.
 
-On Windows, the root npm/cmd process is attached to a Job Object with `KILL_ON_JOB_CLOSE`. This prevents an orphaned `node.exe` from surviving after its parent exits, retaining stdout pipes, or locking the temporary `cmv-opencode-*` workspace. On timeout, the job is terminated, `taskkill /T /F` remains as a fallback, and pipes are drained or closed before the temporary directory is removed.
+On Windows, the root npm/cmd process is attached to a Job Object with `KILL_ON_JOB_CLOSE`. This prevents an orphaned `node.exe` from surviving after its parent exits, retaining stdout pipes, or locking the temporary `mediastudio-opencode-*` workspace. On timeout, the job is terminated, `taskkill /T /F` remains as a fallback, and pipes are drained or closed before the temporary directory is removed.
 
 The normal default timeout is five minutes per generator or judge call unless `--timeout` explicitly overrides it.
 

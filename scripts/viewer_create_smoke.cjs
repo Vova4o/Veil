@@ -39,7 +39,7 @@ let browser;
         assert.equal(upload.status(), 200);
         const asset = (await upload.json()).assets[0];
         assert.ok(asset.id, JSON.stringify(asset));
-        await page.addInitScript(() => localStorage.setItem('cmv_create_mode', 'edit'));
+        await page.addInitScript(() => localStorage.setItem('mediastudio_create_mode', 'edit'));
         await page.goto(origin + '/');
         await page.locator(`.gallery-card[data-image-id="${asset.id}"]`).click();
         await page.locator('#lightbox.open').waitFor();

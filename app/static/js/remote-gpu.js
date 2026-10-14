@@ -12,7 +12,7 @@ let login = null; // { url, busy, error }
 let installTimer = null;
 let newerVersion = null;
 let settingsTimer = null;
-let runtime = null; // CMV's own Colab runtime
+let runtime = null; // MediaStudio's own Colab runtime
 
 function $(id) {
     return document.getElementById(id);
@@ -230,7 +230,7 @@ async function submitCode(code) {
 async function logout() {
     const confirmed = await customConfirm(
         'Sign out of Colab?',
-        'This removes the Colab CLI sign-in inside WSL, so the colab command outside CMV is signed out too.',
+        'This removes the Colab CLI sign-in inside WSL, so the colab command outside MediaStudio is signed out too.',
     );
     if (!confirmed) return;
     try {
@@ -273,7 +273,7 @@ function setupCard() {
             + (wslState.detail ? `(${wslState.detail}) ` : '')
             + 'Setup asks for administrator permission and a restart.';
     } else if (cli.installed) {
-        message.textContent = `Runs inside WSL (${wslState.distro}). CMV keeps its own runtimes apart from the ones you start with colab by hand.`;
+        message.textContent = `Runs inside WSL (${wslState.distro}). MediaStudio keeps its own runtimes apart from the ones you start with colab by hand.`;
     } else {
         message.textContent = `Installs uv and google-colab-cli inside WSL (${wslState.distro}); nothing is installed in Windows itself.`;
     }
@@ -342,8 +342,8 @@ function accountCard() {
         account.signed_in ? { className: 'available', text: 'Signed in' } : { className: 'neutral', text: 'Signed out' },
     );
     node.append(el('p', 'cli-message', account.signed_in
-        ? 'Colab runtimes start under this account and use its compute units. CMV never sees the password or the token.'
-        : 'Colab runs under the Google account you sign in with, so a paid plan’s GPUs and compute units are yours to use. CMV never sees the password or the token.'));
+        ? 'Colab runtimes start under this account and use its compute units. MediaStudio never sees the password or the token.'
+        : 'Colab runs under the Google account you sign in with, so a paid plan’s GPUs and compute units are yours to use. MediaStudio never sees the password or the token.'));
     if (login?.url) node.append(loginBlock());
     if (login?.error) node.append(el('p', 'card-test-result error', login.error));
 
@@ -382,7 +382,7 @@ function usageCard() {
             const list = el('ul', 'remote-sessions');
             usage.sessions.forEach(item => {
                 const row = el('li');
-                row.append(el('strong', '', item.name === '?' ? 'Started outside CMV' : item.name), el('span', '', `${item.hardware} · ${item.variant}`));
+                row.append(el('strong', '', item.name === '?' ? 'Started outside MediaStudio' : item.name), el('span', '', `${item.hardware} · ${item.variant}`));
                 list.append(row);
             });
             node.append(list);
@@ -447,7 +447,7 @@ function settingsCard() {
         window.clearTimeout(settingsTimer);
         settingsTimer = window.setTimeout(() => saveSettings({ idle_minutes: Number(range.value) }), 400);
     });
-    idle.append(label, range, el('p', 'cli-message', `From ${min} to ${max} minutes. The remote notebook also stops itself shortly after that if CMV is closed or the computer sleeps.`));
+    idle.append(label, range, el('p', 'cli-message', `From ${min} to ${max} minutes. The remote notebook also stops itself shortly after that if MediaStudio is closed or the computer sleeps.`));
     node.append(idle);
     return node;
 }

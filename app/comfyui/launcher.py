@@ -43,7 +43,7 @@ def generate_launcher_script(
         args_list.extend(extra_tokens)
 
     if is_windows:
-        script_path = target_dir / "run_comfyui_cmv.bat"
+        script_path = target_dir / "run_comfyui_mediastudio.bat"
         py_str = f'"{detection.interpreter}"'
         main_str = f'"{detection.main_py}"'
         args_str = " ".join(_safe_bat_quote(a) for a in args_list)
@@ -55,7 +55,7 @@ def generate_launcher_script(
             f'{py_str} -s {main_str} {args_str} %*\r\n'
         )
     else:
-        script_path = target_dir / "run_comfyui_cmv.sh"
+        script_path = target_dir / "run_comfyui_mediastudio.sh"
         py_str = shlex.quote(str(detection.interpreter))
         main_str = shlex.quote(str(detection.main_py))
         dir_str = shlex.quote(str(detection.comfy_dir))

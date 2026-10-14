@@ -9,10 +9,10 @@
  * were saved by older client versions (one PUT per scope, then retired).
  */
 
-export const CUSTOM_ORDER_STORAGE_KEY = 'cmv_custom_order';
-const LEGACY_GALLERY_ORDER_KEY = 'cmv_gallery_order';
-const LEGACY_LIBRARY_ORDER_KEY = 'cmv_library_order';
-const MIGRATED_SCOPES_KEY = 'cmv_custom_order_migrated';
+export const CUSTOM_ORDER_STORAGE_KEY = 'mediastudio_custom_order';
+const LEGACY_GALLERY_ORDER_KEY = 'mediastudio_gallery_order';
+const LEGACY_LIBRARY_ORDER_KEY = 'mediastudio_library_order';
+const MIGRATED_SCOPES_KEY = 'mediastudio_custom_order_migrated';
 
 /**
  * Normalizes a collection descriptor to a unified storage key.

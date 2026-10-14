@@ -38,7 +38,7 @@ class RuntimePathsTest(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
-            self.assertEqual(paths.data_dir, root / ".comfy_meta_uploads")
+            self.assertEqual(paths.data_dir, root / ".mediastudio_data")
             self.assertEqual(paths.cache_dir, root / "cache")
 
     def test_relative_overrides_support_spaces_and_unicode(self) -> None:
@@ -46,8 +46,8 @@ class RuntimePathsTest(unittest.TestCase):
             root = Path(temp_dir).resolve()
             paths = build_runtime_paths(
                 {
-                    "COMFY_META_DATA_DIR": "данные приложения",
-                    "COMFY_META_CACHE_DIR": "кэш 🖼",
+                    "MEDIASTUDIO_DATA_DIR": "данные приложения",
+                    "MEDIASTUDIO_CACHE_DIR": "кэш 🖼",
                 },
                 project_root=root,
             )
@@ -63,7 +63,7 @@ class RuntimePathsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir).resolve()
             paths = build_runtime_paths(
-                {"COMFY_META_UPLOAD": "legacy-data"},
+                {"MEDIASTUDIO_UPLOAD": "legacy-data"},
                 project_root=root,
             )
             self.assertEqual(paths.data_dir, root / "legacy-data")

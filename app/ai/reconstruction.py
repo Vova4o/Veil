@@ -144,18 +144,18 @@ class SceneAnalysisService:
                 header, encoded = image.split(",", 1)
                 subtype = header.split("/", 1)[1].split(";", 1)[0].lower()
                 suffix = ".jpg" if subtype in {"jpg", "jpeg"} else f".{subtype}"
-                with tempfile.TemporaryDirectory(prefix="cmv-scene-analysis-") as temp_dir:
+                with tempfile.TemporaryDirectory(prefix="mediastudio-scene-analysis-") as temp_dir:
                     image_path = Path(temp_dir) / f"source{suffix}"
                     image_path.write_bytes(base64.b64decode(encoded, validate=True))
                     raw = self.opencode_executor.execute_raw(
                         profile=profile,
                         task_package=(
-                            "# CMV SceneSpec vision analysis\n\n"
+                            "# MediaStudio SceneSpec vision analysis\n\n"
                             + SCENE_ANALYSIS_INSTRUCTIONS
                             + "\n\nAnalyze the attached image now."
                         ),
                         image_path=image_path,
-                        title="ComfyUI Meta Viewer SceneSpec analysis",
+                        title="MediaStudio SceneSpec analysis",
                     )
                 response_text = raw.text
                 latency_ms = raw.latency_ms

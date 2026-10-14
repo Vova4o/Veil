@@ -1,19 +1,31 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell } from 'electron';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import path from 'node:path';
-import { mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from 'node:fs';
 import { DesktopBackend } from './backend.cjs';
 
-const APP_URL = 'cmv://app';
+const APP_URL = 'mediastudio://app';
 app.setName('VEIL');
-const profile = process.env.COMFY_META_DESKTOP_PROFILE || path.join(app.getPath('appData'), 'Comfy Meta Viewer');
+const LEGACY_PROFILE_DIR = 'Comfy Meta Viewer';
+// The profile folder is named after the product's neutral codename, never its brand, so a
+// rebrand cannot orphan user data. Installs from before the codename move over once.
+function resolveProfile(): string {
+    if (process.env.MEDIASTUDIO_DESKTOP_PROFILE) return process.env.MEDIASTUDIO_DESKTOP_PROFILE;
+    const current = path.join(app.getPath('appData'), 'MediaStudio');
+    const legacy = path.join(app.getPath('appData'), LEGACY_PROFILE_DIR);
+    if (!existsSync(current) && existsSync(legacy)) {
+        try { renameSync(legacy, current); } catch { return legacy; }
+    }
+    return current;
+}
+const profile = resolveProfile();
 app.setPath('userData', profile);
 // Chromium sizes its HTTP cache at ~1% of free disk space and discards the whole cache
 // ("Invalid cache (current) size") once free space shrinks below what it already holds.
 // Library images are local files behind the backend, so a fixed modest cache is enough.
 app.commandLine.appendSwitch('disk-cache-size', String(256 * 1024 * 1024));
 mkdirSync(profile, { recursive: true });
-protocol.registerSchemesAsPrivileged([{ scheme: 'cmv', privileges: {
+protocol.registerSchemesAsPrivileged([{ scheme: 'mediastudio', privileges: {
     standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true,
 } }]);
 
@@ -25,7 +37,7 @@ let failure = '';
 const projectRoot = path.resolve(__dirname, '..');
 
 function isAppUrl(value: string): boolean {
-    try { const url = new URL(value); return url.protocol === 'cmv:' && url.host === 'app'; }
+    try { const url = new URL(value); return url.protocol === 'mediastudio:' && url.host === 'app'; }
     catch { return false; }
 }
 
@@ -109,7 +121,7 @@ else {
             appPermission(permission) && contents && details.isMainFrame && isAppUrl(contents.getURL()) &&
             isAppUrl(details.requestingUrl || origin),
         ));
-        desktopSession.protocol.handle('cmv', async request => {
+        desktopSession.protocol.handle('mediastudio', async request => {
             const url = new URL(request.url);
             const initiator = (request as Request & { initiatorOrigin?: string }).initiatorOrigin;
             if (!isAppUrl(request.url) || (initiator && initiator !== APP_URL)) return new Response('Forbidden', { status: 403 });
@@ -117,8 +129,8 @@ else {
             if (url.pathname === '/_desktop/shell.js') return new Response(readFileSync(path.join(projectRoot, 'desktop', 'shell.js')), { headers: { 'Content-Type': 'text/javascript' } });
             if (!backend?.origin || failure) return new Response('Backend unavailable', { status: 503 });
             const headers = new Headers(request.headers);
-            headers.set('X-CMV-Desktop-Token', backend.token);
-            // These describe the renderer's cmv origin, not the upstream request.
+            headers.set('X-MediaStudio-Desktop-Token', backend.token);
+            // These describe the renderer's mediastudio origin, not the upstream request.
             // Forwarding Origin makes Chromium enforce HTTP CORS on modules/fonts.
             for (const name of ['host', 'origin', 'referer', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest']) headers.delete(name);
             try {
@@ -133,15 +145,15 @@ else {
                 return new Response('Backend unavailable', { status: 503 });
             }
         });
-        ipcMain.handle('cmv:choose-folder', async (event, options?: { title?: unknown; defaultPath?: unknown }) => {
+        ipcMain.handle('mediastudio:choose-folder', async (event, options?: { title?: unknown; defaultPath?: unknown }) => {
             trustSender(event);
             const title = typeof options?.title === 'string' && options.title ? options.title.slice(0, 120) : 'Open source folder';
             const defaultPath = typeof options?.defaultPath === 'string' && options.defaultPath ? options.defaultPath : undefined;
             const result = await dialog.showOpenDialog(window!, { properties: ['openDirectory', 'createDirectory'], title, defaultPath });
             return result.canceled ? null : result.filePaths[0];
         });
-        ipcMain.handle('cmv:retry', async event => { trustSender(event); await startBackend(); });
-        ipcMain.handle('cmv:open-logs', async event => { trustSender(event); await shell.openPath(path.join(profile, 'logs')); });
+        ipcMain.handle('mediastudio:retry', async event => { trustSender(event); await startBackend(); });
+        ipcMain.handle('mediastudio:open-logs', async event => { trustSender(event); await shell.openPath(path.join(profile, 'logs')); });
         const boundsPath = path.join(profile, 'window.json');
         let bounds = { width: 1440, height: 960 };
         try {

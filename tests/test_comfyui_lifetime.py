@@ -13,7 +13,7 @@ from app.main import app
 REPO = Path(__file__).resolve().parents[1]
 
 # Starts a managed "ComfyUI", reports the interpreter's PID, then crashes on request:
-# os._exit skips atexit handlers and stop_managed, as a killed or crashed CMV would.
+# os._exit skips atexit handlers and stop_managed, as a killed or crashed MediaStudio would.
 PARENT = """
 import os, sys, time
 from pathlib import Path

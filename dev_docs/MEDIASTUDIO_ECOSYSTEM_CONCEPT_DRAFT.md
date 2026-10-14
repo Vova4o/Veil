@@ -1,4 +1,4 @@
-# CMV Ecosystem Concept Draft
+# VEIL Ecosystem Concept Draft
 
 > Временный архитектурный документ. Фиксирует идеи по развитию ComfyViewer в модульную экосистему вокруг ComfyUI.
 >
@@ -6,14 +6,14 @@
 
 ## 1. Общая идея
 
-CMV перестаёт быть только красивым просмотрщиком metadata и галереей генераций.
+VEIL перестаёт быть только красивым просмотрщиком metadata и галереей генераций.
 
 Целевая архитектура состоит из нескольких самостоятельных приложений и сервисов:
 
-1. **CMV Desktop** - локальная библиотека, галерея, Simple Mode и центр пользовательской коллекции.
+1. **VEIL Desktop** - локальная библиотека, галерея, Simple Mode и центр пользовательской коллекции.
 2. **Comfy Agent Studio** - отдельное desktop-приложение для агентной работы с ComfyUI.
-3. **CMV Mobile** - лёгкий мобильный companion для просмотра, отбора, оценки, Simple Mode и экспорта.
-4. **CMV Community** - опциональная публичная галерея для публикации работ.
+3. **VEIL Mobile** - лёгкий мобильный companion для просмотра, отбора, оценки, Simple Mode и экспорта.
+4. **VEIL Community** - опциональная публичная галерея для публикации работ.
 
 Каждая часть должна быть полезна сама по себе.
 
@@ -31,13 +31,13 @@ capability discovery
 optional network/social layers
 ```
 
-CMV не должен превращаться в один огромный монолит.
+VEIL не должен превращаться в один огромный монолит.
 
 ---
 
-## 2. CMV Desktop
+## 2. VEIL Desktop
 
-CMV Desktop остаётся основным приложением для локальной библиотеки.
+VEIL Desktop остаётся основным приложением для локальной библиотеки.
 
 Базовые функции:
 
@@ -51,9 +51,9 @@ CMV Desktop остаётся основным приложением для ло
 - связи между исходными и производными файлами;
 - Simple Mode генерации;
 - локальный API для других компонентов;
-- опциональная публикация в CMV Community.
+- опциональная публикация в VEIL Community.
 
-CMV Desktop должен продолжать полноценно работать без Agent Studio, Mobile и Community.
+VEIL Desktop должен продолжать полноценно работать без Agent Studio, Mobile и Community.
 
 ---
 
@@ -67,7 +67,7 @@ CMV Desktop должен продолжать полноценно работа�
 
 **Simple Mode = набор проверенных model plugins.**
 
-Из коробки CMV может содержать условно 3 хорошо проверенных модели вместо большого количества частично поддерживаемых интеграций.
+Из коробки VEIL может содержать условно 3 хорошо проверенных модели вместо большого количества частично поддерживаемых интеграций.
 
 Каждая модель оформляется как самостоятельный plugin package.
 
@@ -128,7 +128,7 @@ MCP ------ Plugin API ------ HTTP
 Например, следующие действия должны приводить к одному внутреннему механизму установки:
 
 ```text
-cmv plugin install ./qwen-image-plugin
+mediastudio plugin install ./qwen-image-plugin
 ```
 
 ```text
@@ -287,7 +287,7 @@ Advanced Studio должна использовать настоящий fronten
 - Explain Error;
 - Install Missing Nodes;
 - Install Missing Models;
-- Save to CMV;
+- Save to VEIL;
 - Return to Gallery.
 
 ### Human + Agent editing
@@ -386,11 +386,11 @@ ComfyUI-PuLID-Flux
 
 ## 10. Capability discovery между Desktop приложениями
 
-CMV Desktop и Agent Studio не должны быть жёстко сцеплены.
+VEIL Desktop и Agent Studio не должны быть жёстко сцеплены.
 
 Они общаются через локальный protocol/API.
 
-CMV при запуске обнаруживает Agent Studio и спрашивает её capabilities.
+VEIL при запуске обнаруживает Agent Studio и спрашивает её capabilities.
 
 Пример:
 
@@ -412,7 +412,7 @@ CMV при запуске обнаруживает Agent Studio и спраши�
 }
 ```
 
-CMV не должен использовать логику вида:
+VEIL не должен использовать логику вида:
 
 ```text
 if agent_app_installed:
@@ -423,7 +423,7 @@ if agent_app_installed:
 
 ### Progressive unlock
 
-Без Agent Studio CMV остаётся простым:
+Без Agent Studio VEIL остаётся простым:
 
 ```text
 Generate
@@ -451,7 +451,7 @@ Edit Workflow
 
 ## 11. Роли Desktop приложений
 
-### CMV Desktop
+### VEIL Desktop
 
 ```text
 создать
@@ -477,7 +477,7 @@ Edit Workflow
 
 ---
 
-# CMV Mobile
+# VEIL Mobile
 
 ## 12. Общая роль Mobile
 
@@ -514,7 +514,7 @@ Settings
 
 После установки Mobile изначально может иметь пустую библиотеку.
 
-Приложение ищет запущенные CMV Desktop серверы в локальной сети.
+Приложение ищет запущенные VEIL Desktop серверы в локальной сети.
 
 Основной discovery механизм:
 
@@ -525,7 +525,7 @@ mDNS / Bonjour
 Например:
 
 ```text
-_cmv._tcp.local
+_mediastudio._tcp.local
 ```
 
 Mobile может обнаружить несколько серверов:
@@ -553,9 +553,9 @@ Bluetooth можно использовать как дополнительны�
 Первое подключение выглядит примерно так:
 
 ```text
-CMV Mobile
+VEIL Mobile
     |
-find CMV Desktop
+find VEIL Desktop
     |
 Pair
     |
@@ -603,7 +603,7 @@ Phone
   |
 Wi-Fi/LAN
   |
-CMV Desktop
+VEIL Desktop
   |
 original
 ```
@@ -628,14 +628,14 @@ cached display copy
     -> display copy
 
 preview only
-    -> CMV preview
+    -> VEIL preview
 ```
 
 ---
 
 ## 16. Previews, display copies и originals
 
-CMV Desktop уже генерирует preview, поэтому MVP Mobile может использовать существующий pipeline.
+VEIL Desktop уже генерирует preview, поэтому MVP Mobile может использовать существующий pipeline.
 
 В дальнейшем можно хранить три представления:
 
@@ -719,7 +719,7 @@ Mobile
   |
 Simple Generate request
   |
-CMV Desktop
+VEIL Desktop
   |
 Simple plugin
   |
@@ -812,7 +812,7 @@ Mobile естественно подходит для публикации и о
 Первый уровень экспорта должен использовать системный Share Sheet iOS/Android.
 
 ```text
-CMV Mobile
+VEIL Mobile
    |
 Share
    |
@@ -857,20 +857,20 @@ Mastodon          plugin
 
 ---
 
-# CMV Community
+# VEIL Community
 
 ## 22. Общая идея
 
 Отдельный простой публичный сервер, куда пользователи могут публиковать свои работы.
 
-Community не является обязательным облаком CMV.
+Community не является обязательным облаком VEIL.
 
 Пользователь может никогда не регистрироваться и использовать всю локальную часть экосистемы без публичного сервиса.
 
 Публикация доступна:
 
-- с CMV Desktop;
-- с CMV Mobile.
+- с VEIL Desktop;
+- с VEIL Mobile.
 
 ---
 
@@ -887,7 +887,7 @@ Community не является обязательным облаком CMV.
 - likes/favorites;
 - быстрый просмотр.
 
-Но CMV Community получает дополнительную ценность за счёт генерационных metadata.
+Но VEIL Community получает дополнительную ценность за счёт генерационных metadata.
 
 При открытии работы можно показывать:
 
@@ -899,7 +899,7 @@ Workflow
 LoRA
 Seed
 Generation metadata
-Created with CMV
+Created with VEIL
 ```
 
 Каждый блок публикуется только если автор разрешил его публикацию.
@@ -923,12 +923,12 @@ Created with CMV
 
 ---
 
-## 25. Open in CMV / Recreate
+## 25. Open in VEIL / Recreate
 
 Если metadata доступны, Community может поддерживать действия:
 
 ```text
-Open in CMV
+Open in VEIL
 Use this setup
 Recreate
 Download workflow
@@ -941,7 +941,7 @@ plugin: qwen-image
 version: 1.3
 ```
 
-CMV может определить отсутствие нужного plugin и предложить его установить.
+VEIL может определить отсутствие нужного plugin и предложить его установить.
 
 После этого пользователь получает совместимую конфигурацию Simple Mode.
 
@@ -973,11 +973,11 @@ Postgres лучше подходит публичному серверу из-з
 Схема:
 
 ```text
-CMV Desktop -----+
+VEIL Desktop -----+
                  |
-CMV Mobile ------+--> Publish API
+VEIL Mobile ------+--> Publish API
                         |
-                    CMV Community
+                    VEIL Community
                    /      |       \
              Postgres    API    Object Storage
 ```
@@ -1065,7 +1065,7 @@ Web frontend
 
 Каждый компонент должен сохранять полезность отдельно.
 
-### Только CMV Desktop
+### Только VEIL Desktop
 
 ```text
 Gallery
@@ -1087,7 +1087,7 @@ Node manager
 Diagnostics
 ```
 
-### CMV Desktop + Agent Studio
+### VEIL Desktop + Agent Studio
 
 ```text
 Gallery
@@ -1129,7 +1129,7 @@ Workflow sharing
                             |
                  +----------+----------+
                  |                     |
-            CMV Desktop          Agent Studio
+            VEIL Desktop          Agent Studio
                  |                     |
                  +----------+----------+
                             |
@@ -1137,7 +1137,7 @@ Workflow sharing
                             |
               +-------------+-------------+
               |                           |
-         CMV Mobile                 CMV Community
+         VEIL Mobile                 VEIL Community
         local companion             public service
 ```
 
@@ -1145,7 +1145,7 @@ Mobile не должен напрямую зависеть от Agent Studio.
 
 Community не должен быть обязательным backend для Desktop или Mobile.
 
-Agent Studio не должен превращаться в обязательный backend CMV.
+Agent Studio не должен превращаться в обязательный backend VEIL.
 
 Связь идёт через стабильные контракты и capabilities.
 
@@ -1169,7 +1169,7 @@ Agent Studio не должен превращаться в обязательн�
 
 ### Desktop Capability Protocol
 
-Между CMV и Agent Studio:
+Между VEIL и Agent Studio:
 
 - discovery;
 - health;
@@ -1182,7 +1182,7 @@ Agent Studio не должен превращаться в обязательн�
 
 ### LAN Mobile Protocol
 
-Между CMV Desktop и Mobile:
+Между VEIL Desktop и Mobile:
 
 - mDNS discovery;
 - pairing;
@@ -1197,7 +1197,7 @@ Agent Studio не должен превращаться в обязательн�
 
 ### Community Publish Protocol
 
-Между CMV clients и публичным сервером:
+Между VEIL clients и публичным сервером:
 
 - account auth;
 - upload;
@@ -1212,7 +1212,7 @@ Agent Studio не должен превращаться в обязательн�
 
 Это не строгий roadmap, а естественная последовательность, чтобы не раздувать проект раньше времени.
 
-### Этап 1. Стабилизировать CMV Desktop
+### Этап 1. Стабилизировать VEIL Desktop
 
 - сохранить текущий Simple Mode;
 - выделить внутренний Plugin API;
@@ -1248,18 +1248,18 @@ Agent Studio не должен превращаться в обязательн�
 
 ### Этап 5. Capability bridge
 
-- CMV обнаруживает Agent Studio;
+- VEIL обнаруживает Agent Studio;
 - unlock advanced actions;
 - background service;
 - version negotiation.
 
-### Этап 6. CMV Mobile MVP
+### Этап 6. VEIL Mobile MVP
 
 - LAN discovery;
 - pairing;
 - server switcher;
 - gallery metadata sync;
-- existing CMV previews;
+- existing VEIL previews;
 - original streaming on LAN;
 - explicit downloads.
 
@@ -1273,7 +1273,7 @@ Agent Studio не должен превращаться в обязательн�
 - Simple Mode;
 - native Share Sheet.
 
-### Этап 8. CMV Community MVP
+### Этап 8. VEIL Community MVP
 
 - accounts;
 - PostgreSQL;
@@ -1285,7 +1285,7 @@ Agent Studio не должен превращаться в обязательн�
 
 ### Этап 9. Community + ecosystem integration
 
-- Open in CMV;
+- Open in VEIL;
 - plugin references;
 - workflow sharing;
 - Recreate;
@@ -1336,26 +1336,26 @@ Desktop, Agent Studio, Mobile и Community развиваются независ
 
 ## 34. Итоговое позиционирование
 
-CMV может вырасти из Meta Viewer в локальную генерационную экосистему:
+VEIL может вырасти из VEIL в локальную генерационную экосистему:
 
 ```text
-CMV Desktop
+VEIL Desktop
 library + simple generation
 
 Agent Studio
 agentic ComfyUI development environment
 
-CMV Mobile
+VEIL Mobile
 browse + rate + organize + generate + share
 
-CMV Community
+VEIL Community
 publish + discover + reuse
 ```
 
 Ключевой симбиоз:
 
 ```text
-CMV знает, что было создано.
+VEIL знает, что было создано.
 Agent Studio знает, как создать следующее.
 ComfyUI умеет это выполнить.
 Mobile помогает разобрать и публиковать результаты.

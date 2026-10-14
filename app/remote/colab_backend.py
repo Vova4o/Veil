@@ -76,7 +76,7 @@ class ColabComfyUIClient:
     def __init__(self, runtime: ColabRuntime):
         self.runtime = runtime
 
-    def upload_image(self, filename: str, data: bytes, *, subfolder: str = "cmv", overwrite: bool = False) -> dict[str, Any]:
+    def upload_image(self, filename: str, data: bytes, *, subfolder: str = "mediastudio", overwrite: bool = False) -> dict[str, Any]:
         name = f"{subfolder}/{filename}" if subfolder else filename
         self.runtime.stash_input(name, data)
         return {"name": filename, "subfolder": subfolder, "type": "input"}
@@ -209,7 +209,7 @@ def colab_backend(store: ConfigStore) -> ColabBackend:
 def _stop_on_exit() -> None:
     # Best effort; the worker also ends the runtime by itself after the idle time.
     if _runtime is not None:
-        _runtime.stop("CMV closed")
+        _runtime.stop("MediaStudio closed")
 
 
 __all__ = [

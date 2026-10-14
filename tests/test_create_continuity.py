@@ -81,17 +81,17 @@ def create_runtime(tmp_path, monkeypatch):
         def queue_prompt(self, workflow, **kwargs):
             prompt_id = str(len(self.queued) + 1)
             self.queued.append(workflow)
-            folder = output / "CMV" / "Create"
+            folder = output / "MediaStudio" / "Create"
             folder.mkdir(parents=True, exist_ok=True)
             (folder / f"image_{prompt_id}.png").write_bytes(png)
             return {"prompt_id": prompt_id}
 
         def upload_image(self, filename, data, **kwargs):
-            return {"name": filename, "subfolder": "cmv"}
+            return {"name": filename, "subfolder": "mediastudio"}
 
         def get_job(self, prompt_id):
             return {"status": "completed", "outputs": {"13": {"images": [
-                {"filename": f"image_{prompt_id}.png", "subfolder": "CMV/Create", "type": "output"}
+                {"filename": f"image_{prompt_id}.png", "subfolder": "MediaStudio/Create", "type": "output"}
             ]}}}
 
         def download_output(self, output_ref):
@@ -136,7 +136,7 @@ def test_reference_task_finishes_and_imports_batch_without_create_page(create_ru
     # Existing files from ComfyUI must remain visible too, including subfolders.
     other = output / "other"
     other.mkdir()
-    (other / "outside-cmv.png").write_bytes(png)
+    (other / "outside-mediastudio.png").write_bytes(png)
     request = {"task_id": "reference-task", "mode": "reference", "request": "a garden",
                "reference_image": "data:image/png;base64," + base64.b64encode(png).decode(), "batch_size": 2}
     response = app.test_client().post("/api/simple/tasks", json=request)
@@ -314,11 +314,11 @@ def test_startup_backfills_previous_create_outputs_without_a_new_generation(crea
     from app.paths import build_runtime_paths
 
     backend, _, _, output, png = create_runtime
-    folder = output / "CMV" / "Create"
+    folder = output / "MediaStudio" / "Create"
     folder.mkdir(parents=True)
     (folder / "previous.png").write_bytes(png)
-    paths = build_runtime_paths({"COMFY_META_DATA_DIR": str(output.parent),
-                                 "COMFY_META_CACHE_DIR": str(output.parent / "cache")})
+    paths = build_runtime_paths({"MEDIASTUDIO_DATA_DIR": str(output.parent),
+                                 "MEDIASTUDIO_CACHE_DIR": str(output.parent / "cache")})
     for key in paths.flask_config():
         monkeypatch.setitem(app.config, key, app.config.get(key))
     configure_runtime(paths)

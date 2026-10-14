@@ -37,16 +37,18 @@ export class DesktopBackend {
     async start(): Promise<string> {
         const { packaged, resourcesPath, projectRoot, profile } = this.options;
         const executable = packaged
-            ? path.join(resourcesPath, 'backend', `comfy-meta-backend${process.platform === 'win32' ? '.exe' : ''}`)
-            : process.env.COMFY_META_PYTHON || path.join(projectRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+            ? path.join(resourcesPath, 'backend', `mediastudio-backend${process.platform === 'win32' ? '.exe' : ''}`)
+            : process.env.MEDIASTUDIO_PYTHON || path.join(projectRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
         if (!existsSync(executable)) throw new Error(`Python runtime is missing: ${executable}`);
-        const data = process.env.COMFY_META_DATA_DIR || path.join(profile, 'data');
-        const cache = process.env.COMFY_META_CACHE_DIR || path.join(profile, 'cache');
-        const legacy = process.env.COMFY_META_IMPORT_DIR || (!packaged ? path.join(projectRoot, '.comfy_meta_uploads') : undefined);
+        const data = process.env.MEDIASTUDIO_DATA_DIR || path.join(profile, 'data');
+        const cache = process.env.MEDIASTUDIO_CACHE_DIR || path.join(profile, 'cache');
+        // Development data lives in the project; installs from before the codename still use the old folder name.
+        const devData = ['.mediastudio_data', '.comfy_meta_uploads'].map(name => path.join(projectRoot, name)).find(existsSync);
+        const legacy = process.env.MEDIASTUDIO_IMPORT_DIR || (!packaged ? devData : undefined);
         const env: NodeJS.ProcessEnv = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8',
-            COMFY_META_DATA_DIR: data, COMFY_META_CACHE_DIR: cache,
-            COMFY_META_DESKTOP_TOKEN: this.token, COMFY_META_DESKTOP_SESSION: this.sessionId, COMFY_META_DESKTOP: '1' };
-        if (legacy) Object.assign(env, { COMFY_META_IMPORT_DIR: legacy });
+            MEDIASTUDIO_DATA_DIR: data, MEDIASTUDIO_CACHE_DIR: cache,
+            MEDIASTUDIO_DESKTOP_TOKEN: this.token, MEDIASTUDIO_DESKTOP_SESSION: this.sessionId, MEDIASTUDIO_DESKTOP: '1' };
+        if (legacy) Object.assign(env, { MEDIASTUDIO_IMPORT_DIR: legacy });
         // A packaged backend owns its bundled modules, never a caller's Python environment.
         if (packaged) { delete env.PYTHONHOME; delete env.PYTHONPATH; }
         this.log(`Starting ${packaged ? 'bundled' : 'development'} backend`);
@@ -66,9 +68,9 @@ export class DesktopBackend {
             }, 60_000);
             const lines = createInterface({ input: child.stdout });
             lines.on('line', line => {
-                if (!line.startsWith('CMV_DESKTOP_READY ')) { this.log(line); return; }
+                if (!line.startsWith('MEDIASTUDIO_DESKTOP_READY ')) { this.log(line); return; }
                 try {
-                    const info = JSON.parse(line.slice('CMV_DESKTOP_READY '.length));
+                    const info = JSON.parse(line.slice('MEDIASTUDIO_DESKTOP_READY '.length));
                     // Windows venv launchers can keep a parent PID above Python.
                     // A per-launch nonce on our private stdout pipe binds readiness
                     // to this child tree without assuming the server is its root PID.

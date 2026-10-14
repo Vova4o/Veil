@@ -70,7 +70,7 @@ function harness(available = [], delayed = []) {
         context, elements, ambient, artwork, requests, pending, timers,
         run: code => vm.runInContext(code, context),
         cache(outputs) {
-            context.localStorage.setItem('cmv_simple_last_result', JSON.stringify({ data: { outputs } }));
+            context.localStorage.setItem('mediastudio_simple_last_result', JSON.stringify({ data: { outputs } }));
         },
     };
 }
@@ -81,17 +81,17 @@ test('a missing saved result is cleared without displaying a broken image', asyn
     await h.run('restoreLastResult()');
     assert.equal(h.elements.get('studio-layout').dataset.view, 'idle');
     assert.equal(h.elements.get('result').hidden, true);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_last_result'), null);
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_last_result'), null);
     assert.equal(h.run('state.last'), null);
 });
 
 test('a missing saved background falls through to a working library image', async () => {
     const h = harness(['/working']);
-    h.context.localStorage.setItem('cmv_simple_ambient_last', '/missing');
-    h.context.localStorage.setItem('cmv_simple_ambient_items', JSON.stringify([{ id: 2, preview_url: '/working' }]));
+    h.context.localStorage.setItem('mediastudio_simple_ambient_last', '/missing');
+    h.context.localStorage.setItem('mediastudio_simple_ambient_items', JSON.stringify([{ id: 2, preview_url: '/working' }]));
     await h.run('hydrateAmbient()');
     assert.equal(h.ambient.classList.contains('has-ambient'), true);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/working');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/working');
     assert.match(h.elements.get('ambient-b').style.backgroundImage, /working/);
 });
 
@@ -102,7 +102,7 @@ test('background selection skips unavailable items and uses the thumbnail fallba
         {id: 2, original_url: '/original', preview_url: '/preview', thumbnail_url: '/thumb'}
     ]; state.ambientDeck = [...state.ambient];`);
     await h.run('ambientPick()');
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/thumb');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/thumb');
     assert.equal(h.run('state.ambientCurrent'), 2);
 });
 
@@ -114,7 +114,7 @@ test('restoration retains available results and removes missing batch entries', 
     assert.equal(h.run('state.last.id'), 2);
     assert.equal(h.run('state.lastOutputs.length'), 1);
     assert.equal(h.elements.get('result-img').src, '/thumb');
-    assert.equal(JSON.parse(h.context.localStorage.getItem('cmv_simple_last_result')).data.outputs.length, 1);
+    assert.equal(JSON.parse(h.context.localStorage.getItem('mediastudio_simple_last_result')).data.outputs.length, 1);
 });
 
 test('a late restored result cannot replace a new generation', async () => {
@@ -134,7 +134,7 @@ test('an earlier slow background cannot overwrite the latest selection', async (
     await h.run("setAmbient('/fast')");
     h.pending.get('/slow')?.();
     await old;
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/fast');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/fast');
 });
 
 test('an exhausted background pool keeps the neutral fallback and stops retrying', async () => {
@@ -148,10 +148,10 @@ test('an exhausted background pool keeps the neutral fallback and stops retrying
 
 test('restoring a session result migrates its surviving entries to local storage', async () => {
     const h = harness(['/good']);
-    h.context.sessionStorage.setItem('cmv_simple_last_result', JSON.stringify({ outputs: [{preview_url: '/gone'}, {preview_url: '/good'}] }));
+    h.context.sessionStorage.setItem('mediastudio_simple_last_result', JSON.stringify({ outputs: [{preview_url: '/gone'}, {preview_url: '/good'}] }));
     await h.run('restoreLastResult()');
-    assert.equal(h.context.sessionStorage.getItem('cmv_simple_last_result'), null);
-    const cached = JSON.parse(h.context.localStorage.getItem('cmv_simple_last_result')).data;
+    assert.equal(h.context.sessionStorage.getItem('mediastudio_simple_last_result'), null);
+    const cached = JSON.parse(h.context.localStorage.getItem('mediastudio_simple_last_result')).data;
     assert.equal(cached.outputs.length, 1);
     assert.equal(cached.outputs[0].preview_url, '/good');
 });
@@ -159,12 +159,12 @@ test('restoring a session result migrates its surviving entries to local storage
 test('an authoritative empty library never restores old cached backgrounds', async () => {
     const h = harness(['/old']);
     h.elements.set('simple-ambient-initial', { textContent: '[]' });
-    h.context.localStorage.setItem('cmv_simple_ambient_last', '/old');
-    h.context.localStorage.setItem('cmv_simple_ambient_items', JSON.stringify([{id: 1, preview_url: '/old'}]));
+    h.context.localStorage.setItem('mediastudio_simple_ambient_last', '/old');
+    h.context.localStorage.setItem('mediastudio_simple_ambient_items', JSON.stringify([{id: 1, preview_url: '/old'}]));
     await h.run('hydrateAmbient()');
     assert.equal(h.ambient.classList.contains('has-ambient'), false);
     assert.equal(h.requests.length, 0);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), null);
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), null);
 });
 
 test('removing the last library image clears the visible background and pending loads', async () => {
@@ -176,7 +176,7 @@ test('removing the last library image clears the visible background and pending 
     h.pending.get('/slow')();
     await pending;
     assert.equal(h.ambient.classList.contains('has-ambient'), false);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), null);
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), null);
     assert.equal(h.elements.get('ambient-b').style.backgroundImage, '');
 });
 
@@ -184,7 +184,7 @@ test('generation results do not replace the background chosen from library sourc
     const h = harness(['/library', '/generated']);
     await h.run("setAmbient('/library')");
     await h.run("renderResult([{preview_url: '/generated'}])");
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/library');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/library');
 });
 
 test('source changes refresh the ambient pool through the existing folder event stream', async () => {
@@ -203,7 +203,7 @@ test('source changes refresh the ambient pool through the existing folder event 
     events.onmessage({data: JSON.stringify({2: {image_count: 1, enabled: true, source_status: 'available', revision: 0}})});
     await new Promise(setImmediate);
     assert.ok(refreshes > 0);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/new');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/new');
     const settled = refreshes;
     events.onmessage({data: JSON.stringify({2: {image_count: 1, enabled: true, source_status: 'available', revision: 0}})});
     await new Promise(setImmediate);
@@ -218,7 +218,7 @@ test('a source refresh cancels a pending image outside the new pool', async () =
     await h.run('loadAmbient()');
     h.pending.get('/removed')();
     await pending;
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/current');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/current');
 });
 
 test('refreshing a source pool preserves the selected interval timer', async () => {
@@ -245,7 +245,7 @@ test('interval ticks do not restart the timer or overlap a slow image load', asy
     h.pending.get('/slow')();
     await Promise.all([first, second]);
     assert.equal(h.run('state.timer'), timer);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/slow');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/slow');
 });
 
 test('changing the interval cancels an earlier automatic switch and disabling stops it', async () => {
@@ -258,8 +258,8 @@ test('changing the interval cancels an earlier automatic switch and disabling st
     assert.equal([...h.timers.values()][0].interval, 60000);
     h.pending.get('/slow')();
     await pending;
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_last'), '/current');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_last'), '/current');
     h.run('setAmbientInterval(0)');
     assert.equal(h.timers.size, 0);
-    assert.equal(h.context.localStorage.getItem('cmv_simple_ambient_interval'), '0');
+    assert.equal(h.context.localStorage.getItem('mediastudio_simple_ambient_interval'), '0');
 });

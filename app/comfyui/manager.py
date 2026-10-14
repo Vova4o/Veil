@@ -151,7 +151,7 @@ class ComfyUIManager:
                     port=port,
                 )
             except Exception as exc:
-                self._log(f"[CMV] Warning: failed to generate launcher script: {exc}")
+                self._log(f"[MediaStudio] Warning: failed to generate launcher script: {exc}")
 
             # -s skips the user's site-packages, as Desktop and the portable build launch ComfyUI.
             cmd = [str(detection.interpreter), "-s", str(detection.main_py), "--listen", host, "--port", str(port)]
@@ -159,8 +159,8 @@ class ComfyUIManager:
                 tokens = validate_extra_args(extra_args)
                 cmd.extend(tokens)
 
-            self._log(f"[CMV] Launching ComfyUI managed process: {' '.join(cmd)}")
-            self._log(f"[CMV] Working directory: {detection.comfy_dir}")
+            self._log(f"[MediaStudio] Launching ComfyUI managed process: {' '.join(cmd)}")
+            self._log(f"[MediaStudio] Working directory: {detection.comfy_dir}")
 
             # Captured Python output must support Unicode even on Windows with a
             # legacy console code page. Use the same encoding for both pipe ends.
@@ -196,7 +196,7 @@ class ComfyUIManager:
                     job.close()
                 self._status = ComfyUIStatus.ERROR
                 self._last_error = str(exc)
-                self._log(f"[CMV] Failed to spawn process: {exc}")
+                self._log(f"[MediaStudio] Failed to spawn process: {exc}")
                 raise RuntimeError(f"Failed to spawn ComfyUI process: {exc}") from exc
             self._process = process
             self._job_object = job
@@ -227,7 +227,7 @@ class ComfyUIManager:
                 return
 
             self._status = ComfyUIStatus.STOPPING
-            self._log("[CMV] Stopping managed ComfyUI process...")
+            self._log("[MediaStudio] Stopping managed ComfyUI process...")
 
             proc = self._process
             self._process = None
@@ -242,14 +242,14 @@ class ComfyUIManager:
 
                 proc.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                self._log("[CMV] Process did not exit after tree kill, forcing...")
+                self._log("[MediaStudio] Process did not exit after tree kill, forcing...")
                 try:
                     proc.kill()
                     proc.wait(timeout=2.0)
                 except Exception:
                     pass
             except Exception as exc:
-                self._log(f"[CMV] Error terminating process: {exc}")
+                self._log(f"[MediaStudio] Error terminating process: {exc}")
 
         self._close_job()
 
@@ -272,7 +272,7 @@ class ComfyUIManager:
             self._status = ComfyUIStatus.STOPPED
             self._reader_thread = None
             self._monitor_thread = None
-            self._log("[CMV] Managed ComfyUI process stopped.")
+            self._log("[MediaStudio] Managed ComfyUI process stopped.")
 
     def restart_managed(
         self,
@@ -390,7 +390,7 @@ class ComfyUIManager:
                 with self._lock:
                     self._status = ComfyUIStatus.ERROR
                     self._last_error = f"Managed ComfyUI process exited with code {exit_code}"
-                    self._log(f"[CMV] Process exited unexpectedly with code {exit_code}")
+                    self._log(f"[MediaStudio] Process exited unexpectedly with code {exit_code}")
                 break
 
             client = ComfyUIClient(host=self._host, port=self._port)
@@ -403,7 +403,7 @@ class ComfyUIManager:
                     if self._mode == ComfyUIMode.MANAGED:
                         if not ready_detected:
                             ready_detected = True
-                            self._log(f"[CMV] ComfyUI API is ready at http://{self._host}:{self._port}")
+                            self._log(f"[MediaStudio] ComfyUI API is ready at http://{self._host}:{self._port}")
                         self._status = ComfyUIStatus.BUSY if is_busy else ComfyUIStatus.READY
                         self._last_error = None
             except ComfyUIClientError:
@@ -413,7 +413,7 @@ class ComfyUIManager:
                             self._status = ComfyUIStatus.ERROR
                             self._last_error = "Timeout waiting for ComfyUI API readiness"
                             if not timeout_reported:
-                                self._log("[CMV] Timed out waiting for ComfyUI API readiness")
+                                self._log("[MediaStudio] Timed out waiting for ComfyUI API readiness")
                                 timeout_reported = True
                         else:
                             self._status = ComfyUIStatus.STARTING
@@ -426,7 +426,7 @@ class ComfyUIManager:
         try:
             return KillOnCloseJob()
         except OSError as exc:
-            self._log(f"[CMV] Warning: ComfyUI will not be tied to CMV's lifetime: {exc}")
+            self._log(f"[MediaStudio] Warning: ComfyUI will not be tied to MediaStudio's lifetime: {exc}")
             return None
 
     def _enter_job(self, process: subprocess.Popen, job: KillOnCloseJob) -> KillOnCloseJob | None:
@@ -435,7 +435,7 @@ class ComfyUIManager:
         try:
             job.assign(handle)
         except OSError as exc:
-            self._log(f"[CMV] Warning: ComfyUI will not be tied to CMV's lifetime: {exc}")
+            self._log(f"[MediaStudio] Warning: ComfyUI will not be tied to MediaStudio's lifetime: {exc}")
             job.close()
             job = None
         try:
@@ -497,7 +497,7 @@ def resolve_comfyui_installation(store: Any | None = None) -> ComfyUIDetectionRe
 def ensure_comfyui_online(store: Any | None = None, timeout: float = COMFYUI_STARTUP_TIMEOUT_SECONDS) -> bool:
     """Ensure ComfyUI API is online. If offline, automatically launches a managed process and waits for readiness."""
     import logging
-    log = logging.getLogger("comfy-meta-viewer.comfyui")
+    log = logging.getLogger("mediastudio.comfyui")
 
     settings = store.comfyui_settings() if store and hasattr(store, "comfyui_settings") else {}
     host = str(settings.get("host") or "127.0.0.1")
@@ -508,12 +508,12 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = COMFYUI_STA
     try:
         health = client.check_health()
         if health.get("online"):
-            log.info("[CMV] ComfyUI already online at %s:%s", host, port)
+            log.info("[MediaStudio] ComfyUI already online at %s:%s", host, port)
             return True
     except Exception:
         pass
 
-    log.info("[CMV] ComfyUI offline at %s:%s, attempting auto-start...", host, port)
+    log.info("[MediaStudio] ComfyUI offline at %s:%s, attempting auto-start...", host, port)
 
     # Serialize launch decisions, not the readiness wait. A timeout does not mean
     # the process died; retries must wait for that process instead of starting another.
@@ -522,7 +522,7 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = COMFYUI_STA
             installation = resolve_comfyui_installation(store)
             if not installation or not installation.is_valid:
                 comfy_manager._last_error = "No valid ComfyUI Desktop installation was found."
-                log.error("[CMV] Could not find valid ComfyUI installation for auto-start")
+                log.error("[MediaStudio] Could not find valid ComfyUI installation for auto-start")
                 return False
             launch = launch_settings(settings, state_dir=state_dir_of(store))
             try:
@@ -530,10 +530,10 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = COMFYUI_STA
                     install_path=installation.root_path, host=host, port=port,
                     extra_args=launch.get("extra_args") or "", custom_python=launch.get("custom_python"),
                 )
-                log.info("[CMV] ComfyUI managed process started, waiting for API readiness...")
+                log.info("[MediaStudio] ComfyUI managed process started, waiting for API readiness...")
             except Exception as exc:
                 comfy_manager._last_error = str(exc)
-                log.error("[CMV] Failed to start ComfyUI managed process: %s", exc)
+                log.error("[MediaStudio] Failed to start ComfyUI managed process: %s", exc)
                 return False
 
     # 4. Wait for ComfyUI API to report ready
@@ -542,22 +542,22 @@ def ensure_comfyui_online(store: Any | None = None, timeout: float = COMFYUI_STA
         try:
             health = client.check_health()
             if health.get("online"):
-                log.info("[CMV] ComfyUI API is now ready at %s:%s", host, port)
+                log.info("[MediaStudio] ComfyUI API is now ready at %s:%s", host, port)
                 return True
         except Exception:
             pass
 
         if not comfy_manager.managed_process_alive:
-            log.error("[CMV] ComfyUI process entered ERROR state: %s", comfy_manager.get_info().get("last_error"))
+            log.error("[MediaStudio] ComfyUI process entered ERROR state: %s", comfy_manager.get_info().get("last_error"))
             break
         time.sleep(1.0)
 
     try:
         result = client.check_health().get("online", False)
         if not result:
-            log.error("[CMV] ComfyUI did not become ready within %.0fs timeout", timeout)
+            log.error("[MediaStudio] ComfyUI did not become ready within %.0fs timeout", timeout)
         return result
     except Exception:
-        log.error("[CMV] ComfyUI still unreachable after %.0fs timeout", timeout)
+        log.error("[MediaStudio] ComfyUI still unreachable after %.0fs timeout", timeout)
         return False
 

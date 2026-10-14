@@ -6,7 +6,7 @@ import pytest
 
 from app.comfyui import desktop, routes
 from app.comfyui.desktop import (
-    CMV_MODEL_PATHS_FILE,
+    MEDIASTUDIO_MODEL_PATHS_FILE,
     comfyui_output_dir,
     desktop_installation_for,
     find_desktop_installations,
@@ -56,7 +56,7 @@ def desktop_env(tmp_path, monkeypatch):
     return {"data": data, "shared": shared, "installs": installs}
 
 
-def test_output_folder_is_cmvs_own_else_desktops_else_comfyuis(desktop_env, tmp_path):
+def test_output_folder_is_the_apps_own_else_desktops_else_comfyuis(desktop_env, tmp_path):
     assert comfyui_output_dir({"output_dir": str(tmp_path / "mine")}) == tmp_path / "mine"
     assert comfyui_output_dir({}) == desktop_env["shared"] / "output"
     _write(desktop_env["data"] / "settings.json", {})
@@ -75,7 +75,7 @@ def test_installations_skip_cloud_and_broken_entries_and_lead_with_last_used(des
     assert main.comfy_dir == desktop_env["installs"] / "Main" / "ComfyUI"
     assert main.version == "v0.39.2"
     assert second.version == "v0.38.0"
-    # CMV owns the listen address; the rest of Desktop's launch arguments stay.
+    # MediaStudio owns the listen address; the rest of Desktop's launch arguments stay.
     assert main.launch_args == ("--enable-manager",)
     assert second.launch_args == ("--lowvram",)
     assert second.model_paths_config is None
@@ -145,7 +145,7 @@ def test_installation_routes_report_desktop(desktop_env):
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    store = ConfigStore(tmp_path / "cmv" / "config.json")
+    store = ConfigStore(tmp_path / "mediastudio" / "config.json")
     monkeypatch.setitem(app.config, "CONFIG_STORE", store)
     return store
 
@@ -165,15 +165,15 @@ def test_selected_installation_prefers_choice_then_last_used(desktop_env, tmp_pa
     assert resolved["desktop_installation_id"] == "inst-1"
 
 
-def test_cmv_folders_apply_over_desktop(desktop_env, tmp_path):
+def test_mediastudio_folders_apply_over_desktop(desktop_env, tmp_path):
     own_models, own_input = tmp_path / "My Models", tmp_path / "in"
-    state = tmp_path / "cmv"
+    state = tmp_path / "mediastudio"
     resolved = launch_settings(
         {"models_dir": str(own_models), "input_dir": str(own_input), "extra_args": "--input-directory D:/x"},
         state_dir=state,
     )
 
-    config = state / CMV_MODEL_PATHS_FILE
+    config = state / MEDIASTUDIO_MODEL_PATHS_FILE
     assert resolved["extra_args"] == [
         "--enable-manager",
         "--extra-model-paths-config", str(desktop_env["data"] / "instance-model-paths" / "inst-1.yaml"),
@@ -183,7 +183,7 @@ def test_cmv_folders_apply_over_desktop(desktop_env, tmp_path):
         "--output-directory", str(desktop_env["shared"] / "output"),
     ]
     assert resolved["models_download_dir"] == str(own_models)
-    section = parse_model_paths_yaml(config.read_text(encoding="utf-8"))["comfy_meta_viewer"]
+    section = parse_model_paths_yaml(config.read_text(encoding="utf-8"))["mediastudio"]
     assert section["base_path"] == str(own_models)
     assert section["is_default"] is True
     assert section["diffusion_models"] == "diffusion_models/"

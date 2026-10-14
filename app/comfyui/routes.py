@@ -61,7 +61,7 @@ def comfyui_config():
         return jsonify(_public_settings(store))
 
     payload = request.get_json(silent=True) or {}
-    # CMV's own folders; an empty value follows Desktop again.
+    # MediaStudio's own folders; an empty value follows Desktop again.
     folders: dict[str, str] = {}
     for key in FOLDER_SETTINGS:
         if key not in payload:

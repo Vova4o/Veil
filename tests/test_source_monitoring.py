@@ -59,8 +59,8 @@ class SourceMonitoringTest(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.paths = build_runtime_paths(
             {
-                "COMFY_META_DATA_DIR": str(self.root / "data"),
-                "COMFY_META_CACHE_DIR": str(self.root / "cache"),
+                "MEDIASTUDIO_DATA_DIR": str(self.root / "data"),
+                "MEDIASTUDIO_CACHE_DIR": str(self.root / "cache"),
             },
             project_root=self.root,
         )

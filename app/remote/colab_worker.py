@@ -1,29 +1,29 @@
-"""CMV's Colab worker: a stateless ComfyUI job runner inside a Colab kernel.
+"""MediaStudio's Colab worker: a stateless ComfyUI job runner inside a Colab kernel.
 
-CMV sends this file with ``colab exec``; on its own it only defines things and keeps a
-single ``CMV_WORKER`` in the kernel. CMV then calls, each in a short ``colab exec``:
+MediaStudio sends this file with ``colab exec``; on its own it only defines things and keeps a
+single ``MEDIASTUDIO_WORKER`` in the kernel. MediaStudio then calls, each in a short ``colab exec``:
 
-    CMV_WORKER.boot(spec)                  start the worker threads (once per runtime)
-    CMV_WORKER.attach(after_seq, seconds)  print the events after a sequence number
+    MEDIASTUDIO_WORKER.boot(spec)                  start the worker threads (once per runtime)
+    MEDIASTUDIO_WORKER.attach(after_seq, seconds)  print the events after a sequence number
 
 The kernel runs one cell at a time and ``attach`` keeps it busy, so everything else
 travels as files through the Jupyter Contents API (``colab upload`` and ``colab
 download``), which works while a cell runs:
 
-    /content/cmv/inbox/<job>.job.json      a job: ComfyUI workflow, inputs, resources
-    /content/cmv/inbox/inputs/<name>       its input images
-    /content/cmv/inbox/<job>.cancel        cancel the job
-    /content/cmv/inbox/<job>.collected     CMV has the outputs: delete all files of the job
-    /content/cmv/inbox/settings.json       {"idle_seconds": N}
-    /content/cmv/inbox/detach              end the running ``attach`` (CMV lost its stream)
-    /content/cmv/outbox/<job>/<file>       outputs until they are collected
+    /content/mediastudio/inbox/<job>.job.json      a job: ComfyUI workflow, inputs, resources
+    /content/mediastudio/inbox/inputs/<name>       its input images
+    /content/mediastudio/inbox/<job>.cancel        cancel the job
+    /content/mediastudio/inbox/<job>.collected     MediaStudio has the outputs: delete all files of the job
+    /content/mediastudio/inbox/settings.json       {"idle_seconds": N}
+    /content/mediastudio/inbox/detach              end the running ``attach`` (MediaStudio lost its stream)
+    /content/mediastudio/outbox/<job>/<file>       outputs until they are collected
 
-Events are lines ``@@cmv {...}`` with a sequence number, so a dropped ``attach`` resumes
+Events are lines ``@@mediastudio {...}`` with a sequence number, so a dropped ``attach`` resumes
 without losing any. When nothing has happened for the idle time plus a grace period, the
-worker ends the runtime itself (``google.colab.runtime.unassign``): a crashed CMV or a
+worker ends the runtime itself (``google.colab.runtime.unassign``): a crashed MediaStudio or a
 sleeping computer does not keep a paid GPU running.
 
-Only the standard library is imported at module level: CMV's tests import this file too.
+Only the standard library is imported at module level: MediaStudio's tests import this file too.
 """
 
 from __future__ import annotations
@@ -53,9 +53,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 WORKER_VERSION = "1"
-EVENT_PREFIX = "@@cmv "
-ATTACH_END_PREFIX = "@@cmv-end "
-ROOT = Path("/content/cmv")
+EVENT_PREFIX = "@@mediastudio "
+ATTACH_END_PREFIX = "@@mediastudio-end "
+ROOT = Path("/content/mediastudio")
 COMFY_DIR = Path("/content/ComfyUI")
 COMFY_REPO = "https://github.com/comfyanonymous/ComfyUI.git"
 DEFAULT_PORT = 8188
@@ -65,10 +65,10 @@ DOWNLOAD_CHUNK = 8 * 1024 * 1024
 PROGRESS_EVERY_SECONDS = 1.0
 FINAL_STATES = {"done", "failed", "cancelled"}
 # Jupyter answers an upload by reading the saved file back; a marker consumed sooner turns
-# that read into a 404 for CMV, so markers are left alone until they are this old.
+# that read into a 404 for MediaStudio, so markers are left alone until they are this old.
 MARKER_MIN_AGE_SECONDS = 1.0
 SKIPPED_PACK_TOP_LEVEL = {"tests", ".github", "node.zip"}
-# Messages CMV's progress monitor understands; the rest (status, binary previews) stay here.
+# Messages MediaStudio's progress monitor understands; the rest (status, binary previews) stay here.
 RELAYED_COMFY_EVENTS = {
     "execution_start", "execution_cached", "executing", "progress", "executed",
     "execution_success", "execution_error", "execution_interrupted",
@@ -82,7 +82,7 @@ class WorkerError(RuntimeError):
     pass
 
 
-# --- pure helpers (tested in CMV) ---------------------------------------------------
+# --- pure helpers (tested in MediaStudio) ---------------------------------------------------
 
 
 def is_prompt_id(value: str) -> bool:
@@ -327,7 +327,7 @@ class Worker:
         for folder in (self.inbox, self.inputs, self.outbox):
             folder.mkdir(parents=True, exist_ok=True)
         self.log = EventLog(self.root / "events.jsonl")
-        self.client_id = f"cmv-worker-{uuid.uuid4().hex}"
+        self.client_id = f"mediastudio-worker-{uuid.uuid4().hex}"
         self.stage = "idle"
         self.ready = threading.Event()
         self.idle_seconds = 600.0
@@ -336,13 +336,13 @@ class Worker:
         self.jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._file_locks: dict[str, threading.Lock] = {}
-        self._prep = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cmv-prep")
+        self._prep = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mediastudio-prep")
         self._stop = threading.Event()
         self._started = False
         self._comfy: subprocess.Popen[bytes] | None = None
         self._comfy_restarts = 0
 
-    # --- calls from CMV -------------------------------------------------------------
+    # --- calls from MediaStudio -------------------------------------------------------------
 
     def boot(self, spec: dict[str, Any]) -> None:
         """Start the worker threads once; a second call only reports the current state."""
@@ -355,13 +355,13 @@ class Worker:
             self._started = True
         os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
         self.log.emit("hello", stage="booting", ready=False, version=self.version, jobs={})
-        threading.Thread(target=self._boot_and_serve, args=(spec,), daemon=True, name="cmv-boot").start()
-        threading.Thread(target=self._watchdog, daemon=True, name="cmv-watchdog").start()
+        threading.Thread(target=self._boot_and_serve, args=(spec,), daemon=True, name="mediastudio-boot").start()
+        threading.Thread(target=self._watchdog, daemon=True, name="mediastudio-watchdog").start()
 
     def attach(self, after_seq: int = 0, seconds: float = 600.0) -> None:
         """Print events after ``after_seq`` for ``seconds``, then the last sequence number.
 
-        A ``detach`` file ends it early: CMV uploads one when its stream broke, so the
+        A ``detach`` file ends it early: MediaStudio uploads one when its stream broke, so the
         kernel is free for the next ``attach`` instead of finishing this one unseen.
         """
         detach = self.inbox / "detach"
@@ -434,7 +434,7 @@ class Worker:
     def _boot_and_serve(self, spec: dict[str, Any]) -> None:
         started = time.time()
         # Jobs that arrive during boot download their models while ComfyUI is installed.
-        threading.Thread(target=self._relay, daemon=True, name="cmv-relay").start()
+        threading.Thread(target=self._relay, daemon=True, name="mediastudio-relay").start()
         try:
             self._prepare_comfyui(spec)
             self._set_stage("starting")
@@ -448,7 +448,7 @@ class Worker:
         self.touch()
         self.log.emit("ready", seconds=round(time.time() - started, 1), gpu=self._gpu_name(),
                       comfyui=spec.get("comfyui", {}).get("commit"))
-        threading.Thread(target=self._comfy_events, daemon=True, name="cmv-comfy-ws").start()
+        threading.Thread(target=self._comfy_events, daemon=True, name="mediastudio-comfy-ws").start()
 
     def _prepare_comfyui(self, spec: dict[str, Any]) -> None:
         comfy = spec.get("comfyui") or {}
@@ -477,7 +477,7 @@ class Worker:
         url = str(pack.get("archive_url") or "")
         if not url.startswith("https://"):
             raise WorkerError(f"Node pack {folder} has no https archive URL.")
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmv-colab-worker"}), timeout=60) as response:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "mediastudio-colab-worker"}), timeout=60) as response:
             data = response.read(MAX_NODE_ARCHIVE_BYTES + 1)
         if len(data) > MAX_NODE_ARCHIVE_BYTES:
             raise WorkerError(f"Node pack {folder} archive is unexpectedly large.")
@@ -614,12 +614,12 @@ class Worker:
         try:
             self._state(job_id, "preparing")
             # All models of a job at once: the cold start waits only for the largest file.
-            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cmv-download") as pool:
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="mediastudio-download") as pool:
                 for future in [pool.submit(self._ensure_resource, item, job_id) for item in job["resources"]]:
                     future.result()
             if self.jobs[job_id]["state"] == "cancelled":
                 return
-            target_dir = self.comfy_dir / "input" / "cmv"
+            target_dir = self.comfy_dir / "input" / "mediastudio"
             target_dir.mkdir(parents=True, exist_ok=True)
             for name in job["inputs"]:
                 source = self.inputs / name
@@ -686,7 +686,7 @@ class Worker:
     def _http_download(self, resource: dict[str, Any], target: Path, job_id: str) -> None:
         partial = target.with_name(target.name + ".part")
         digest = hashlib.sha256()
-        request = urllib.request.Request(resource["url"], headers={"User-Agent": "cmv-colab-worker"})
+        request = urllib.request.Request(resource["url"], headers={"User-Agent": "mediastudio-colab-worker"})
         try:
             with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as file:
                 total = int(response.headers.get("Content-Length") or 0) or None
@@ -773,7 +773,7 @@ class Worker:
             if job is None or job["state"] in FINAL_STATES or job.get("finishing"):
                 return
             job["finishing"] = True
-        threading.Thread(target=self._finish, args=(job_id,), daemon=True, name="cmv-finish").start()
+        threading.Thread(target=self._finish, args=(job_id,), daemon=True, name="mediastudio-finish").start()
 
     def _finish(self, job_id: str) -> None:
         item: dict[str, Any] | None = None
@@ -851,7 +851,7 @@ class Worker:
                 if name in in_use:
                     continue
                 (self.inputs / name).unlink(missing_ok=True)
-                (self.comfy_dir / "input" / "cmv" / name).unlink(missing_ok=True)
+                (self.comfy_dir / "input" / "mediastudio" / name).unlink(missing_ok=True)
         try:
             item = self._api("GET", f"/history/{job_id}", timeout=10).get(job_id) or {}
             for item_file in output_files(item.get("outputs") or {}):
@@ -904,7 +904,7 @@ def _sha256_file(path: Path) -> str:
 
 def _kernel_worker() -> Worker:
     """The worker already living in this kernel when it is the same version, else a new one."""
-    current = globals().get("CMV_WORKER")
+    current = globals().get("MEDIASTUDIO_WORKER")
     if current is not None and getattr(current, "version", None) == WORKER_VERSION:
         return current
     if current is not None and hasattr(current, "shutdown"):
@@ -913,4 +913,4 @@ def _kernel_worker() -> Worker:
 
 
 if __name__ == "__main__":
-    CMV_WORKER = _kernel_worker()
+    MEDIASTUDIO_WORKER = _kernel_worker()

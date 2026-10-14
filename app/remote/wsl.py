@@ -1,6 +1,6 @@
 """Run bash scripts inside WSL from Windows.
 
-Google's Colab CLI runs only on Linux and macOS, so on Windows CMV drives it
+Google's Colab CLI runs only on Linux and macOS, so on Windows MediaStudio drives it
 through the default WSL distribution. A script travels in an environment variable
 (``WSLENV``) rather than on the command line: wsl.exe re-parses its arguments, and
 quotes, spaces or non-Latin letters in paths would not survive that.
@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_TIMEOUT = 30.0
-SCRIPT_VARIABLE = "CMV_WSL_SCRIPT"
+SCRIPT_VARIABLE = "MEDIASTUDIO_WSL_SCRIPT"
 # A fixed command line: the script itself arrives through SCRIPT_VARIABLE.
 _RUNNER = f'export PATH="$HOME/.local/bin:$PATH"; eval "${SCRIPT_VARIABLE}"'
 

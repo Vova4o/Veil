@@ -33,7 +33,7 @@ Generate
         ↓
 Watch a polished progress state
         ↓
-Receive the result in the existing Meta Viewer library
+Receive the result in the existing VEIL library
 ```
 
 Simple Mode must hide workflow graphs, nodes, samplers, schedulers, CFG internals, CLIP/text encoders, VAE selection, dependency topology, model directories, and other ComfyUI-specific terminology.
@@ -56,7 +56,7 @@ Simple Mode must hide workflow graphs, nodes, samplers, schedulers, CFG internal
 - reference-image reconstruction through Vision/AI prompt compilation;
 - optional persistent AI assistant sessions for deeper prompt work;
 - automatic installation and health validation for approved profiles;
-- generated outputs flowing into the existing Meta Viewer library/provenance pipeline;
+- generated outputs flowing into the existing VEIL library/provenance pipeline;
 - full integration with the existing theme system.
 
 ### Explicitly deferred
@@ -129,7 +129,7 @@ Conceptually:
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│ Meta Viewer                         Library  Create │
+│ VEIL                         Library  Create │
 │                                                     │
 │          ambient artwork / soft glow                │
 │                                                     │
@@ -156,7 +156,7 @@ Conceptually:
 └─────────────────────────────────────────────────────┘
 ```
 
-The reference is the cognitive simplicity of products such as Шедеврум, not their exact visual design. Meta Viewer must have its own identity and should feel warmer, richer, and more alive than a dry form editor.
+The reference is the cognitive simplicity of products such as Шедеврум, not their exact visual design. VEIL must have its own identity and should feel warmer, richer, and more alive than a dry form editor.
 
 ---
 
@@ -211,7 +211,7 @@ Artwork-derived colors must never silently replace functional/accessibility colo
 
 Key product controls should not automatically fall back to generic dashboard buttons.
 
-Custom visual assets may be generated specifically for Meta Viewer using image-generation tools and later replaced with hand-picked vector assets if suitable ones are found.
+Custom visual assets may be generated specifically for VEIL using image-generation tools and later replaced with hand-picked vector assets if suitable ones are found.
 
 Raster PNG/WebP assets are acceptable when they provide the desired identity. Full vector purity is not a requirement.
 
@@ -448,7 +448,7 @@ This is a permitted design direction, not a requirement to duplicate all fronten
 
 Simple Mode must not create a separate isolated gallery.
 
-Results flow into the existing Meta Viewer library and preserve available provenance such as profile/model, workflow version, quality preset, original and compiled prompts, negative prompt, AI session linkage, seed, and execution metadata.
+Results flow into the existing VEIL library and preserve available provenance such as profile/model, workflow version, quality preset, original and compiled prompts, negative prompt, AI session linkage, seed, and execution metadata.
 
 A future Remix action should be able to restore the relevant Simple Mode state from this provenance.
 
@@ -537,7 +537,7 @@ very small cognitive surface
 + high-quality motion
 + ambient artwork
 + distinctive visual assets
-+ existing Meta Viewer library/provenance
++ existing VEIL library/provenance
 ```
 
 If a proposed feature requires the beginner to understand graphs, node compatibility, adapter ecosystems, arbitrary architecture differences, or dependency topology, it belongs outside the first Simple Mode release.

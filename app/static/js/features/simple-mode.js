@@ -62,10 +62,10 @@ async function init() {
 
 function restore() {
   try {
-    const v = localStorage.getItem('cmv_simple_ai_improve'); if (v !== null) state.improve = v === 'true';
-    const q = localStorage.getItem('cmv_simple_quality'); if (q) state.quality = q;
-    const b = Number(localStorage.getItem('cmv_simple_batch')); if (b >= 1 && b <= 4) state.batch = b;
-    const r = localStorage.getItem('cmv_simple_ratio'); if (r) state.ratio = r;
+    const v = localStorage.getItem('mediastudio_simple_ai_improve'); if (v !== null) state.improve = v === 'true';
+    const q = localStorage.getItem('mediastudio_simple_quality'); if (q) state.quality = q;
+    const b = Number(localStorage.getItem('mediastudio_simple_batch')); if (b >= 1 && b <= 4) state.batch = b;
+    const r = localStorage.getItem('mediastudio_simple_ratio'); if (r) state.ratio = r;
   } catch (_) {}
   if (E('ai-improve-checkbox')) E('ai-improve-checkbox').checked = state.improve;
 }
@@ -137,10 +137,10 @@ function wire() {
   E('error-dismiss-btn')?.addEventListener('click', dismissError);
   E('prompt-input')?.addEventListener('input',()=>{resizePrompt(); if(E('prompt-clear-btn'))E('prompt-clear-btn').hidden=!E('prompt-input').value.trim();});
   E('prompt-clear-btn')?.addEventListener('click',()=>{E('prompt-input').value='';E('prompt-input').dispatchEvent(new Event('input'));E('prompt-input').focus();});
-  E('ai-improve-checkbox')?.addEventListener('change',e=>{state.improve=e.target.checked;save('cmv_simple_ai_improve',state.improve);});
-  E('aspect-ratio-selector')?.querySelectorAll('[data-ratio]').forEach(b=>b.addEventListener('click',()=>{if(b.disabled)return;state.ratio=b.dataset.ratio;save('cmv_simple_ratio',state.ratio);syncRatios();}));
-  E('quality-selector')?.querySelectorAll('[data-quality]').forEach(b=>b.addEventListener('click',()=>{if(b.disabled)return;state.quality=b.dataset.quality;save('cmv_simple_quality',state.quality);syncQuality();}));
-  E('batch-selector')?.querySelectorAll('[data-batch]').forEach(b=>{const n=Number(b.dataset.batch);setBatchState(b,n===state.batch);b.addEventListener('click',()=>{state.batch=n;save('cmv_simple_batch',n);E('batch-selector').querySelectorAll('[data-batch]').forEach(x=>setBatchState(x,Number(x.dataset.batch)===n));});});
+  E('ai-improve-checkbox')?.addEventListener('change',e=>{state.improve=e.target.checked;save('mediastudio_simple_ai_improve',state.improve);});
+  E('aspect-ratio-selector')?.querySelectorAll('[data-ratio]').forEach(b=>b.addEventListener('click',()=>{if(b.disabled)return;state.ratio=b.dataset.ratio;save('mediastudio_simple_ratio',state.ratio);syncRatios();}));
+  E('quality-selector')?.querySelectorAll('[data-quality]').forEach(b=>b.addEventListener('click',()=>{if(b.disabled)return;state.quality=b.dataset.quality;save('mediastudio_simple_quality',state.quality);syncQuality();}));
+  E('batch-selector')?.querySelectorAll('[data-batch]').forEach(b=>{const n=Number(b.dataset.batch);setBatchState(b,n===state.batch);b.addEventListener('click',()=>{state.batch=n;save('mediastudio_simple_batch',n);E('batch-selector').querySelectorAll('[data-batch]').forEach(x=>setBatchState(x,Number(x.dataset.batch)===n));});});
   E('reference-file-input')?.addEventListener('change',e=>{const f=e.target.files?.[0];if(f)addReference(f);});
   wireDrop(); E('remove-reference-btn')?.addEventListener('click',clearReference);
   E('btn-action-download')?.addEventListener('click',download); E('btn-action-copy-prompt')?.addEventListener('click',copyPrompt); E('btn-action-remix')?.addEventListener('click',()=>{canvas('idle');E('prompt-input')?.focus();});

@@ -250,7 +250,7 @@ def run_openai_compatible_test(
         raise AIProviderRequestError(
             "This profile is not marked as multimodal.", code="incompatible_format"
         )
-    prompt = "Reply with exactly CMV_OK and no other text."
+    prompt = "Reply with exactly MEDIASTUDIO_OK and no other text."
     if multimodal:
         content: str | list[dict[str, Any]] = [
             {"type": "text", "text": prompt},

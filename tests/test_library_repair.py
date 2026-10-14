@@ -19,8 +19,8 @@ from app.paths import build_runtime_paths
 @pytest.fixture
 def repair_runtime(tmp_path, monkeypatch):
     previous = db.get_db_path()
-    paths = build_runtime_paths({'COMFY_META_DATA_DIR': str(tmp_path / 'data'),
-                                'COMFY_META_CACHE_DIR': str(tmp_path / 'cache')}, project_root=tmp_path)
+    paths = build_runtime_paths({'MEDIASTUDIO_DATA_DIR': str(tmp_path / 'data'),
+                                'MEDIASTUDIO_CACHE_DIR': str(tmp_path / 'cache')}, project_root=tmp_path)
     paths.ensure_directories()
     db.set_db_path(paths.database)
     db.init_db()

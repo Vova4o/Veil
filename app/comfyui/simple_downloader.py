@@ -17,7 +17,7 @@ from .model_paths import ModelFolders, resolve_model_folders
 from .resource_taxonomy import FOLDER_RESOURCE_TYPES
 from .workflow_inventory import invalidate_runtime_inventory
 
-USER_AGENT = "ComfyUI-Meta-Viewer/1.0"
+USER_AGENT = "MediaStudio/1.0"
 TIMEOUT_SECONDS = 30
 CHUNK_SIZE = 1024 * 1024
 PROGRESS_INTERVAL_SECONDS = 0.25

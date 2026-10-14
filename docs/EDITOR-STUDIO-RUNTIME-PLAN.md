@@ -1,6 +1,6 @@
 # EDITOR / STUDIO: Visual Runtime Plan
 
-> **Status:** active architecture plan for the CMV editor / studio.
+> **Status:** active architecture plan for the VEIL editor / studio.
 >
 > This document describes the direction that should replace the current Simple Mode, model zoo, and the old editor concepts. If implementation work concerns Create, Editor, Studio, visual sessions, image editing, reference composition, typography, or Comfy MCP, start here.
 >
@@ -10,7 +10,7 @@
 
 ## 1. Product direction
 
-CMV should stop growing as a universal front end for many unrelated image models.
+VEIL should stop growing as a universal front end for many unrelated image models.
 
 The new Studio should be built around one tested visual backend:
 
@@ -262,7 +262,7 @@ moody-edit
 
 Potentially typography can remain a policy over `moody-edit` rather than a separate graph.
 
-The existing CMV `WorkflowTemplateRegistry`, `WorkflowCompiler`, dependency validation, execution service, run store, output import, and provenance infrastructure should be reused where useful.
+The existing VEIL `WorkflowTemplateRegistry`, `WorkflowCompiler`, dependency validation, execution service, run store, output import, and provenance infrastructure should be reused where useful.
 
 The old model-oriented registries and bundled model catalog should not be carried into the new product domain merely for compatibility.
 
@@ -333,7 +333,7 @@ The actual session, references, current asset, history, and execution state belo
 
 ## 12. Library and Viewer integration
 
-Viewer and Library remain core parts of CMV.
+Viewer and Library remain core parts of VEIL.
 
 Any image in the Library should be able to become the starting point of a new Studio session:
 
@@ -353,7 +353,7 @@ Use two execution concepts:
 
 ### Runtime path
 
-For capabilities officially supported by CMV:
+For capabilities officially supported by VEIL:
 
 ```text
 user intent
@@ -361,7 +361,7 @@ user intent
         -> skill
             -> ExecutionPlan
                 -> tested workflow primitive
-                    -> CMV WorkflowCompiler / ExecutionService
+                    -> VEIL WorkflowCompiler / ExecutionService
                         -> ComfyUI
 ```
 
@@ -379,7 +379,7 @@ VisualSession context
                 -> inspect local models and custom nodes
                 -> build or modify arbitrary workflow
                 -> execute experimental graph
-                -> import outputs back into CMV
+                -> import outputs back into VEIL
 ```
 
 Comfy MCP therefore acts as an escape hatch and control plane for capabilities the typed runtime does not yet support.
@@ -393,7 +393,7 @@ It is especially useful for:
 - trying one-off operations
 - building new runtime primitives without adding them to product code first
 
-The standard CMV direct ComfyUI client should remain the execution plane for stable production operations.
+The standard VEIL direct ComfyUI client should remain the execution plane for stable production operations.
 
 ## 14. Free Mode / Agent Lab
 
@@ -464,7 +464,7 @@ free experiment
                         -> supported runtime capability
 ```
 
-This gives CMV a clean evolution path:
+This gives VEIL a clean evolution path:
 
 ```text
 MCP = research / exploration
@@ -526,7 +526,7 @@ Legacy code may remain temporarily for migration, debugging, or compatibility, b
 ## 20. Target architecture
 
 ```text
-CMV
+VEIL
 |
 +-- Viewer
 |

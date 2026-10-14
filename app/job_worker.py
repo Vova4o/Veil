@@ -45,7 +45,7 @@ def start_job_worker() -> None:
         if _worker_thread is None or not _worker_thread.is_alive():
             _stop_event.clear()
             _worker_thread = threading.Thread(
-                target=_worker_loop, daemon=True, name="MetaViewerJobWorker"
+                target=_worker_loop, daemon=True, name="MediaStudioJobWorker"
             )
             _worker_thread.start()
 

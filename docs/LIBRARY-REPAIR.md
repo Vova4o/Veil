@@ -7,7 +7,7 @@ during a check shows its progress instead of starting another job. After a serve
 restart, the existing durable queue resumes the interrupted check.
 
 The check reconciles enabled physical sources, including configured subfolders,
-and checks uploaded originals stored inside CMV. It retries missing, malformed or
+and checks uploaded originals stored inside VEIL. It retries missing, malformed or
 failed embedded metadata; repairs missing or corrupt thumbnails; and removes
 corrupt display previews so they can regenerate when opened. Healthy metadata and
 preview files are retained. Asset IDs, albums, ratings, favorites, tags, notes,
