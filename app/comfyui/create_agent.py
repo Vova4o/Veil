@@ -158,13 +158,15 @@ def create_task(profile: ApprovedProfile, mode: CreateMode) -> PromptTask:
 
 
 _INTIMATE_RE = re.compile(
-    r"\b(?:hard|nsfw|nude|nudity|naked|undress\w*|strip\w*|topless|bottomless|nipples?|areolas?|"
+    r"\b(?:hard|very[\s-]?hard|hardcore|rough|aftermath|creampie|cum\w*|facial|bukkake|deepthroat|facefuck|penetrat\w*|spank\w*|"
+    r"nsfw|nude|nudity|naked|undress\w*|strip\w*|topless|bottomless|nipples?|areolas?|"
     r"lingerie|bikini\w*|microbikini\w*|swimsuit\w*|swimwear\w*|thong\w*|micro[\s-]?bikini\w*|"
     r"erotic\w*|sex\w*|porn\w*|intima\w*|boudoir|genital\w*|vagina\w*|labia\w*|anus|anal|"
     r"breasts?|boobs?|tits?|pussy|penis|masturbat\w*|orgasm\w*|"
     r"unbutton\w*|unzip\w*|pull(?:ed|ing)?\s+(?:down|up|open|aside)|slide(?:d)?\s+down|slip(?:ped)?\s+off|"
     r"expose\w*|reveal\w*|sheer(?:ify)?|"
-    r"хард|ню|голая|голый|голые|голой|обнаж\w*|разде\w*|сним\w*|сня\w*|стяни\w*|стяну\w*|"
+    r"хард|вери[\s-]?хард|весьма[\s-]?хард|хардкор|жесть|грязь|отжарь|после[\s-]секса|кремпей|сперм\w*|конч\w*|шлепк\w*|"
+    r"ню|голая|голый|голые|голой|обнаж\w*|разде\w*|сним\w*|сня\w*|стяни\w*|стяну\w*|"
     r"спусти\w*|спуска\w*|приспусти\w*|расстегн\w*|задер\w*|задери|оголи\w*|оголя\w*|"
     r"бикини|микробикини|микро[\s-]?бикини|купальник\w*|стринги|плавк\w*|"
     r"топлес|сос[оа]к\w*|эрот\w*|секс\w*|порн\w*|интим\w*|бель[её]|трусик\w*|лифчик\w*|груд\w*|"

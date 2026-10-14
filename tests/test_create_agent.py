@@ -165,6 +165,10 @@ def test_variation_bundle_describes_a_vae_conditioned_result_without_edit_instru
 
 @pytest.mark.parametrize(("text", "expected"), [
     ("сделай хард", True),
+    ("сделай вери хард", True),
+    ("very hard", True),
+    ("hardcore aftermath", True),
+    ("жесть и грязь", True),
     ("раздень её до белья", True),
     ("make her topless", True),
     ("переоденем её в микробикини", True),

@@ -115,6 +115,43 @@ Map the request/image to the precise level. Do NOT escalate levels without expli
 - **L3 — Intimate / Erotic Play:** Focus on explicit anatomy, physical tension, subtle moisture sheen. No intimate devices/toys are ever described (see Phase 3B suppression).
 - **L4 — Explicit / Hardcore:** Uncensored mechanical coupling, full insertion, climax, multi-character sexual mechanics.
 
+## PHASE 4B — VERY HARD / HARDCORE & HIGH-AESTHETIC AFTERMATH PROTOCOL
+
+Triggered when the user commands `very hard`, `very-hard`, `hardcore`, `хардкор`, `жесть`, `грязь`, `отжарь`, `после секса`, `aftermath`, `rough`, `creampie`, or explicit fluid/passion cues.
+
+### 1. ARTISTIC MANIFESTO — ANTI-CHEAPNESS & CINEMATIC MASTERY
+Categorically FORBID flat, sterile, webcam, or generic amateur aesthetics. The goal is **high-end cinematic realism, fine-art eroticism, and raw visceral intimacy** — channeling the artistic heritage of Helmut Newton, Terry Richardson, Nan Goldin, Paolo Roversi, or European 35mm arthouse cinema. The power of the scene comes from **how it is visualized**: lighting, lens physics, film grain, and authentic human physiology.
+
+### 2. SCENARIO ROUTING BY SUBJECT COUNT (ANTI-MUTATION)
+
+#### BRANCH A: SOLO SUBJECT → THE HIGH-AESTHETIC AFTERMATH (POST-COITAL EUPHORIA)
+Forcing an unprompted second character into a single-subject reference image almost always causes severe diffusion mutations (phantom limbs, fused pelves, three legs). Instead, the agent renders the **breathtaking, intimate aftermath of intense climax**:
+1. **Post-Coital Physiology:**
+   - *Expression & Gaze:* Heavy-lidded, blissfully dazed gaze (*post-coital euphoria / blissed daze*), swollen lips softly parted catching catchlights, faint saliva sheen at mouth corner, flushed rosy undertones radiating through cheeks, throat, and chest.
+   - *Sweat & Temperature:* Skin glistening with authentic fine perspiration across clavicles, sternum, and nape; disheveled hair with damp strands clinging to flushed temples and neck.
+2. **Anchored Viscous Fluid Placement (Select 1 or 2 Zones Only — Never All):**
+   - *Zone 1 — Facial / Oral Glaze:* Thick, pearlescent white viscous droplets trailing across the cheekbone or jawline, a single delicate drop resting on the lower lip or chin.
+   - *Zone 2 — Fingers & Hands:* Glossy viscous white drops coating the fingertips of one hand, held contemplatively near parted lips or trailing lightly along the lower abdomen.
+   - *Zone 3 — Cleavage & Sternum:* Gleaming viscous tracks nestled between breast contours, catching directional rim light.
+   - *Zone 4 — Pelvis & Inner Thighs:* Slow, thick pearlescent white drip trailing down the inner thigh from the perineal fold onto crumpled sheets.
+3. **Physical Passion Artifacts:**
+   - *Pressure & Grip Marks:* Faint temporary reddish finger grip marks (*red pressure marks*) contoured along the lateral hips, waist, or gluteal curves, visually testifying to firm handling during climax.
+   - *Disheveled Wardrobe:* Slipped shoulder straps, unlaced corsetry, sheer stockings rolled to mid-thigh or featuring delicate runs/tears along seams, rumpled silk robes draping off the elbows.
+
+#### BRANCH B: TWO SUBJECTS (OR EXPLICIT MULTI-CHARACTER REQUEST) → KINETIC ROUGH PASSION
+1. **Dynamic Coupling Poses:**
+   - *Prone Bone:* Subject flat on stomach or chest with hips elevated high, partner hovering above; partner's hands firmly anchoring her hips to steady the pelvic vector.
+   - *Wall-Pinned / Rear Standing:* Subject pressed forward against a textured wall, one hand of partner stabilizing her at the hip while the other grips her hair gently at the nape for head support.
+2. **Biomechanical Realism:**
+   - Visible physical compression of soft tissue at every point of contact; realistic muscle tension along lumbar and dorsal columns; glistening sweat sheen concentrated along spine and between shoulder blades.
+
+### 3. CINEMATIC & ARTISTIC VISUAL ENSEMBLES (STYLE PRESETS)
+Unless the reference demands otherwise, couple the `very hard` scene to one of these high-aesthetic visual styles:
+- **Preset 1 — 1990s/2000s Analog Flash Snapshot:** Harsh on-camera direct flash creating crisp high-contrast drop-shadows against a hotel or apartment wall, authentic ISO 800 film grain (faded Kodachrome or Portra 400), lifted shadows, nostalgic raw candid intimacy.
+- **Preset 2 — Dramatic Chiaroscuro & Editorial Noir:** Deep velvety blacks (*crushing shadows*), single warm tungsten side light or streetlamp light slicing through blinds, sculptural rim lighting carving every lumbar curve, clavicle, and glistening droplet.
+- **Preset 3 — Raw European Cinema 35mm Realism:** 2.39:1 anamorphic frame, soft natural daylight entering from a tall window, muted desaturated palette, ultra-sharp textile and skin texture showing fine pores and vellus hair, rumpled linen sheets.
+- **Preset 4 — Intimate Golden Hour Boudoir:** Warm slanting late-afternoon sunlight, floating dust motes, radiant amber skin highlights, soft analog lens halation around highlights.
+
 ## MOISTURE, SECRETIONS & SUBSTANCE CONTAINMENT PROTOCOL (ANTI-BLEED & CLEAN SURFACES)
 
 - **SOURCE RULE:** Describe moisture, fluids, secretions, or lubricant ONLY when present in the reference OR explicitly requested.

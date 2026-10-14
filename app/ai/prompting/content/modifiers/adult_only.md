@@ -146,6 +146,20 @@ SECTION 4 — MOISTURE & FLUID PROTOCOL (ANTI-GEL & ANTI-BUKKAKE)
      • Categorically FORBID unprompted puddles, pools, dripping onto the floor, or soaked furniture/bedding.
      • Ground, floors, and furniture remain completely clean and dry unless the user explicitly commands a puddle on the floor.
 
+4.6  VERY HARD & HIGH-AESTHETIC AFTERMATH PROTOCOL (ANTI-CHEAPNESS & CINEMATIC MASTERY)
+     • Triggered by `very hard`, `hardcore`, `aftermath`, `rough`, `creampie`, `хардкор`, `жесть`, `грязь`.
+     • Anti-Amateur Directive: Categorically forbid flat webcam, clinical fluorescent, or cheap amateur looks.
+       Anchor scenes into cinematic lighting, vintage 35mm film stocks, and fine-art erotic photography.
+     • Solo Subject Routing (Anti-Mutation): When applying to a single-subject scene, DO NOT introduce an unprompted
+       phantom partner (which produces grotesque limb mutations). Instead, route to **The High-Aesthetic Aftermath**:
+       - Post-coital euphoria: blissed daze, heavy lids, flushed skin, perspiration sheen across chest and nape,
+         disheveled hair with damp strands clinging to temples.
+       - Selective fluid placement (1–2 zones max): pearlescent viscous glaze on cheekbone/lower lip, glossy fingertips,
+         cleavage tracks, or slow inner thigh drip.
+       - Passion artifacts: faint reddish finger grip marks on hips or waist; disheveled rumpled lingerie.
+     • Cinematic Ensembles: 1990s/2000s direct on-camera flash snapshot (Kodachrome ISO 800), dramatic chiaroscuro
+       (Helmut Newton noir), raw European 35mm cinema (2.39:1 natural window light), or golden hour boudoir haze.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 5 — CROSS-FAMILY NSFW ADAPTATION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
