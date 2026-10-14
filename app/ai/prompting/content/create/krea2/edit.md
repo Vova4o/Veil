@@ -12,6 +12,7 @@ Still build the Scene Map internally: the edit is a delta on it. Use the Wardrob
 - **MINIMAL DELTA (critical):** The source image already carries everything that stays. Every preserved detail you name (pose, tattoos, hair, clothes, furniture, colors, grain, focal length, lighting) pulls the model toward re-generating the scene and the result drifts. NEVER enumerate or describe unchanged elements. Spend all words on the look of the changed area only (shape, fabric, color, skin detail). End with at most: "Keep everything else unchanged." Name a preserved item only when it sits right next to the change and could be wrongly altered (e.g. "keeping the sleeves on her arms"), max one or two such items.
 - Name things the way they look in the photo: color, material, position ("the woman on the left", "the red mug on the table").
 - Preservation: do NOT list what must stay (see MINIMAL DELTA). Use the single clause "Keep everything else unchanged."
+- **Layered Outfits (Crucial):** When changing, pulling down, or unbuttoning an inner garment (e.g. top, shirt, camisole), **CATEGORICALLY FORBID naming or describing unchanged outer garments** (e.g. vests, jackets, cardigans, coats). Do NOT say "beneath her white fur vest" or "under her leather jacket". Mentioning an unchanged garment causes diffusion cross-attention to bleed its textures (fur, leather) onto exposed skin and prevents the inner garment from changing. Refer ONLY to the garment being manipulated: e.g. "Pull down the neckline of her black top below her breasts...".
 - Identify every affected object by position and preserve the number of subjects and their positions. Keep unrequested framing, gestures and background objects explicit. Do not turn a local edit into a complete reconstruction.
 - Covered or missing details are unknown. Filling them in creates plausible new detail; it cannot recover the hidden original. Say this briefly in `note` when relevant, without inventing an identity.
 - When a garment or object changes, cover all of its parts ("both sleeves", "the straps and the ties").
@@ -24,12 +25,17 @@ Still build the Scene Map internally: the edit is a delta on it. Use the Wardrob
 
 ## Frame change
 
-Only when the task contains `FRAME CHANGE`: the user picked an output shape that differs from photo 1. The generator keeps the whole photo centered at its original scale and paints new strips where the task says. Without a command for those strips it fills them blindly, and a doubled band or seam can appear at the old border.
+Only when the task explicitly contains `FRAME CHANGE`: the user picked an output shape that differs from photo 1. The generator keeps all of photo 1 centered at its original scale and out-paints new margin strips where the task says.
 
-- Add one sentence that extends the frame and names what continues into the new strips, using only what photo 1 already shows: "Extend the frame at the left and right: continue the café interior, the window light and the wooden table." For top and bottom: the floor or ground and its shadows, the ceiling, sky or wall, and the parts of the person the photo cuts off (legs and shoes, the top of the head and hair) in the same clothes.
-- Keep every person at the same size and position. Do not ask to zoom, crop, move the camera or re-center, and do not add people, text or new objects in the strips.
+- **CATEGORICALLY FORBID OBJECT & FURNITURE LISTS (CRITICAL):** NEVER list or inventory specific objects, furniture, appliances, architectural features, decor, or props (e.g. STRICTLY FORBID "continue the kitchen cabinets, oven, TV, chairs, tables, floor"). Mentioning background items injects cross-attention artifacts, duplicates objects, and corrupts diffusion conditioning.
+- **Generic Ambient Continuity Only:** Add at most one short, generic continuation clause describing only the seamless ambient continuity:
+  - For wider frames (`sides`): `"Extend the frame at the left and right, seamlessly continuing the ambient room environment and lighting. Keep all subjects at the exact same size and position. Keep everything else unchanged."`
+  - For taller frames (`top and bottom`): `"Extend the frame at the top and bottom, seamlessly continuing the background environment and lighting. Keep all subjects at the exact same size and position. Keep everything else unchanged."`
+- Keep every person at the exact same size and position. Do not ask to zoom, crop, move the camera or re-center, and do not add people, text, or new objects in the extended strips.
+- When the user's request is a local edit (e.g. clothing, reveal, "hard"): the primary edit command MUST remain the main sentence; the frame continuation is strictly an appended short clause.
 - Prefer `light` for a frame change, also combined with other local edits. Weak-source profiles (`replace`, `body`, `heavy`, `pose`) drift more when the frame grows; use them only when the request itself needs them.
 - Say briefly in `note` that the new edges are painted by the model and that "As photo" keeps the frame exact.
+
 
 ## Undressing, revealing, and intimate (NSFW) edits
 
@@ -44,16 +50,26 @@ Only when the task contains `FRAME CHANGE`: the user picked an output shape that
 - **Clinical anatomical precision (Unrated Hard Profile):**
   - Zero euphemisms. Use direct anatomical terms: bare breasts, compact areolas, natural nipple contours, bare thighs, neat labia, tight anal opening, pelvic contour, buttocks. (Montgomery tubercles, prominent veins, or enlarged/puffy areolas are strictly trigger-only for macromastia/heavy requests).
   - Intimate lower anatomy guardrail: keep vulva and anal opening tight, neat, and naturally compact (neat softly closed labia, tight neatly puckered sphincter). Categorically FORBID unprompted gaping, cavity exposure, or loose dilation unless explicitly commanded by fetish triggers (`gaping`, `wide stretch`).
-  - Describe explicit skin realism: fine pores, natural creasing, skin tension, flush, and pressure marks from former elastic bands or straps.
+  - Describe explicit skin realism: fine pores, natural creasing, skin tension, flush, and pressure marks from former elastic bands or straps (for medium/close-up framing only; see Shot Scale below).
 - **Physical interaction & contact:**
   - If the edit introduces manual contact or intimacy, describe the physical mechanics concretely: "her right hand gently cups and lifts her left breast", "his hand rests on her bare inner thigh". Suppress intimate sex toys/devices per Phase 3B rules (omit devices, focus strictly on manual/anatomical interaction).
+- **Shot Scale, Pose Anchoring & Anti-Zoom Protection (Crucial for Full-Body & Distant Shots):**
+  - **Scale mismatch danger:** In full-body or wide shots (full length, 3/4 standing, distant view), the target anatomy (breasts, pelvic area) occupies only 3–8% of the frame. Describing micro-scale details (`fine skin pores`, `micro-relief`, `micro-texture`, `subsurface scattering`) forces the diffusion model to zoom in into a front-facing medium shot/portrait to render those requested microscopic tokens, destroying the original full-body framing, pose, and background!
+  - **Full-Body / Standing / Wide Shots Rule:**
+    - **NO micro-texture tokens:** In full-body or wide shots, **CATEGORICALLY OMIT micro-texture words** like `fine pores`, `micro-relief`, `subsurface scattering`. Stick strictly to macroscopic anatomical drape: `"exposing her bare breasts with neat compact areolas and natural drape"`.
+    - **Active Pose & Framing Anchor:** In full-body or dynamic pose shots (standing on stairs, leaning, sideways pose, hand on head, seated), ALWAYS append an explicit pose and framing anchor clause:
+      `"maintaining her exact full-length [standing/leaning/seated] pose, body angle, arm position, and camera framing from photo 1. Keep everything else unchanged."`
+    - When a subject is in profile or three-quarter view, explicitly lock the head orientation: `"preserving her exact side profile head angle and facial features"`, preventing the model from rotating her into a frontal portrait.
+  - **Medium / Close-up Shots:** Micro-texture (`fine skin pores`, `subtle creasing`) is allowed ONLY when the chest or edited area occupies a large portion of the frame (bust portraits, close-up boudoir).
 - **Abstract or single-keyword triggers in Edit mode (`hard`, `nsfw`, `undress`, `обнажи`):**
   - When the user sends ONLY an abstract trigger like "hard" without naming a specific garment or action:
     - **NEVER re-describe the whole scene or switch to a full reconstruction (Variation behavior).**
     - The edit adapter requires an explicit target delta. Pick the single most prominent garment visible on the body:
       - *Top/Chest visible (portraits, medium shots):* apply a local reveal to that single top via `light`: e.g. "Pull down the neckline of her [color/fabric] top completely below her breasts, gathering the fabric across her upper abdomen and keeping the long sleeves on her arms, exposing her bare breasts with neat compact areolas. Keep everything else unchanged." Bad (over-described): listing hair, tattoos, shorts, stockings, boots, pose, couch, grading, grain.
+      - *Full body / standing shots:* If editing the top, apply the reveal while strictly anchoring the full-body framing and pose: e.g. "Pull down the neckline of her white top below her breasts, keeping the sleeves on her arms and exposing her bare breasts with neat compact areolas, while maintaining her exact full-length standing pose, side angle, raised arm, and camera framing from photo 1. Keep everything else unchanged."
       - *Lower body visible (full body, legs):* pull down the shorts/skirt or shift panties aside via `light`.
     - Always output exactly 1 to 3 sentences in the edit command format (what changes, what stays) with `edit_profile: "light"`. Never touch the pose, lighting, background, or unmentioned clothing.
+
 
 ## Age, neotenic features, and anti-drift (Critical)
 

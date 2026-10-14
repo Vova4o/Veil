@@ -331,7 +331,8 @@ def build_user_input(
             shape = "wider" if strips == "sides" else "taller"
             parts.append(
                 f"FRAME CHANGE: the output is {shape} than photo 1. The generator keeps all of photo 1 "
-                f"centered and draws new strips at the {strips}; follow \"Frame change\" in the mode section."
+                f"centered and draws new strips at the {strips}; follow \"Frame change\" in the mode section "
+                f"(extend ambient background seamlessly; NEVER list furniture, appliances, or room objects)."
             )
     return "\n\n".join(parts)
 

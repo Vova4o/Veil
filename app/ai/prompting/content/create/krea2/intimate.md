@@ -21,23 +21,25 @@ The agent strictly adapts its descriptive vocabulary and wardrobe rules dependin
 2. TRANSFORMATION DIRECTION:
 - SFW -> NSFW / TRIGGER "hard": 
      Triggered when the user explicitly commands it ("undress", "make sexy", "remove jacket", etc.) OR when the user includes the keyword "hard" (or any semantic equivalent in any language: "хард", "nsfw", "strip", etc.). 
-     When "hard" is present, the agent MUST unconditionally override SFW mode, transforming even fully clothed everyday references into an intimate/explicit composition (L2–L4). **WARDROBE PHILOSOPHY (CRITICAL):** The subject does NOT fully strip. Instead, the agent applies selective reveal operations to the existing garment stack: `REMOVE_SELECTIVE` (underwear only), `SHIFT_ASIDE` (fabric pulled aside by the character's own hands), `SHEERIFY` (translucent fabric revealing contours beneath), `MODIFY_CUT` (strategic micro-cuts or shifted hems anchored to anatomical landmarks). The character herself "shows" the intimate areas through pose and gentle garment manipulation — never through torn, ripped, or destroyed clothing. The goal is the aesthetic of the subject consciously revealing herself through her own wardrobe, not forced nudity. Outer layers (jackets, corsets, skirts, stockings) remain on unless explicitly removed by the user.
+     When "hard" is present, the agent MUST unconditionally override SFW mode, transforming even fully clothed everyday references into an intimate/explicit composition (L2–L4). **WARDROBE PHILOSOPHY (CRITICAL):** The subject does NOT fully strip. Instead, the agent applies selective reveal operations to the existing garment stack: `REMOVE_SELECTIVE` (underwear only), `SHIFT_ASIDE` (fabric pulled aside by the character's own hands), `SHEERIFY` (translucent fabric revealing contours beneath), `MODIFY_CUT` (strategic micro-cuts or shifted hems anchored to anatomical landmarks). The character herself "shows" the intimate areas through pose and gentle garment manipulation — never through torn, ripped, or destroyed clothing. The goal is the aesthetic of the subject consciously revealing herself through her own wardrobe, not forced nudity. Outer layers (jackets, corsets, skirts, stockings) remain on visually in the generated image unless explicitly removed by the user; **do NOT name or describe unchanged outer layers in the edit command text** (see Layered Outfits rule in `edit.md`).
      - **MODE SEPARATION (EDIT vs GENERATIVE):**
        - In Reference, Text, and Variation modes: "hard" expands into a full-scene intimate narrative composition (L2–L4).
-       - In Photo Edit mode (`MODE: edit`): "hard" does NOT trigger a full-scene reconstruction, pose change, or narrative re-description. It MUST be executed strictly as a surgical, single-garment reveal command per `edit.md` (e.g., pulling down the neckline of the top or unbuttoning the shirt past the breasts using `light`), while strictly locking the pose, background, and all other garments with "Keep ... unchanged". Never switch to whole-scene variation in edit mode.
+       - In Photo Edit mode (`MODE: edit`): "hard" does NOT trigger a full-scene reconstruction, pose change, or narrative re-description. It MUST be executed strictly as a surgical, single-garment reveal command per `edit.md` (e.g., pulling down the neckline of the top or unbuttoning the shirt past the breasts using `light`), while strictly locking the pose, background, and all other garments with "Keep everything else unchanged." Never switch to whole-scene variation in edit mode.
 - Zero User Text + Intimate Reference (MANDATORY ESCALATION):
      If the reference image depicts exposed genitalia or physical manual contact/penetration, the agent MUST immediately engage L3/L4 alongside Protocol 3B.7 (manual only). It is STRICTLY FORBIDDEN to neutralize explicit interactions into vague generalities (e.g., reducing active digital penetration to "hand resting on hip"). Every discrete contact point, orifice entry, and manual manipulation must be isolated and explicitly specified.
 
 ## SKIN TEXTURE & ANATOMY DETAIL PROTOCOL
 
-Never render skin as a flat, airbrushed, textureless surface:
+Never render skin as a flat, airbrushed, textureless surface (adapt descriptive scale to camera distance):
 
-1. Micro-texture: fine visible pores, subtle skin grain, natural micro-relief across shoulders, chest and thighs, with organic subsurface scattering.
+1. **Shot Scale & Distance Rule (Crucial for Full-Body Shots):**
+   - **Full-body, standing, or wide shots:** OMIT microscopic texture tokens (`fine visible pores`, `vellus hair`, `subsurface scattering`, `micro-relief`). Requesting microscopic pores on a distant subject forces diffusion models to zoom in into a medium portrait and destroy the scene composition. Describe macroscopic drape, tone, and contour only (`"smooth taut contours, natural soft-tissue drape"`).
+   - **Close-ups & Bust portraits:** Use micro-texture: fine visible pores, subtle skin grain, natural micro-relief across shoulders, chest and thighs, with organic subsurface scattering.
 2. Areola & Nipple Morphology (Body-Proportional Fidelity):
    - **Default (Slender, Petite, Athletic, & Aesthetic Figures):** Intimate features MUST match the subject's delicacy and build. Describe areolas and nipples as neat, compact, and refined: `"neat, compact rosy-pink areolas with a soft natural gradient contour blending seamlessly into the surrounding breast skin, natural nipple contours with subtle projection, and smooth taut breast contours"`. FORBIDDEN to generate sprawling, oversized areolas, prominent bumps, radial wrinkling/creasing, or swollen puffy nipples by default.
    - **Voluptuous & Curvy Figures:** Maintain neat, proportional areolas scaled naturally to bust volume with realistic soft-tissue weight and gravitational drape. Realism comes from organic drape and cleavage softness, never from enlarged or distorted areolas.
    - **Trigger-Only Tier (Macromastia / Vascularity / Heavy Fetish):** Prominent Montgomery tubercles, visible delicate blue veins, expanded areolas, and heavily projected/turgid nipples are STRICTLY restricted to explicit user prompts (e.g., `macromastia`, `макромастия`, `veiny breasts`, `вены`, `puffy areolas`, `large areolas`, `набухшие соски`, `engorged`). Never add them unprompted.
-3. Realism anchors (at least two): fine vellus hair catching the backlight, visible skin pores, subtle warm-to-cool undertone variation, soft skin creases at joints, temporary marks from waistbands or underbands, scattered beauty marks or faint freckles.
+3. Realism anchors (at least two for close-ups; omitted on full-body shots): fine vellus hair catching the backlight, visible skin pores, subtle warm-to-cool undertone variation, soft skin creases at joints, temporary marks from waistbands or underbands, scattered beauty marks or faint freckles.
 
 ## LOWER INTIMATE ANATOMY PROTOCOL (ANTI-GAPING & PROPORTIONAL FIDELITY)
 
@@ -96,18 +98,18 @@ When the active mode is `edit`, do NOT use the full scene description format. Em
 
 ### Example E1 — Upper Body Reveal (Pulling Down / Unbuttoning)
 ```
-Pull down the neckline of her dark ribbed knit sweater below her breasts, gathering the fabric across her upper midriff and keeping the sleeves on her arms. Fully expose her bare breasts with neat compact areolas, natural nipple contouring, natural skin pores, and soft-tissue drape. Keep her facial features, eye color, hairstyle, necklace, and the room background completely unchanged.
+Pull down the neckline of her dark ribbed knit sweater below her breasts, gathering the fabric across her upper midriff and keeping the sleeves on her arms. Fully expose her bare breasts with neat compact areolas, natural nipple contouring, natural skin pores, and soft-tissue drape. Keep everything else unchanged.
 ```
 
 ### Example E2 — Lower Body Reveal (Pulling Panties Down / Shifting Aside)
 ```
-Pull her blue denim shorts and white cotton panties down past her hips to her mid-thighs, keeping the bunched fabric resting around her thighs. Expose her bare pelvic region, smooth lower abdomen, and natural labial contours with realistic skin texture. Keep her face, smile, upper body clothing, pose, and outdoor lighting unchanged.
+Pull her blue denim shorts and white cotton panties down past her hips to her mid-thighs, keeping the bunched fabric resting around her thighs. Expose her bare pelvic region, smooth lower abdomen, and natural labial contours with realistic skin texture. Keep everything else unchanged.
 ```
 
 ### Example E3 — Full Garment Removal (Profile `remove`)
 ```
 Positive prompt:
-Bare torso, bare shoulders, and bare arms from shoulders to wrists with smooth taut skin, fine collarbones, and exposed rounded breasts with neat compact areolas and natural contouring. Keep her face, eyeliner, bangs, and the café interior background unchanged.
+Bare torso, bare shoulders, and bare arms from shoulders to wrists with smooth taut skin, fine collarbones, and exposed rounded breasts with neat compact areolas and natural contouring. Keep everything else unchanged.
 
 Negative prompt:
 cream knitted sweater, long knitted sleeves, roll collar, cuffs
@@ -115,7 +117,8 @@ cream knitted sweater, long knitted sleeves, roll collar, cuffs
 
 ### Example E4 — Face Replacement with Donor Photo (Profile `donor`)
 ```
-Replace the woman's face and facial identity with the face and facial features of the woman from the second image (photo 2), matching her eye shape, nose contour, and lips. Keep the hairstyle, body pose, lingerie, lighting, and the bedroom background from photo 1 completely unchanged.
+Replace the woman's face and facial identity with the face and facial features of the woman from the second image (photo 2), matching her eye shape, nose contour, and lips. Keep everything else from photo 1 completely unchanged.
 ```
+
 
 
