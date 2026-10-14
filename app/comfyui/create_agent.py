@@ -159,12 +159,14 @@ def create_task(profile: ApprovedProfile, mode: CreateMode) -> PromptTask:
 
 _INTIMATE_RE = re.compile(
     r"\b(?:hard|nsfw|nude|nudity|naked|undress\w*|strip\w*|topless|bottomless|nipples?|areolas?|"
-    r"lingerie|erotic\w*|sex\w*|porn\w*|intima\w*|boudoir|genital\w*|vagina\w*|labia\w*|anus|anal|"
+    r"lingerie|bikini\w*|microbikini\w*|swimsuit\w*|swimwear\w*|thong\w*|micro[\s-]?bikini\w*|"
+    r"erotic\w*|sex\w*|porn\w*|intima\w*|boudoir|genital\w*|vagina\w*|labia\w*|anus|anal|"
     r"breasts?|boobs?|tits?|pussy|penis|masturbat\w*|orgasm\w*|"
     r"unbutton\w*|unzip\w*|pull(?:ed|ing)?\s+(?:down|up|open|aside)|slide(?:d)?\s+down|slip(?:ped)?\s+off|"
     r"expose\w*|reveal\w*|sheer(?:ify)?|"
     r"хард|ню|голая|голый|голые|голой|обнаж\w*|разде\w*|сним\w*|сня\w*|стяни\w*|стяну\w*|"
     r"спусти\w*|спуска\w*|приспусти\w*|расстегн\w*|задер\w*|задери|оголи\w*|оголя\w*|"
+    r"бикини|микробикини|микро[\s-]?бикини|купальник\w*|стринги|плавк\w*|"
     r"топлес|сос[оа]к\w*|эрот\w*|секс\w*|порн\w*|интим\w*|бель[её]|трусик\w*|лифчик\w*|груд\w*|"
     r"сиськ\w*|вагин\w*|киск\w*|попк\w*|поп[ауеы]|попе|попой|ягодиц\w*|анал\w*|мастурб\w*|оргазм\w*)\b",
     re.IGNORECASE,

@@ -146,6 +146,8 @@ def test_bundle_modules_follow_the_mode():
     donor = build_create_bundle(PROFILE, "edit", references=2).render()
     assert "- donor:" in donor and "- donor_detail:" in donor
     assert "- light:" not in donor and "- heavy:" not in donor
+    assert "Photometric & Lighting Harmonization" in donor
+    assert "Packshot, Catalog & White-Background" in donor
 
 
 def test_variation_bundle_describes_a_vae_conditioned_result_without_edit_instructions():
@@ -161,6 +163,9 @@ def test_variation_bundle_describes_a_vae_conditioned_result_without_edit_instru
     ("сделай хард", True),
     ("раздень её до белья", True),
     ("make her topless", True),
+    ("переоденем её в микробикини", True),
+    ("девушка в купальнике", True),
+    ("dressed in a microbikini", True),
     ("a cat on a windowsill at dawn", False),
     ("ночная кофейня у моря", False),
 ])
