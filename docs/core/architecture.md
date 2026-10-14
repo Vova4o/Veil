@@ -1,6 +1,6 @@
 # Architecture
 
-> ComfyUI Meta Viewer -- project architecture, data flow, and extension points.
+> VEIL -- project architecture, data flow, and extension points.
 
 ## Overview
 
@@ -36,7 +36,7 @@
                 └───────────────────────┘
 ```
 
-ComfyUI Meta Viewer is a local-first web application. The browser hosts the metadata viewer plus a separate Library page, while the Flask backend exposes a REST API for monitored sources, virtual albums, metadata, thumbnails/previews/original images, and cached cutouts. SQLite stores the indexed metadata, source state, and virtual organization.
+VEIL is a local-first web application. The browser hosts the metadata viewer plus a separate Library page, while the Flask backend exposes a REST API for monitored sources, virtual albums, metadata, thumbnails/previews/original images, and cached cutouts. SQLite stores the indexed metadata, source state, and virtual organization.
 
 ## Technology Stack
 

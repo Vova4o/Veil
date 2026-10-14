@@ -1,6 +1,6 @@
 # Development
 
-> Developer guide for ComfyUI Meta Viewer.
+> Developer guide for VEIL.
 
 This guide covers local setup, project structure, extension points, API contract rules, and testing.
 

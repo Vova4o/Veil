@@ -1,6 +1,6 @@
 # Configuration
 
-> Runtime configuration for ComfyUI Meta Viewer.
+> Runtime configuration for VEIL.
 
 The application is designed to run locally with a small set of environment variables. Most users can run it with the defaults.
 

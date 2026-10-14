@@ -1,8 +1,8 @@
 # Features
 
-> Feature overview for ComfyUI Meta Viewer.
+> Feature overview for VEIL.
 
-ComfyUI Meta Viewer is a local-first metadata browser for AI-generated images. It focuses on practical workflows: scan a folder, inspect prompts/workflows, search across a library, and export useful image derivatives such as transparent cutouts.
+VEIL is a local-first metadata browser for AI-generated images. It focuses on practical workflows: scan a folder, inspect prompts/workflows, search across a library, and export useful image derivatives such as transparent cutouts.
 
 ---
 

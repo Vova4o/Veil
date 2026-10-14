@@ -1,6 +1,6 @@
 # CSS Architecture
 
-> Styling architecture for ComfyUI Meta Viewer.
+> Styling architecture for VEIL.
 
 The CSS layer is built with plain CSS, custom properties, and modular files. There is no Sass/Less build step, which keeps the project simple and easy to run locally.
 

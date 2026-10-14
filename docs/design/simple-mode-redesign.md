@@ -1,6 +1,6 @@
 # Simple Mode Redesign
 
-> Product, UX, visual direction, and migration rules for the simplified generation experience in ComfyUI Meta Viewer.
+> Product, UX, visual direction, and migration rules for the simplified generation experience in VEIL.
 
 ## Status
 

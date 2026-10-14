@@ -13,7 +13,7 @@ release support.
 - `desktop.bat` always launches the development Electron shell from source, so
   a stale `dist/` build never hides local changes. It installs missing Node.js
   and `.venv` dependencies and pauses on errors. `desktop.bat --packaged` runs
-  `dist/desktop/win-unpacked/Comfy Meta Viewer.exe`.
+  `dist/desktop/win-unpacked/VEIL.exe`.
 - `npm run desktop` compiles the TypeScript shell and launches it against the
   project's `.venv` (`COMFY_META_PYTHON` can select a different interpreter).
 - `start.bat --web` / `start.sh --web` retain browser development. On Windows,
@@ -83,8 +83,8 @@ resolves Chocolatey shims to their installed FFmpeg binaries when possible.
 
 Outputs:
 
-- `dist/desktop/win-unpacked/Comfy Meta Viewer.exe`;
-- `dist/desktop/Comfy-Meta-Viewer-1.0.0-Setup.exe`.
+- `dist/desktop/win-unpacked/VEIL.exe`;
+- `dist/desktop/VEIL-1.0.0-Setup.exe`.
 
 The unpacked directory must travel together. The installer includes its Python
 runtime and video tools, requires no system Python/Poetry/Node.js, and preserves

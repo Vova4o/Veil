@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Core Philosophy
 
-This document defines the comprehensive prompt compilation, composition, and AI agent execution architecture for the **ComfyUI Meta Viewer (CMV)** ecosystem.
+This document defines the comprehensive prompt compilation, composition, and AI agent execution architecture for the **VEIL (CMV)** ecosystem.
 
 The system is engineered specifically for **frontier-class reasoning and multimodal AI models** (Google Gemini 3.1 Pro / 3.5–3.7 Flash, xAI Grok 4.6, OpenAI GPT-5.6, Anthropic Claude 4/5, Mimo v2.5, Hy3, Muse Spark) executed via isolated CLI agent hosts or direct API adapters. It operates without legacy compromises, unlocking:
 

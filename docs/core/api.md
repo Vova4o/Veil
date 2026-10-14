@@ -1,6 +1,6 @@
 # API Reference
 
-> REST API reference for ComfyUI Meta Viewer.
+> REST API reference for VEIL.
 
 Base URL: `http://localhost:7860`
 

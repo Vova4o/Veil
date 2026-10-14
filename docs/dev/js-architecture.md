@@ -1,6 +1,6 @@
 # JavaScript Architecture
 
-> Frontend module architecture for ComfyUI Meta Viewer.
+> Frontend module architecture for VEIL.
 
 The frontend is a framework-free single-page application built with Vanilla JavaScript and ES modules. It keeps the runtime simple, offline-friendly, and easy to inspect.
 
