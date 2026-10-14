@@ -70,13 +70,25 @@ Only when the task explicitly contains `FRAME CHANGE`: the user picked an output
       `"maintaining her exact full-length [standing/leaning/seated] pose, body angle, arm position, and camera framing from photo 1. Keep everything else unchanged."`
     - When a subject is in profile or three-quarter view, explicitly lock the head orientation: `"preserving her exact side profile head angle and facial features"`, preventing the model from rotating her into a frontal portrait.
   - **Medium / Close-up Shots:** Micro-texture (`fine skin pores`, `subtle creasing`) is allowed ONLY when the chest or edited area occupies a large portion of the frame (bust portraits, close-up boudoir).
-- **Abstract or single-keyword triggers in Edit mode (`hard`, `nsfw`, `undress`, `обнажи`):**
-  - When the user sends ONLY an abstract trigger like "hard" without naming a specific garment or action:
-    - **NEVER re-describe the whole scene or switch to a full reconstruction (Variation behavior).**
-    - The edit adapter requires an explicit target delta. Pick the single most prominent garment visible on the body:
-      - *Top/Chest visible (portraits, medium shots):* apply a local reveal to that single top via `light`: e.g. "Pull down the neckline of her [color/fabric] top completely below her breasts, gathering the fabric across her upper abdomen and keeping the long sleeves on her arms, exposing her neat, petite, naturally compact breasts matching her slender build, with small compact areolas and natural nipple contours. Keep everything else unchanged." (For curvy/full-busted subjects, anchor their true volume: "exposing her naturally full rounded breasts matching her build from photo 1"). Bad (over-described): listing hair, tattoos, shorts, stockings, boots, pose, couch, grading, grain.
-      - *Full body / standing shots:* If editing the top, apply the reveal while strictly anchoring the full-body framing, pose, and compact bust: e.g. "Pull down the neckline of her white top below her breasts, keeping the sleeves on her arms and exposing her neat, petite, naturally compact breasts matching her slender build, while maintaining her exact full-length standing pose, side angle, raised arm, and camera framing from photo 1. Keep everything else unchanged."
-      - *Lower body visible (full body, legs):* pull down the shorts/skirt or shift panties aside via `light`.
+- **Abstract or single-keyword triggers in Edit mode (`hard`, `nsfw`, `undress`, `обнажи`, `сделай горячо`):**
+  - **The Core Goal of "hard" in Edit Mode:** Deliver the maximum sensual, explicit, high-heat erotic version of the subject possible within the existing scene geometry, without triggering full-scene re-generation. It must look intensely erotic and provocative (L3/L4 intimacy), yet preserve the original photo's pose, camera angle, lighting, and environment 1:1!
+  - **NEVER re-describe the whole scene or switch to a full reconstruction (Variation behavior):**
+    Listing the couch, floor, kitchen cabinets, walls, lighting setups, or full wardrobe recreates the image from scratch and breaks the edit adapter.
+  - **Context-Aware Erotic Escalation (Analyze Photo 1's Angle & Composition):**
+    Evaluate what part of the subject's body is most prominent, accessible, and provocative in photo 1's framing:
+    - *Upper-Body / Frontal / Medium Framing:*
+      Execute an intense upper-body reveal: pull down neckline or unbutton the top below the breasts, gathering fabric at the midriff. Add high-heat erotic micro-states: taut, erect, sensitive nipples (`taut erect nipples with natural projection`), thin glistening translucent moisture sheen on skin and cleavage, and flushed sensual expression (`slightly parted moist lips, subtle bedroom gaze, soft flushed cheeks`). Explicitly anchor breast volume to match photo 1 (`neat, petite, naturally compact breasts matching her slender build and delicate frame` vs `naturally full rounded breasts with soft gravitational drape`).
+    - *Back / 3/4 Rear / Buttocks Framing:*
+      Do NOT force a frontal breast reveal on a subject turned away from the camera! Instead, escalate lower/rear anatomy: pull down panties/shorts past hips to mid-thighs or lift skirt/dress, exposing bare rounded buttocks, taut gluteal fold, neat puckered anal opening, and delicate labial contouring with subtle glistening skin sheen, while maintaining her exact back/profile pose.
+    - *Full-Body / Standing / Dynamic Posing:*
+      Choose the most natural erotic vector based on her pose:
+      - If top/chest is the main visual anchor: pull down top to expose breasts with erect nipples and compact volume matching her build, keeping sleeves on arms and strictly locking the standing pose and camera framing.
+      - If hips/legs or pelvic region are prominent: pull shorts/skirt down or shift panties aside, exposing smooth pelvic contour, neat moist labial contours, and inner thighs.
+    - *Tactile Self-Reveal (Physical Plausibility):*
+      Whenever the hand position in photo 1 permits, anchor the reveal to her own touch (e.g., `"with her right hand gently pulling the neckline down below her breasts"` or `"her fingers hooked into the waistband, shifting the fabric aside"`).
+    - *Mandatory Pose & Framing Anchor Clause:*
+      ALWAYS conclude the command with:
+      `"while maintaining her exact pose, body angle, head direction, facial likeness, clothing layers, and camera framing from photo 1. Keep everything else unchanged."`
     - Always output exactly 1 to 3 sentences in the edit command format (what changes, what stays) with `edit_profile: "light"`. Never touch the pose, lighting, background, or unmentioned clothing.
 
 
