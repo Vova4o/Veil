@@ -220,7 +220,7 @@ function initHelpCenter() {
                     <div class="help-grid">
                         <div class="shortcut-group">
                             <h4>What CMV Reads</h4>
-                            <p class="help-text">ComfyUI Meta Viewer extracts generation metadata embedded inside image files: prompts, sampler settings, models, LoRA entries, EXIF fields, raw chunks, and ComfyUI workflow data when present.</p>
+                            <p class="help-text">VEIL extracts generation metadata embedded inside image files: prompts, sampler settings, models, LoRA entries, EXIF fields, raw chunks, and ComfyUI workflow data when present.</p>
                         </div>
                         <div class="shortcut-group">
                             <h4>Workflow Graph</h4>

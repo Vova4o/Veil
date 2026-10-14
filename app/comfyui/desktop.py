@@ -251,7 +251,7 @@ def write_models_config(models_dir: Path, state_dir: Path | None = None) -> Path
     path = (state_dir or Path(tempfile.gettempdir()) / "comfy-meta-viewer") / CMV_MODEL_PATHS_FILE
     base = "'" + str(models_dir).replace("'", "''") + "'"
     content = (
-        "# Written by Comfy Meta Viewer from its ComfyUI settings; rewritten before each launch.\n"
+        "# Written by VEIL from its ComfyUI settings; rewritten before each launch.\n"
         f"comfy_meta_viewer:\n  base_path: {base}\n  is_default: true\n"
         + "".join(f"  {folder}: {folder}/\n" for folder in MODEL_FOLDERS)
     )

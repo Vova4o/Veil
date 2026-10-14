@@ -32,7 +32,8 @@
     font-family: var(--font-title);
     font-size: 17px;
     font-weight: 750;
-    letter-spacing: 0;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
     text-decoration: none;
     white-space: nowrap;
 }

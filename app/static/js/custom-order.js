@@ -1,5 +1,5 @@
 /**
- * Server-side custom sort order for ComfyUI Meta Viewer.
+ * Server-side custom sort order for VEIL.
  *
  * Drag-and-drop positions live in the `item_positions` table (one scope per
  * view: 'folder:<id>', 'media:all', 'collection:<id>') and are served via

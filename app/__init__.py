@@ -1,4 +1,4 @@
-"""ComfyUI Meta Viewer application package."""
+"""VEIL application package."""
 
 from .terminal_ui import install_rich_fallback
 

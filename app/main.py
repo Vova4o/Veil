@@ -1276,7 +1276,7 @@ def main():
     if "--no-browser" not in sys.argv:
         open_browser(port)
 
-    print("  ComfyUI Meta Viewer")
+    print("  VEIL")
     print(f"  http://127.0.0.1:{port}")
     print()
 

@@ -1,5 +1,5 @@
 /**
- * ComfyUI Meta Viewer — Global Theme Manager
+ * VEIL — Global Theme Manager
  * Supports: 'dark', 'light', 'strawberry', 'strawberry-dark', 'system'
  */
 

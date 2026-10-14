@@ -307,7 +307,7 @@ def vk_auth_callback():
         (
             "<!doctype html><html><body style='font-family:system-ui;"
             "padding:2rem'><h2>Authorization complete</h2><p>You can close "
-            "this tab and return to ComfyUI Meta Viewer.</p></body></html>"
+            "this tab and return to VEIL.</p></body></html>"
         ),
         200,
         {"Content-Type": "text/html; charset=utf-8"},
