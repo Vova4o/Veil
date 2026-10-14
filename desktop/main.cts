@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { DesktopBackend } from './backend.cjs';
 
 const APP_URL = 'cmv://app';
-app.setName('Comfy Meta Viewer');
+app.setName('VEIL');
 const profile = process.env.COMFY_META_DESKTOP_PROFILE || path.join(app.getPath('appData'), 'Comfy Meta Viewer');
 app.setPath('userData', profile);
 // Chromium sizes its HTTP cache at ~1% of free disk space and discards the whole cache
@@ -152,7 +152,7 @@ else {
         } catch { /* First launch. */ }
         const icon = path.join(projectRoot, 'desktop', 'assets', 'icon.png');
         window = new BrowserWindow({ ...bounds, minWidth: 900, minHeight: 640,
-            title: 'Comfy Meta Viewer', backgroundColor: '#111216', autoHideMenuBar: true,
+            title: 'VEIL', backgroundColor: '#111216', autoHideMenuBar: true,
             ...(existsSync(icon) ? { icon } : {}),
             webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false,
                 contextIsolation: true, sandbox: true, webSecurity: true },
@@ -177,5 +177,5 @@ else {
         ]));
         await window.loadURL(`${APP_URL}/_desktop/shell`);
         await startBackend();
-    }).catch(error => { dialog.showErrorBox('Comfy Meta Viewer', String(error)); app.quit(); });
+    }).catch(error => { dialog.showErrorBox('VEIL', String(error)); app.quit(); });
 }

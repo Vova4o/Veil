@@ -1,5 +1,5 @@
 @echo off
-title ComfyUI Meta Viewer
+title VEIL
 cd /d "%~dp0"
 if errorlevel 1 (
     echo [ERROR] Failed to open the application directory.
@@ -12,8 +12,8 @@ if /I "%~1"=="--reset-index" goto web
 if /I "%~1"=="--factory-reset" goto web
 
 set "COMFY_META_IMPORT_DIR=%~dp0.comfy_meta_uploads"
-if exist "%~dp0dist\desktop\win-unpacked\Comfy Meta Viewer.exe" (
-    start "" "%~dp0dist\desktop\win-unpacked\Comfy Meta Viewer.exe" %*
+if exist "%~dp0dist\desktop\win-unpacked\VEIL.exe" (
+    start "" "%~dp0dist\desktop\win-unpacked\VEIL.exe" %*
     exit /b 0
 )
 
@@ -40,7 +40,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Starting ComfyUI Meta Viewer...
+echo Starting VEIL...
 call poetry run python -m app.main %*
 if %errorlevel% neq 0 (
     echo.

@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "comfy-meta-viewer"
+name = "veil"
 version = "1.0.0"
 description = "ComfyUI image metadata viewer"
 authors = ["Lotargo"]

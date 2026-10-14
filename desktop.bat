@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Comfy Meta Viewer Desktop
+title VEIL Desktop
 cd /d "%~dp0"
 if errorlevel 1 (
     echo [ERROR] Failed to open the application directory.
@@ -29,12 +29,12 @@ if not defined COMFY_META_PYTHON if not exist ".venv\Scripts\python.exe" (
     call poetry install --no-root --quiet || goto fail
 )
 
-echo Starting Comfy Meta Viewer desktop from source...
+echo Starting VEIL desktop from source...
 call npm run desktop -- %* || goto fail
 exit /b 0
 
 :packaged
-set "DESKTOP_EXE=%~dp0dist\desktop\win-unpacked\Comfy Meta Viewer.exe"
+set "DESKTOP_EXE=%~dp0dist\desktop\win-unpacked\VEIL.exe"
 if not exist "%DESKTOP_EXE%" (
     echo [ERROR] Packaged app not found. Build it with: npm run desktop:package
     goto fail

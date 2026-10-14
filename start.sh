@@ -23,5 +23,5 @@ fi
 echo "Installing dependencies..."
 poetry install --no-root --quiet
 
-echo "Starting ComfyUI Meta Viewer..."
+echo "Starting VEIL..."
 exec poetry run python -m app.main "$@"
