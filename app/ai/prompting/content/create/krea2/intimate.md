@@ -35,9 +35,13 @@ Never render skin as a flat, airbrushed, textureless surface (adapt descriptive 
 1. **Shot Scale & Distance Rule (Crucial for Full-Body Shots):**
    - **Full-body, standing, or wide shots:** OMIT microscopic texture tokens (`fine visible pores`, `vellus hair`, `subsurface scattering`, `micro-relief`). Requesting microscopic pores on a distant subject forces diffusion models to zoom in into a medium portrait and destroy the scene composition. Describe macroscopic drape, tone, and contour only (`"smooth taut contours, natural soft-tissue drape"`).
    - **Close-ups & Bust portraits:** Use micro-texture: fine visible pores, subtle skin grain, natural micro-relief across shoulders, chest and thighs, with organic subsurface scattering.
-2. Areola & Nipple Morphology (Body-Proportional Fidelity):
-   - **Default (Slender, Petite, Athletic, & Aesthetic Figures):** Intimate features MUST match the subject's delicacy and build. Describe areolas and nipples as neat, compact, and refined: `"neat, compact rosy-pink areolas with a soft natural gradient contour blending seamlessly into the surrounding breast skin, natural nipple contours with subtle projection, and smooth taut breast contours"`. FORBIDDEN to generate sprawling, oversized areolas, prominent bumps, radial wrinkling/creasing, or swollen puffy nipples by default.
-   - **Voluptuous & Curvy Figures:** Maintain neat, proportional areolas scaled naturally to bust volume with realistic soft-tissue weight and gravitational drape. Realism comes from organic drape and cleavage softness, never from enlarged or distorted areolas.
+2. **Bust Volume & Areola Morphology (Body-Proportional Fidelity & Anti-Inflation):**
+   - **Slender, Petite, Athletic, & Delicate Figures (CRITICAL ANTI-INFLATION):**
+     Intimate features and breast volume MUST strictly match the subject's delicacy and build from photo 1. Diffusion models (moodyKrea2Mix / Krea2) default to heavy D-cup+ breasts if not constrained. When revealing or modifying the chest of a slender, petite, or modest-chested subject, the prompt MUST explicitly anchor her compact volume: `"exposing her neat, petite, naturally compact breasts matching her slender frame and delicate build, with small compact rosy-pink areolas and natural nipple contours"`. Categorically FORBID inflating bust volume, widening ribcage, or generating voluptuous curves on naturally petite or slender subjects.
+   - **Voluptuous & Curvy Figures:**
+     Maintain her actual visible bust volume from photo 1 (`"naturally full rounded breasts with realistic soft-tissue weight and gravitational drape"`). Realism comes from organic drape and cleavage softness, never from exaggerated cartoonish inflation.
+   - **Bust Size Invariance:** Bust size is an immutable identity anchor (like height, ethnicity, or eye color). Transfer it 1:1: never inflate a small bust, never deflate a large bust.
+   - **Areola & Nipple Detail:** For slender/neat figures, describe neat compact areolas with soft gradient boundaries and subtle nipple projection; FORBIDDEN to generate sprawling, oversized areolas, prominent dark Montgomery bumps, radial wrinkling, or swollen puffy nipples by default.
    - **Trigger-Only Tier (Macromastia / Vascularity / Heavy Fetish):** Prominent Montgomery tubercles, visible delicate blue veins, expanded areolas, and heavily projected/turgid nipples are STRICTLY restricted to explicit user prompts (e.g., `macromastia`, `макромастия`, `veiny breasts`, `вены`, `puffy areolas`, `large areolas`, `набухшие соски`, `engorged`). Never add them unprompted.
 3. Realism anchors (at least two for close-ups; omitted on full-body shots): fine vellus hair catching the backlight, visible skin pores, subtle warm-to-cool undertone variation, soft skin creases at joints, temporary marks from waistbands or underbands, scattered beauty marks or faint freckles.
 
@@ -96,9 +100,9 @@ Map the request/image to the precise level. Do NOT escalate levels without expli
 
 When the active mode is `edit`, do NOT use the full scene description format. Emit only one to four concise editor instruction sentences: what changes, then what stays unchanged.
 
-### Example E1 — Upper Body Reveal (Pulling Down / Unbuttoning)
+### Example E1 — Upper Body Reveal (Pulling Down / Unbuttoning — Slender/Petite Subject)
 ```
-Pull down the neckline of her dark ribbed knit sweater below her breasts, gathering the fabric across her upper midriff and keeping the sleeves on her arms. Fully expose her bare breasts with neat compact areolas, natural nipple contouring, natural skin pores, and soft-tissue drape. Keep everything else unchanged.
+Pull down the neckline of her dark ribbed knit sweater below her breasts, gathering the fabric across her upper midriff and keeping the sleeves on her arms. Fully expose her neat, petite, naturally compact breasts matching her slender build, with small compact areolas, natural nipple contouring, natural skin pores, and soft natural drape. Keep everything else unchanged.
 ```
 
 ### Example E2 — Lower Body Reveal (Pulling Panties Down / Shifting Aside)
@@ -109,7 +113,7 @@ Pull her blue denim shorts and white cotton panties down past her hips to her mi
 ### Example E3 — Full Garment Removal (Profile `remove`)
 ```
 Positive prompt:
-Bare torso, bare shoulders, and bare arms from shoulders to wrists with smooth taut skin, fine collarbones, and exposed rounded breasts with neat compact areolas and natural contouring. Keep everything else unchanged.
+Bare torso, bare shoulders, and bare arms from shoulders to wrists with smooth taut skin, fine collarbones, and exposed neat compact breasts matching her slender frame with small compact areolas and natural contouring. Keep everything else unchanged.
 
 Negative prompt:
 cream knitted sweater, long knitted sleeves, roll collar, cuffs
