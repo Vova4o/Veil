@@ -247,6 +247,31 @@ Add the file to `app/templates/index.html` or to the appropriate CSS import path
 
 ---
 
+## Naming and Rebranding
+
+The product has two kinds of names, kept apart on purpose:
+
+- **Brand** (`VEIL`): what users see: window title, header wordmark, installer, README, docs. It is defined in
+  [`brand.json`](../../brand.json) and can be changed at any time.
+- **Codename** (`mediastudio`): what the code uses internally: `MEDIASTUDIO_*` environment variables, `mediastudio_*`
+  browser-storage keys, the `mediastudio://` protocol, `%APPDATA%\MediaStudio`, `.mediastudio_data`, the app id
+  `org.lotargo.mediastudio`. It never changes with the brand, so a rename can not orphan user data.
+
+Rename the product with one command (commit your work first; `--dry-run` lists the files without writing):
+
+```bash
+python scripts/rebrand.py LACE --subtitle "New subtitle" --tagline "New tagline."
+python scripts/rebrand.py LACE --replace ComfyUI-Meta-Viewer=lace   # also rename the GitHub repo in links
+```
+
+It rewrites the name (and the lowercase slug in `package.json`, `pyproject.toml` and the docs), updates
+`brand.json`, and regenerates the placeholder icon and README banner (`--no-assets` skips that). Replace those
+placeholders with real artwork whenever it exists, then stop passing assets through the script. History
+(`CHANGELOG.md`) and LLM prompt text under `app/ai/prompting/content/` are never rewritten.
+
+New code and docs must not introduce the old product names (`CMV`, `COMFY_META_*`, `Comfy Meta Viewer`); use the
+codename for identifiers and the brand for user-facing text.
+
 ## Code Style
 
 ### Python
