@@ -22,10 +22,6 @@
     -webkit-backdrop-filter: blur(18px);
 }
 
-.studio-theme .global-header .header-logo span {
-    color: var(--accent);
-}
-
 .studio-theme .global-header .app-switcher {
     border-color: var(--border-subtle);
     background: var(--bg-elevated);

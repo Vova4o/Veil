@@ -154,7 +154,6 @@
 }
 
 .header-logo { color: var(--text); text-decoration: none; font-family: var(--font-title); font-weight: 700; }
-.header-logo span { color: var(--accent); }
 
 .library-page-label {
     padding-left: var(--space-md);

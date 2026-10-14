@@ -235,6 +235,13 @@
     -webkit-backdrop-filter: blur(18px);
 }
 
+/* Silver reads as graphite on light surfaces. */
+[data-theme="light"] .global-header .header-logo,
+[data-theme="strawberry"] .global-header .header-logo {
+    --logo-metal: linear-gradient(100deg, #2c2e36 0%, #6b6e7a 34%, #34363f 52%, #7c7f8b 64%, #2c2e36 100%);
+    --logo-mark-filter: brightness(.6) contrast(1.4) drop-shadow(0 1px 1px rgb(0 0 0 / .18));
+}
+
 [data-theme="light"] .global-header .app-switcher,
 [data-theme="strawberry"] .global-header .app-switcher,
 [data-theme="strawberry-dark"] .global-header .app-switcher {

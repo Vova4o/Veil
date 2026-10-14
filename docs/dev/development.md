@@ -267,7 +267,7 @@ python scripts/rebrand.py LACE --replace ComfyUI-Meta-Viewer=lace   # also renam
 It rewrites the name (and the lowercase slug in `package.json`, `pyproject.toml` and the docs), updates
 `brand.json`, and regenerates the text README banner (`--no-assets` skips that). The logo artwork lives in
 `desktop/assets/logo.svg` (on its dark stage) and `logo-mark.svg` (transparent); the desktop splash inlines the
-mark, and `node scripts/render_icon.mjs` renders `icon.png`/`icon.ico` from the logo after the artwork changes. History
+mark, the web header uses its copy `app/static/brand/logo-mark.svg` (a test keeps the two identical), and `node scripts/render_icon.mjs` renders `icon.png`/`icon.ico` from the logo after the artwork changes. History
 (`CHANGELOG.md`) and LLM prompt text under `app/ai/prompting/content/` are never rewritten.
 
 New code and docs must not introduce the old product names (`CMV`, `COMFY_META_*`, `Comfy Meta Viewer`); use the

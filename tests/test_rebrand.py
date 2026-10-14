@@ -120,3 +120,9 @@ def test_slug_is_not_applied_to_code_and_prompt_text_is_protected(repo):
     assert (repo / "app/code.py").read_text(encoding="utf-8") == "acme = 'a common word in code'  # LACE\n"
     prompt = (repo / "app/ai/prompting/content/p.md").read_text(encoding="utf-8")
     assert prompt == "A bride in ACME and acme, wearing ACME.\n"
+
+
+def test_web_logo_mark_matches_the_desktop_artwork():
+    root = SCRIPTS.parent
+    desktop = (root / "desktop/assets/logo-mark.svg").read_bytes()
+    assert (root / "app/static/brand/logo-mark.svg").read_bytes() == desktop
