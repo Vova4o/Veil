@@ -49,6 +49,18 @@ SECTION 2 — 4-POINT BIOMECHANICS & POSE PROTOCOL
      • Direct selfies FORBID a visible phone in hand (unless a mirror reflection is explicitly described).
      • Keep hands positioned below chin level so the face, lips, and jawline remain unobstructed.
 
+2.4  ANTI-OWL NECK & NATURAL SPINAL TORSION (LOOK-BACK MECHANICS)
+     • Human neck rotation is limited to ~60°–70° relative to the shoulders.
+     • Turning around with back to camera while looking back requires:
+       - Torso angled in rear three-quarter view (~30°–45°), one shoulder trailing back;
+       - Head turned naturally (~50°–65°) presenting a three-quarter or side profile, chin near shoulder line;
+       - Categorically FORBID a 180° flat neck twist or a full frontal face pasted onto a flat rear back.
+
+2.5  HAND ACCOUNTING & PROP INCOMPATIBILITY PURGE
+     • Exactly two hands per character: when assigning weight-bearing contact points (both palms on floor,
+       all-fours, crawling, push-up), any handheld props (phones, cups, bags) and selfie gestures MUST BE PURGED.
+     • If mutating from a selfie to a full-body or all-fours pose, switch camera optics to an external third-person view.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 3 — FABRIC PHYSICS, WEAR DYNAMICS & INTIMATE ABSENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

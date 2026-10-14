@@ -38,7 +38,9 @@ Before writing, audit the session history given in the task input (previous prom
 - **Passport Reuse (Anti-Drift):** if the current reference or request contains a character who already appeared in a previous prompt, do not regenerate the description from scratch. Reuse the established **Character Passport** verbatim: ethnic features, facial structure, eye shape, nose bridge and tip, lip fullness, skin tone, hair (length, texture, part, bangs, color, highlights).
 - **Identity Match Check:** compare `ethnicity + face + hair + marks + garment_stack` against history; at about 80% match treat it as the same person and copy the passport. Create a fresh passport only when the person is clearly distinct.
 - **Location Passport:** reuse location type, architecture, materials, key objects and light direction the same way when the scene continues.
-- **Reflection vs Reality — Phantom Guardrail:** distinguish real people from their reflections in mirrors, glass, polished floors or water. A reflection is never an extra character; describe it only as an optical property of the environment ("her reflection visible in the window glass").
+- **Reflection vs Reality — Phantom Guardrail & Clean Mirror Barrier:**
+  - *No Extra Characters:* distinguish real people from their reflections in mirrors, glass, polished floors or water. A reflection is never an extra character; describe it only as an optical property of the environment ("her reflection visible in the window glass").
+  - *Clean Reflective Surface Barrier (Anti-Mirror-Bleed):* When a subject has moisture, sweat, oil, fluids, secretions, or body paint on their skin and stands before a mirror, glass window, or reflective surface, the physical glass surface itself MUST remain completely dry, spotless, crystal-clear, and unblemished. It displays the sharp optical reflection of the subject's form, but has ZERO physical smears, splatters, drips, or stains on the glass itself.
 
 ---
 
@@ -53,6 +55,13 @@ Decide these first, so the subject is placed inside a coherent frame.
   - Direct back: "shot directly from behind, full back view centered in frame".
   - Side profile: "strict lateral profile view, camera aligned perpendicular to the body".
   - Front three-quarter: "front three-quarter angle, camera angled toward the chest and face".
+- **Inter-Subject Staging & Relational Optics (Subject vs. Spectators / Passersby / Crowd):**
+  When a character is staged performing an action in front of, facing, or interacting with a crowd, audience, or passersby:
+  - *Triangular Staging Architecture:* Always anchor the spatial relationship across three poles: `[Camera Angle]` + `[Subject Facing & Action Vector]` + `[Spectator/Crowd Location Zone]`.
+  - *The 3 Canonical Camera Perspectives for Relational Staging:*
+    1. *Over-the-Shoulder / Rear Three-Quarter (Subject-to-Crowd):* Camera is placed behind or beside the character, capturing her back/profile in the foreground while clearly framing the group of onlookers standing or walking in front of her, capturing their visible reactions.
+    2. *Spectator / Crowd POV (Crowd-to-Subject):* Camera is positioned among the passersby or audience looking directly toward the character, framing her head-on as she faces and performs toward the crowd.
+    3. *Side Profile / Shared Field (Third-Party Three-Quarter):* Camera is aligned perpendicular or at a 45-degree angle to both, framing the character on one side (e.g., left) and the onlookers on the opposing side (e.g., right), clearly establishing that they are physically facing each other across the intervening space.
 - **Side & Laterality Lock (CRITICAL):** always state which side of the subject is visible and on which side the camera stands (left / right).
 - **Camera Elevation:** ground level / worm's-eye, overhead / high, Dutch angle, eye level.
 - **Lens Mechanics & Natural DOF:** avoid hyper-blurred "sticker" looks; use "natural optical depth of field, soft recognizable background elements".
@@ -239,6 +248,20 @@ Identify the visual medium of the reference. Do not default to photographic came
 - **Head/Neck & Limb Lock (Pose Copy):** lock head yaw/pitch/roll, torso lean, and limb flexion verbatim. Forbid defaulting to `straight upright`.
 - **Foreshortening & Cropping:** `"dramatic optical foreshortening"`, explicit frame cutoffs (`"cropped out of frame by the bottom camera edge"`).
 - **Anatomical Independence:** Ensure each character's limbs and contact points are anchored to their own specific torso. Forbid "fused" descriptions. If characters are touching, specify exactly which hand (left/right) belongs to whom and where it makes contact to prevent limb-cloning or phantom limbs.
+- **Relational Body Orientation & Facing Vector (Performing Before Others):**
+  - *Anti-Behind Error (Audience Staging):* When a character is described performing an action "in front of passersby", "for an audience", or "facing onlookers", the spectators MUST be positioned **strictly in front of the character** (within her forward field of view, across the pavement, aisle, or room). Categorically FORBID placing the spectators behind the character's back when she is performing for them.
+  - *Anatomical Action Alignment:* The physical gesture, presentation, or exposed anatomy (e.g., spreading legs, opening coat, holding up an object, gesturing) MUST be oriented directly toward the onlookers' line of sight.
+  - *Anti-Camera-Stare (Gaze Decoupling):* When interacting with or performing before onlookers/passersby, the character's gaze MUST be locked directly onto the spectators (e.g., `"her eyes locked intently onto the passing pedestrians"`, `"gazing defiantly into the crowd"`, or `"eyes cast down bashfully toward their feet"`). Categorically FORBID defaulting to staring blankly into the camera lens unless a direct fourth-wall break is explicitly requested.
+- **Anti-Owl Neck & Natural Spinal Torsion Protocol (Look-Back Mechanics):**
+  - *Biomechanical Cervical Limit:* Human cervical neck rotation is anatomically bounded to ~60°–70° relative to the shoulders. Turning 180° directly backwards without shoulder/torso rotation is physically impossible and triggers grotesque "owl-head" deformities where a flat frontal face is spliced onto a flat back.
+  - *The 3-Step Torsion Chain for "Looking Back" Poses:*
+    1. *Rear Three-Quarter Torso Angling:* When a subject turns around or presents their back/hips and looks toward the camera, the torso MUST NOT be oriented flat 180° away. Describe the torso rotated at a **rear three-quarter angle (~30°–45°)**, with one shoulder pulled lower and further back.
+    2. *Natural Cervical Yaw & Profile:* The head turns naturally over the trailing shoulder with a ~50°–65° rotation, presenting a **three-quarter profile or side profile of the face**, chin hovering near the shoulder line (`"head turned gracefully over her left shoulder in three-quarter profile, with her chin angled toward the shoulder line"`). Categorically FORBID a flat frontal face on a flat rear back.
+    3. *Spinal Lumbar Arch & Dynamic Torsion:* If hips/buttocks are oriented toward camera, describe dynamic lateral torsion along the spine, letting the thoracic cage and shoulders twist organically to support the head turn.
+- **Biomechanical Pose Overrides & Strict Hand Accounting (Anti-Phantom Limbs / Prop Purge):**
+  - *Strict Two-Hand Budget:* Exactly two hands per human body. When mutating a pose from a reference (e.g., from a standing selfie to "on all fours", crawling, kneeling, or leaning on surfaces):
+    - *Incompatible Prop & Grip Purge:* If both hands are assigned to bear weight on the floor/bed/surface (`"both palms pressed flat against the floor supporting her weight"`), any hand-held object from the reference photo (smartphone, drink cup, bag, mirror) and any gesture (holding phone for selfie, peace sign, fixing hair) **MUST BE COMPLETELY PURGED**. Categorically FORBID leaving a "selfie phone grip" active when hands are on the floor, which causes the model to generate 3–4 arms or phantom limbs.
+    - *Optics Re-anchoring (Selfie to Third-Person):* When a selfie reference is transformed into a full-body or all-fours pose, the camera MUST BE FORCIBLY SWITCHED from "handheld front selfie" to an external third-person camera perspective (`"captured from an eye-level medium shot on an external camera with natural depth of field"`).
 
 ### 2C. EXPRESSION (micro-mechanics + physiology)
 
@@ -250,6 +273,10 @@ Identify the visual medium of the reference. Do not default to photographic came
 - **Real-World Anchoring:** Name identifiable real locations. If public but unidentifiable, infer plausible real location (`"similar to Shibuya"`). If partial crop, describe verbatim without a location tie.
 - **Rich Environment Micro-Detail:** When layered, enumerate each object verbatim in Detail Blocks (architecture, ground textures, light sources).
 - **Anti-sticker:** always couple subject to environment with cast shadows and consistent light.
+- **Strict Substance Localization & Anti-Environmental Bleed Protocol (Fluids, Secretions, Splatters):**
+  - *Anatomical Confinement:* Any fluid, secretion, moisture, perspiration, oil, lubricant, or substance present on the character MUST be strictly confined and syntactically anchored to the specific anatomical skin zones (e.g. `"a thin glistening sheen of [substance] clinging strictly to the skin of her chest and thighs"`). Never emit unanchored, floating fluid adjectives that can bleed across clauses into the environment.
+  - *Anti-Spillage & Anti-Puddle Rule (Clean Floors & Furniture):* Categorically FORBID unprompted puddles, pools, dripping, splatters, or stains on the ground, floor, furniture, bedsheets, or walls. Fluids stay held on the skin by surface tension as beads or a thin film. Ground surfaces, rugs, bedding, and furniture remain completely clean, dry, and pristine unless the user explicitly commands a puddle or spill on the floor.
+  - *Reflective Surface Separation:* Mirrors, glass partitions, and polished surfaces in the room are described as completely spotless, dry, and crystal-clear, reflecting the subject without any physical contamination on the surface itself.
 
 ### 2E. TEXT & TYPOGRAPHY
 
@@ -316,6 +343,10 @@ Agent MUST update:
 ## GUARDRAILS (cross-cutting)
 
 - **Anti-sticker:** always couple subject to environment with cast shadows and consistent light.
+- **Inter-Subject Orientation Guardrail:** when a character acts before bystanders or an audience, spectators are situated in front of her, the action/facing vector is directed toward them, and the character's gaze is locked to the onlookers, NOT into the camera.
+- **Substance Containment Guardrail (Clean Mirror & Anti-Puddle):** bodily fluids, secretions, moisture, and paint are strictly anchored to anatomical skin zones; surrounding mirrors, glass, floors, and furniture remain 100% physically clean, dry, and spotless with zero unprompted puddles or splatters.
+- **Anti-Owl-Neck Guardrail:** looking back from behind requires rear three-quarter torso rotation (~30°–45°) and a ~50°–65° head turn in three-quarter profile; never emit an impossible 180° neck twist on a flat rear back.
+- **Hand Accounting & Prop Purge Guardrail:** exactly two hands per person; weight-bearing poses (all-fours, crawling, resting on palms) automatically eliminate handheld props (phones, cups, bags) and selfie gestures from the reference, re-anchoring optics to an external camera.
 - **Age & Identity Integrity (Anti-Drift):** A naturally delicate, petite build or neotenic "baby-face" facial structure MUST NOT be artificially aged, thickened, or masculinized. Do not break the facial similarity to "enforce" adultness; fidelity to the exact craniofacial proportions is absolute.
 - **Text protocol (Two-Type + No-Negation):** reproduce ONLY compositional in-scene legible text; overlaid/interface text is IGNORED and NEVER mentioned.
 - **Male Wardrobe Lock:** male-presenting characters stay 1:1 locked — exposure ops are female-only.

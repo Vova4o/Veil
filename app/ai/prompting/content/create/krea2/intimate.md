@@ -79,6 +79,30 @@ To prevent diffusion deformities, phantom limbs, and anatomical fusion when desc
      "[Active Hand/Finger Insertion & Orifice 1], while simultaneously [Active Hand/Finger Insertion & Orifice 2]".
      Template: "the fingers of the left hand are hooked and inserted into the vaginal opening with labial tissue contouring around the insertion margin, while simultaneously the fingers of the right hand are inserted into the anal opening with taut skin contouring along the gluteal cleft".
 
+## PHASE 3C — EXHIBITIONISM, VOYEURISM & AUDIENCE-FACING STAGING PROTOCOL
+
+When the character exposes anatomy, spreads legs, undresses, masturbates, or performs an intimate action in front of others (passersby, strangers, audience, passengers, onlookers, crowd):
+
+1. **ANTI-BEHIND AUDIENCE ANCHOR:**
+   - The crowd/spectators MUST be situated **strictly in front of the character** (across the sidewalk, across the train car aisle, in front of the park bench/window), placed directly within her forward field of view.
+   - **Categorically FORBID** placing the audience or crowd behind the character's back when she is exposing herself to them.
+2. **ANATOMICAL ACTION ALIGNMENT:**
+   - The exposed anatomy (widely spread thighs, parted labia, bare breasts, pulled-down panties, lifted skirt) MUST be turned and oriented **directly toward the onlookers' line of sight**.
+3. **GAZE DECOUPLING (ANTI-CAMERA-STARE):**
+   - The character's gaze MUST be locked directly onto the spectators:
+     - Provocative / Defiant: `"looking directly into the eyes of the stunned passersby with an uninhibited, teasing smirk"`.
+     - Bashful / Embarrassed: `"biting her lip and casting her eyes shyly downward toward the spectators' reactions"`.
+   - The onlookers' gaze must be directed at her: `"the passersby are stopped and turned toward her, their eyes locked on her spread legs and exposed anatomy"`.
+   - **Categorically FORBID** the character staring blankly into the camera lens.
+4. **MANDATORY CAMERA STAGING (TRIANGULAR GEOMETRY):**
+   Always establish one of three explicit camera angles to ground the scene:
+   - *Angle A — Over-the-Shoulder / Rear Three-Quarter:* Camera placed behind/beside the character, capturing her back/hips in the foreground while clearly framing the shocked/mesmerized faces of the onlookers looking back at her.
+   - *Angle B — Spectator / Crowd POV:* Camera positioned directly amongst the onlookers looking toward her, capturing her head-on in full exposure as she spreads her legs or flashes.
+   - *Angle C — Side Profile / Shared Field:* Camera aligned perpendicular to both, framing the character on one side of the frame (e.g. left) and the onlookers on the opposing side (e.g. right), capturing the clear open space and mutual visual connection between them.
+5. **INTIMATE POSE MUTATION, ALL-FOURS & LOOK-BACK PROTOCOL:**
+   - *Weight Bearing & Hands Independence (All-Fours / Kneeling):* In all-fours (doggystyle, crawling, kneeling with palms on bed/floor), both palms or forearms support the subject's upper body. **Categorically FORBID** describing the subject holding a phone or taking a selfie in this pose. All handheld props (phones, drinks, bags) from the reference photo MUST be purged, and the camera is anchored to an external third-person view.
+   - *Look-Back from Behind (Anti-Owl Neck):* When presenting hips/buttocks or intimate anatomy from behind while looking back toward the viewer/spectators, describe the torso rotated at a **rear three-quarter view (~30°–45°)** with one shoulder trailing, allowing the head to turn ~50°–65° naturally in three-quarter profile toward the onlookers or camera. Never describe a 180° neck twist on a flat rear back.
+
 ## PHASE 4 — INTIMACY DIAL [REPLACEABLE MODULE]
 
 - **Anatomical Fidelity:** Intimate anatomy must match the subject's overall physique and delicacy: delicate, compact, neatly proportioned labial contours and tight, naturally closed sphincter.
@@ -91,10 +115,22 @@ Map the request/image to the precise level. Do NOT escalate levels without expli
 - **L3 — Intimate / Erotic Play:** Focus on explicit anatomy, physical tension, subtle moisture sheen. No intimate devices/toys are ever described (see Phase 3B suppression).
 - **L4 — Explicit / Hardcore:** Uncensored mechanical coupling, full insertion, climax, multi-character sexual mechanics.
 
-## MOISTURE & FLUID PROTOCOL [REPLACEABLE MODULE]
+## MOISTURE, SECRETIONS & SUBSTANCE CONTAINMENT PROTOCOL (ANTI-BLEED & CLEAN SURFACES)
 
-- **SOURCE RULE:** describe moisture ONLY when present in the reference OR requested.
-- **ANTI-GEL RENDERING:** Force thin, transparent, optical descriptions (`"faint translucent sheen"`, `"thin natural film"`). FORBID `"thick strands"`, `"pool"`.
+- **SOURCE RULE:** Describe moisture, fluids, secretions, or lubricant ONLY when present in the reference OR explicitly requested.
+- **ANTI-GEL RENDERING:** Force thin, transparent, optical descriptions (`"faint translucent sheen"`, `"thin natural film"`, `"delicate glistening dewdrop"`). FORBID `"thick strands"`, `"massive pools"`, `"thick paste"`.
+- **STRICT ANATOMICAL LOCALIZATION (ANTI-BLEED):**
+  - Any fluid or secretion (semen, vaginal moisture, sweat, oil, bodily discharge) MUST be syntactically anchored and strictly confined to the exact anatomical skin landmarks mentioned: e.g. `"a thin glistening pearlescent sheen of [fluid] clinging strictly to the skin of her thighs, pelvic contour, and lower abdomen"`.
+  - **Categorically FORBID** unanchored, free-floating fluid adjectives in the prompt, which cause diffusion text encoders to contaminate the entire scene.
+- **REFLECTIVE SURFACES & MIRRORS (THE CLEAN MIRROR BARRIER):**
+  - When a character coated in fluids/secretions stands before a mirror, glass window, or polished reflective surface:
+  - The physical surface of the glass/mirror is **100% clean, dry, spotless, crystal-clear, and unsoiled**.
+  - Describe the mirror as: `"a large wall mirror with a completely clean, dry, and spotless glass surface, reflecting her coated form with optical clarity, with zero smudges, stains, or fluids on the glass itself"`.
+  - Fluids exist ONLY on the subject's skin; the mirror merely reflects them optically.
+- **GROUND, BED & FURNITURE CLEANLINESS (ANTI-PUDDLE RULE):**
+  - Fluids remain held on the subject's skin by natural surface tension.
+  - **Categorically FORBID** unprompted puddles, dripping onto the floor, pools of liquid, or soaked furniture/bedding.
+  - Floors, ground pavement, rugs, bedsheets, and furniture remain **completely dry, clean, and pristine**, unless the user explicitly and deliberately requested puddles on the ground (`"лужа на полу"`, `"puddle on the floor"`).
 
 ## MASTER REFERENCE EXAMPLES — PHOTO EDIT DELTA COMMANDS (MODE: EDIT)
 

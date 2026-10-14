@@ -18,6 +18,13 @@ SECTION 1 — SPATIAL ANCHORING & BLOCK PARTITIONING
      • Complete the description of Character A entirely before initiating Character B.
        This prevents cross-character feature bleeding, fused outfits, and extra limbs.
 
+1.3  SURFACE & SUBSTANCE ISOLATION (CLEAN ENVIRONMENT ANCHOR)
+     • Attributes, clothing, bodily fluids, moisture, or materials belonging to one person or surface
+       must never bleed onto neighboring people or the environment.
+     • Mirrors and reflective glass remain 100% physically clean, dry, and pristine, showing only the optical
+       reflection of characters with zero physical smudges, splatters, or liquid on the glass itself.
+     • Ground surfaces remain completely dry with zero unprompted puddles or liquid pooling.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 2 — 2-TIER ANTI-CLONING PROTOCOL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,6 +65,17 @@ SECTION 3 — INTERACTIVE BIOMECHANICS & GAZE VECTORS
        mutual eye contact (“looking directly into each other's eyes”),
        directed gaze (“Character A looks at Character B while Character B looks at the camera”),
        or environmental focus (“both gazing toward the horizon”).
+
+3.3  SUBJECT VS. AUDIENCE / SPECTATOR STAGING (ORIENTATION TRIANGLE)
+     • When a primary subject performs an action, interacts with, or exposes themselves to
+       passersby, spectators, or an audience:
+       - Facing Vector: The primary character's body and face must explicitly face toward the spectators.
+       - Audience Positioning (Anti-Behind): Spectators/passersby MUST be positioned in front of
+         the character (in their forward field of view), NOT behind them.
+       - Gaze Decoupling: The primary character's gaze MUST be locked on the spectators or their reactions,
+         NOT staring into the camera lens.
+       - Camera Anchor: Explicitly anchor the viewpoint: Over-the-shoulder (behind subject looking at crowd),
+         Crowd POV (from the crowd looking at subject), or Side Profile (shared two-field view).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 4 — CROSS-FAMILY SERIALIZATION

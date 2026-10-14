@@ -67,6 +67,13 @@ Levels L1–L2 are used only when the user explicitly requests a soft/aesthetic 
        different eye shape”) or Tier 3 trait-based descriptions to avoid non-consensual
        celebrity likeness in explicit acts.
 
+2.3  EXHIBITIONISM, VOYEURISM & AUDIENCE-FACING STAGING
+     • When a character exposes anatomy, spreads legs, or masturbates before onlookers/passersby:
+       - Facing Vector: Turn the character's front, chest, and spread pelvis directly toward the audience.
+       - Audience Positioning: Passersby and crowd MUST be positioned in front of the character (within her line of sight across the space), never placed behind her back.
+       - Gaze Vector: Character locks eyes directly with the spectators (or casts eyes down toward their reactions), NEVER staring into the camera lens.
+       - Camera Anchor: Establish explicit framing: Over-the-shoulder (behind subject looking at crowd), Spectator POV (from crowd looking at subject), or Side Profile (shared field).
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 3 — WARDROBE LEGO (HARD VARIANT — PROACTIVE EXPOSURE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -122,6 +129,22 @@ SECTION 4 — MOISTURE & FLUID PROTOCOL (ANTI-GEL & ANTI-BUKKAKE)
        glistening under key light”.
      • Semen / Ejaculate (Anti-Bukkake): “a few thin pearlescent strands of semen landing
        across the lower abdomen, translucent and catching light, with tiny scattered droplets”.
+
+4.3  STRICT ANATOMICAL LOCALIZATION & ANTI-ENVIRONMENTAL BLEED
+     • All secretions, fluids, and moisture MUST be syntactically anchored to the exact skin zones
+       (e.g., “translucent pearlescent sheen of fluid clinging strictly to the skin of her thighs and abdomen”).
+     • Categorically FORBID unanchored fluid adjectives that diffuse across the scene.
+
+4.4  REFLECTIVE SURFACES & MIRRORS (THE CLEAN MIRROR BARRIER)
+     • When a fluid-coated character stands before a mirror, glass wall, or reflective surface:
+       The mirror's physical glass surface is 100% clean, dry, spotless, and unblemished.
+       It provides an optical reflection of the coated subject with zero physical smudges,
+       splatters, drips, or stains on the glass itself.
+
+4.5  GROUND & FURNITURE CLEANLINESS (ANTI-PUDDLE RULE)
+     • Fluids remain held on the skin by surface tension as glistening sheens or beads.
+     • Categorically FORBID unprompted puddles, pools, dripping onto the floor, or soaked furniture/bedding.
+     • Ground, floors, and furniture remain completely clean and dry unless the user explicitly commands a puddle on the floor.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 5 — CROSS-FAMILY NSFW ADAPTATION
