@@ -34,6 +34,9 @@ let backend: DesktopBackend | undefined;
 let stopping = false;
 let starting: Promise<void> | undefined;
 let failure = '';
+// The splash's intro (the V rising, the veils opening) plays out before the library replaces it.
+const SPLASH_INTRO_MS = 1600;
+let splashUntil = 0;
 const projectRoot = path.resolve(__dirname, '..');
 
 function isAppUrl(value: string): boolean {
@@ -67,11 +70,18 @@ function configureNavigation(contents: WebContents): void {
     contents.on('did-create-window', child => configureNavigation(child.webContents));
 }
 
+function logoMark(): string {
+    try {
+        return readFileSync(path.join(projectRoot, 'desktop', 'assets', 'logo-mark.svg'), 'utf8').replace(/<\?xml[^>]*\?>/, '');
+    } catch { return ''; }
+}
+
 function shellPage(): Response {
     const file = path.join(projectRoot, 'desktop', 'shell.html');
     const body = readFileSync(file, 'utf8').replace('<!--STATUS-->', failure
         ? 'The application could not start. Open the log for details, then try again.'
-        : 'Starting your library…').replace('<!--ACTIONS-->', failure ? '' : 'hidden');
+        : 'Starting your library…').replace('<!--ACTIONS-->', failure ? '' : 'hidden')
+        .replace('<!--STATE-->', failure ? 'failed' : 'starting').replace('<!--MARK-->', logoMark);
     return new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8',
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'" } });
 }
@@ -90,6 +100,8 @@ async function startBackend(): Promise<void> {
             } });
         try {
             await backend.start();
+            const intro = splashUntil - Date.now();
+            if (intro > 0) await new Promise(resolve => setTimeout(resolve, intro));
             if (!stopping) await window?.loadURL(`${APP_URL}/`);
         } catch (error) {
             failure = String(error);
@@ -164,7 +176,7 @@ else {
         } catch { /* First launch. */ }
         const icon = path.join(projectRoot, 'desktop', 'assets', 'icon.png');
         window = new BrowserWindow({ ...bounds, minWidth: 900, minHeight: 640,
-            title: 'VEIL', backgroundColor: '#111216', autoHideMenuBar: true,
+            title: 'VEIL', backgroundColor: '#06060a', autoHideMenuBar: true, show: false,
             ...(existsSync(icon) ? { icon } : {}),
             webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false,
                 contextIsolation: true, sandbox: true, webSecurity: true },
@@ -175,6 +187,7 @@ else {
             // lifetime that can keep Python alive after the library is closed.
             for (const child of BrowserWindow.getAllWindows()) if (child !== window) child.destroy();
         });
+        window.once('ready-to-show', () => window?.show());
         configureNavigation(window.webContents);
         Menu.setApplicationMenu(Menu.buildFromTemplate([
             { label: 'File', submenu: [
@@ -188,6 +201,7 @@ else {
             { role: 'windowMenu' },
         ]));
         await window.loadURL(`${APP_URL}/_desktop/shell`);
+        splashUntil = Date.now() + SPLASH_INTRO_MS;
         await startBackend();
     }).catch(error => { dialog.showErrorBox('VEIL', String(error)); app.quit(); });
 }

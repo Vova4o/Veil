@@ -1,7 +1,7 @@
-"""Generate the placeholder brand assets (app icon and README banner) from brand.json.
+"""Generate the text README banner from brand.json.
 
-These are text-only stand-ins until a real logo exists; drop final artwork over the same
-files (desktop/assets/icon.png, icon.ico, docs/assets/readme-banner.png) and stop calling this.
+The app icon comes from the logo artwork (desktop/assets/logo.svg) via scripts/render_icon.mjs,
+so a rename does not touch it.
 """
 
 from __future__ import annotations
@@ -43,17 +43,7 @@ def _spaced(draw: ImageDraw.ImageDraw, center: tuple[float, float], text: str, f
 
 
 def generate(root: Path, brand: dict[str, str]) -> list[Path]:
-    """Write the icon and banner for ``brand`` under ``root``; return the files written."""
-    size = 1024
-    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(icon)
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=220, fill=CARD)
-    draw.rounded_rectangle((28, 28, size - 29, size - 29), radius=196, outline=LINE, width=6)
-    draw.text((size / 2, size / 2 + 14), brand["name"][:1].upper(), font=_font("bold", 680), fill=TEXT, anchor="mm")
-    icon_png, icon_ico = root / "desktop/assets/icon.png", root / "desktop/assets/icon.ico"
-    icon.resize((512, 512), Image.LANCZOS).save(icon_png)
-    icon.save(icon_ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-
+    """Write the banner for ``brand`` under ``root``; return the files written."""
     width, height = 1000, 350
     banner = Image.new("RGB", (width, height), BG)
     draw = ImageDraw.Draw(banner)
@@ -64,4 +54,4 @@ def generate(root: Path, brand: dict[str, str]) -> list[Path]:
     draw.text((width / 2, 272), brand["tagline"], font=_font("italic", 30), fill=DIM, anchor="mm")
     banner_png = root / "docs/assets/readme-banner.png"
     banner.save(banner_png)
-    return [icon_png, icon_ico, banner_png]
+    return [banner_png]

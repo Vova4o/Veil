@@ -1,17 +1,142 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-state="<!--STATE-->">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VEIL</title>
 <style>
-html { color-scheme: dark; background: #111216; color: #ededf0; font: 13px system-ui, sans-serif; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
-main { padding: 32px; max-width: 440px; text-align: center; }
-h1 { font-size: 20px; font-weight: 600; margin: 0 0 14px; }
-p { color: #a6a7b1; line-height: 1.6; }
-button { font: inherit; border: 1px solid #454651; border-radius: 6px; padding: 8px 14px; background: #25262e; color: #ededf0; margin: 6px; cursor: pointer; }
-button:focus-visible { outline: 2px solid #aaa6ed; outline-offset: 3px; }
+:root { --cycle: 3.2s; --intro: 1.5s; }
+html { color-scheme: dark; background: #06060a; color: #ededf0; font: 13px "Segoe UI", system-ui, sans-serif; }
+body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; overflow: hidden;
+    background: radial-gradient(ellipse 70% 62% at 50% 46%, #121219 0%, #07070b 52%, #020204 100%);
+}
+main { display: grid; justify-items: center; text-align: center; padding: 32px; max-width: 440px; }
+
+/* The mark: the artwork is inlined untouched, the overlay shares its 400x400 stage. */
+.stage { position: relative; width: min(280px, 46vmin); aspect-ratio: 1; margin-bottom: -6%; }
+.stage > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.stage::before {
+    content: ""; position: absolute; inset: 8% 0 14%; border-radius: 50%;
+    background: radial-gradient(closest-side, rgb(236 237 248 / .09), transparent);
+}
+.stage::after {
+    content: ""; position: absolute; left: 27%; right: 27%; top: 77%; height: 6%; border-radius: 50%;
+    background: radial-gradient(closest-side, rgb(214 213 223 / .28), rgb(122 122 136 / 0));
+    filter: blur(3px); animation: fade-in 1.2s .6s both;
+}
+/* The silver sits a touch below white so the running light can read on the satin. */
+.stage > svg:not(.glints) { filter: brightness(.82) contrast(1.06); }
+.glints { mix-blend-mode: screen; pointer-events: none; }
+
+#metal-V { animation: metal-in 1s .1s cubic-bezier(.2, .7, .2, 1) both; }
+#silk {
+    animation: silk-in 1.3s .35s cubic-bezier(.3, .6, .1, 1) both, breathe 6s var(--intro) ease-in-out infinite;
+}
+@keyframes metal-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes silk-in {
+    from { opacity: 0; clip-path: inset(-5% 50% -5% 50%); }
+    35% { opacity: 1; }
+    to { opacity: 1; clip-path: inset(-5% -5% -5% -5%); }
+}
+@keyframes breathe { 50% { transform: translateY(-1.6px); } }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* Loading: light runs along the satin creases into the valley, down the V and flares at its tip. */
+.crease, .edge { fill: none; stroke: #fff; stroke-linecap: round; stroke-dasharray: .18 2; stroke-dashoffset: .18; }
+.crease { stroke-width: 2.8; animation: crease var(--cycle) var(--intro) cubic-bezier(.45, .05, .55, .95) infinite; }
+.edge { stroke-width: 2.4; animation: edge var(--cycle) var(--intro) cubic-bezier(.5, 0, .7, 1) infinite; }
+.flare { opacity: 0; transform-box: fill-box; transform-origin: center; animation: flare var(--cycle) var(--intro) ease-out infinite; }
+.sheen { animation: sheen var(--cycle) var(--intro) cubic-bezier(.4, 0, .4, 1) infinite; }
+.crease:nth-of-type(2) { animation-delay: calc(var(--intro) + .08s); }
+.crease:nth-of-type(3) { animation-delay: calc(var(--intro) + .16s); }
+.crease:nth-of-type(4) { animation-delay: calc(var(--intro) + .24s); }
+@keyframes crease { 0% { stroke-dashoffset: .18; } 42%, 100% { stroke-dashoffset: -1; } }
+@keyframes edge { 0%, 34% { stroke-dashoffset: .18; } 62%, 100% { stroke-dashoffset: -1; } }
+@keyframes flare { 0%, 56% { opacity: 0; transform: scale(.4); } 64% { opacity: 1; transform: scale(1); } 86%, 100% { opacity: 0; transform: scale(1.5); } }
+@keyframes sheen { 0% { transform: translateX(-260px); } 55%, 100% { transform: translateX(260px); } }
+
+h1 {
+    margin: 0; font-size: 26px; font-weight: 300; letter-spacing: .62em; text-indent: .62em;
+    background: linear-gradient(100deg, #8d8f9b 0%, #f4f4f8 22%, #a9abb6 40%, #fafafd 50%, #8d8f9b 72%) 0 0 / 220% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: fade-in 1s .7s both, shimmer var(--cycle) var(--intro) linear infinite;
+}
+@keyframes shimmer { to { background-position: -220% 0; } }
+
+.loader {
+    position: relative; width: 132px; height: 1px; margin: 22px 0 16px; overflow: hidden;
+    background: linear-gradient(90deg, transparent, rgb(200 201 212 / .22), transparent);
+    animation: fade-in 1s .9s both;
+}
+.loader::after {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 44px;
+    background: linear-gradient(90deg, transparent, #fff, transparent);
+    animation: glide var(--cycle) var(--intro) cubic-bezier(.45, .05, .55, .95) infinite both;
+}
+@keyframes glide { 0% { transform: translateX(-44px); } 60%, 100% { transform: translateX(132px); } }
+
+p { margin: 0; color: #8d8e9a; line-height: 1.6; letter-spacing: .02em; animation: fade-in 1s 1s both; }
+.actions { margin-top: 18px; }
+button { font: inherit; border: 1px solid #3b3c47; border-radius: 6px; padding: 8px 14px; background: #17181e; color: #ededf0; margin: 6px; cursor: pointer; }
+button:hover { border-color: #5b5c69; }
+button:focus-visible { outline: 2px solid #c9cad6; outline-offset: 3px; }
 [hidden] { display: none; }
+
+[data-state="failed"] .glints, [data-state="failed"] .loader { display: none; }
+[data-state="failed"] .stage > svg { filter: saturate(0) brightness(.62); }
+[data-state="failed"] #silk { animation: none; }
+[data-state="failed"] h1 { animation: fade-in 1s .7s both; }
+[data-state="failed"] p { color: #c4c5cf; margin-top: 20px; }
+
+@media (prefers-reduced-motion: reduce) {
+    #metal-V, #silk, h1, p, .loader, .stage::after { animation: fade-in .4s both; }
+    .glints { display: none; }
+    .loader::after { animation: pulse 2.4s ease-in-out infinite; width: 100%; }
+    @keyframes pulse { 50% { opacity: .25; } }
+}
 </style><script src="/_desktop/shell.js" defer></script></head>
-<body><main><h1>VEIL</h1><p role="status"><!--STATUS--></p>
-<div <!--ACTIONS-->><button id="retry" type="button">Try again</button><button id="logs" type="button">Open logs</button></div>
+<body><main>
+<div class="stage" aria-hidden="true">
+<!--MARK-->
+<svg class="glints" viewBox="0 0 400 400">
+  <defs>
+    <filter id="glint-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="flare-light">
+      <stop offset="0" stop-color="#fff"/><stop offset=".25" stop-color="#eef0fb" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#c9cbe0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sheen-light" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- The artwork's own luminance shapes the sheen: bright satin catches it, shadowed folds do not. -->
+    <mask id="mark-light"><use href="#silk"/><use href="#metal-V"/></mask>
+  </defs>
+  <g mask="url(#mark-light)"><g transform="skewX(-18)"><rect class="sheen" x="80" y="80" width="90" height="260" fill="url(#sheen-light)"/></g></g>
+  <!-- Creases follow the highlight paths of desktop/assets/logo-mark.svg. -->
+  <g filter="url(#glint-glow)">
+    <path class="crease" pathLength="1" d="M 58,123 C 96,113 126,119 144,143 C 158,161 169,195 186,210 C 193,217 197,217 200,214"/>
+    <path class="crease" pathLength="1" d="M 70,121 C 108,119 130,133 148,164 C 161,187 179,216 194,220"/>
+    <path class="crease" pathLength="1" d="M 89,123 C 116,130 132,149 149,182 C 164,210 182,226 197,226"/>
+    <path class="crease" pathLength="1" d="M 114,135 C 138,160 146,183 164,210 C 175,227 185,234 197,236"/>
+  </g>
+  <g filter="url(#glint-glow)">
+    <path class="crease" pathLength="1" d="M 341,122 C 305,114 276,113 257,126 C 237,140 230,167 219,190 C 211,206 203,218 198,217"/>
+    <path class="crease" pathLength="1" d="M 339,124 C 303,122 272,123 253,145 C 237,163 232,193 214,212"/>
+    <path class="crease" pathLength="1" d="M 326,125 C 286,129 268,140 252,163 C 234,191 228,216 201,232"/>
+    <path class="crease" pathLength="1" d="M 314,128 C 282,137 266,157 253,184 C 239,212 226,228 201,243"/>
+  </g>
+  <g filter="url(#glint-glow)">
+    <path class="edge" pathLength="1" d="M 105,170 L 198,307"/>
+    <path class="edge" pathLength="1" d="M 295,170 L 198,307"/>
+  </g>
+  <circle class="flare" cx="198" cy="306" r="16" fill="url(#flare-light)"/>
+</svg>
+</div>
+<h1>VEIL</h1>
+<div class="loader" role="presentation"></div>
+<p role="status"><!--STATUS--></p>
+<div class="actions" <!--ACTIONS-->><button id="retry" type="button">Try again</button><button id="logs" type="button">Open logs</button></div>
 </main></body></html>

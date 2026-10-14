@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tagline", help="new tagline (default: unchanged)")
     parser.add_argument("--replace", action="append", default=[], metavar="OLD=NEW",
                         help="extra literal replacement, e.g. the GitHub repo name after a repo rename")
-    parser.add_argument("--no-assets", action="store_true", help="do not regenerate the placeholder icon and banner")
+    parser.add_argument("--no-assets", action="store_true", help="do not regenerate the README banner")
     parser.add_argument("--dry-run", action="store_true", help="list the files that would change and stop")
     parser.add_argument("--allow-dirty", action="store_true", help="run even with uncommitted changes")
     args = parser.parse_args(argv)

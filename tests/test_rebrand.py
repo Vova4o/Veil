@@ -104,9 +104,8 @@ def test_the_committed_brand_matches_the_tree():
     assert brand["name"] in (SCRIPTS.parent / "docs/README.md").read_text(encoding="utf-8")
 
 
-def test_placeholder_assets_are_generated_from_the_brand(tmp_path):
+def test_banner_is_generated_from_the_brand(tmp_path):
     brand_assets = _load("brand_assets")
-    (tmp_path / "desktop/assets").mkdir(parents=True)
     (tmp_path / "docs/assets").mkdir(parents=True)
     try:
         written = brand_assets.generate(tmp_path, BRAND)

@@ -53,24 +53,6 @@ def build() -> None:
     tool_output.mkdir(parents=True, exist_ok=True)
     for executable in tools:
         shutil.copy2(executable, tool_output / executable.name)
-    build_icons()
-
-
-def build_icons() -> None:
-    from PIL import Image, ImageDraw
-
-    directory = ROOT / "desktop/assets"
-    directory.mkdir(parents=True, exist_ok=True)
-    icon = Image.new("RGBA", (256, 256))
-    draw = ImageDraw.Draw(icon)
-    draw.rounded_rectangle((8, 8, 248, 248), radius=48, fill="#17181e")
-    draw.rounded_rectangle((48, 58, 208, 198), radius=14, outline="#b9b6df", width=10)
-    draw.line((50, 92, 206, 92), fill="#b9b6df", width=8)
-    draw.rectangle((70, 114, 114, 172), fill="#77738e")
-    draw.rectangle((132, 114, 184, 138), fill="#b9b6df")
-    draw.rectangle((132, 150, 184, 172), fill="#77738e")
-    icon.save(directory / "icon.png")
-    icon.save(directory / "icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 
 if __name__ == "__main__":
