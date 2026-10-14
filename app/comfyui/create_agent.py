@@ -202,29 +202,33 @@ def build_create_bundle(
     mode: CreateMode,
     *,
     references: int = 1,
-    intimate: bool = False,
+    intimate: bool | None = None,
     original: bool = False,
 ) -> CreateInstructionBundle:
     """Compile the Create instruction for one mode.
 
-    Description and reference modes get the composition manual; the edit mode gets
-    the wardrobe module and the list of usable edit profiles instead.
+    The mode operation section is placed immediately after the family base, so the
+    agent knows its primary task objective before reading the visual and wardrobe manuals.
+    Reference mode includes the intimate module by default (per the unrated reference baseline).
     """
     if mode not in _MODE_OPERATIONS:
         raise CreateAgentError(f"Unknown Create mode '{mode}'.", code="mode_unsupported")
-    sections = [_section("krea2_base", "family_base", *_content("base.md"))]
-    if mode != "edit":
-        sections.append(_section("composition", "module", *_content("composition.md")))
-    sections.append(_section("wardrobe", "module", *_content("wardrobe.md")))
-    if intimate:
-        sections.append(_section("intimate", "module", *_content("intimate.md")))
-    sections.append(_section(f"mode_{mode}", "operation", *_content(f"{mode}.md")))
+    intimate_enabled = (mode == "reference") if intimate is None else intimate
+    sections = [
+        _section("krea2_base", "family_base", *_content("base.md")),
+        _section(f"mode_{mode}", "operation", *_content(f"{mode}.md")),
+    ]
     if mode == "edit" and profile.edit_profiles:
         sections.append(_section(
             "edit_profiles", "operation",
             _edit_profiles_section(profile, references=references),
             f"{profile.id}/manifest.json",
         ))
+    if mode != "edit":
+        sections.append(_section("composition", "module", *_content("composition.md")))
+    sections.append(_section("wardrobe", "module", *_content("wardrobe.md")))
+    if intimate_enabled:
+        sections.append(_section("intimate", "module", *_content("intimate.md")))
     if original:
         sections.append(_section("original", "module", *_content("original.md")))
     sections.append(_section("create_krea2", "output_contract", *_content("output.md")))
@@ -548,7 +552,7 @@ def run_create_agent(
         profile,
         mode,
         references=references,
-        intimate=wants_intimate_module(request, previous_prompt),
+        intimate=mode == "reference" or wants_intimate_module(request, previous_prompt),
         original=wants_original_module(request),
     )
     user_input = build_user_input(

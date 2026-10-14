@@ -132,11 +132,15 @@ def test_instruction_has_no_child_like_or_t5_rules():
 def test_bundle_modules_follow_the_mode():
     text = build_create_bundle(PROFILE, "text")
     assert [section.section_id for section in text.sections] == [
-        "krea2_base", "composition", "wardrobe", "mode_text", "create_krea2",
+        "krea2_base", "mode_text", "composition", "wardrobe", "create_krea2",
     ]
     edit = build_create_bundle(PROFILE, "edit", intimate=True)
     assert [section.section_id for section in edit.sections] == [
-        "krea2_base", "wardrobe", "intimate", "mode_edit", "edit_profiles", "create_krea2",
+        "krea2_base", "mode_edit", "edit_profiles", "wardrobe", "intimate", "create_krea2",
+    ]
+    ref = build_create_bundle(PROFILE, "reference")
+    assert [section.section_id for section in ref.sections] == [
+        "krea2_base", "mode_reference", "composition", "wardrobe", "intimate", "create_krea2",
     ]
     rendered = edit.render()
     assert rendered.startswith("CMV CREATE TASK")
@@ -348,7 +352,7 @@ def test_edit_run_uses_agent_profile_and_negative():
                               request="сними свитер полностью", image=_png(), router=router)
     call = router.calls[0]
     assert call["image_size"] == (640, 960)
-    assert [item.section_id for item in call["bundle"].sections][2] == "intimate"
+    assert "intimate" in [item.section_id for item in call["bundle"].sections]
     assert (result.edit_profile, result.negative_prompt, result.note) == ("remove", "sweater", "Try 2-4 images.")
     assert result.saw_image is True
 
