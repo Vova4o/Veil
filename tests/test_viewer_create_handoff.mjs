@@ -28,11 +28,11 @@ function harness(search, response = { ok: true, blob: async () => new Blob(['pho
     return { requests, photos, errors, urls, run: code => vm.runInContext(code, context) };
 }
 
-test('Viewer photo links attach the original in Variation without starting inference', async () => {
+test('Viewer photo links attach the original as the Prompt starting photo without starting inference', async () => {
     const h = harness('?photo=17&mode=variation&keep=yes');
     h.run("state.mode = 'edit'");
     await h.run('openPhotoFromLink()');
-    assert.equal(h.run('state.mode'), 'variation');
+    assert.equal(h.run('state.mode'), 'prompt');
     assert.deepEqual(h.requests, ['/api/original/17']);
     assert.equal(h.photos[0].slot, 'main');
     assert.equal(h.photos[0].file.type, 'image/png');
@@ -41,12 +41,12 @@ test('Viewer photo links attach the original in Variation without starting infer
     assert.deepEqual(h.errors, []);
 });
 
-test('photo links default to Variation regardless of the previously selected mode', async () => {
+test('photo links default to Prompt regardless of the previously selected mode', async () => {
     for (const mode of ['', '&mode=text', '&mode=constructor']) {
         const h = harness('?photo=2' + mode);
         h.run("state.mode = 'edit'");
         await h.run('openPhotoFromLink()');
-        assert.equal(h.run('state.mode'), 'variation');
+        assert.equal(h.run('state.mode'), 'prompt');
     }
 });
 

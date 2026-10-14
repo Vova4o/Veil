@@ -42,6 +42,7 @@ let browser;
         page.on('pageerror', error => report.errors.push(error.message));
         await page.addInitScript(() => {
             localStorage.setItem('mediastudio_create_agent', JSON.stringify({ agentKind: 'opencode', model: 'test/model', name: 'Navigation test', vision: true }));
+            localStorage.setItem('mediastudio_create_enhance', 'true');
         });
         await page.goto(origin + '/create');
         await page.locator('#agent-line').click();

@@ -11,7 +11,7 @@ function harness() {
     const element = id => {
         if (!elements.has(id)) elements.set(id, {
             hidden: id !== 'agent-menu', innerHTML: '', textContent: '', dataset: {},
-            classList: { add() {}, remove() {} }, setAttribute() {},
+            classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {},
         });
         return elements.get(id);
     };

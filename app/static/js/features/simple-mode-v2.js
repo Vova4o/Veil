@@ -4,49 +4,60 @@ const TXT2IMG_SECONDS = 50;
 const SESSION_LIMIT = 40;
 const RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
 
+// Three modes in the switch. "prompt" runs text-to-image, or image-to-image once a starting
+// photo is added; the AI checkbox lets the agent write its prompt. The server knows the
+// job modes text / variation / reference / edit (see jobMode()).
 const MODE_COPY = {
-    text: {
-        label: 'From text',
-        hint: 'Describe the picture in your own words. The agent turns it into a detailed prompt.',
-        placeholder: 'For example: a night café by the sea, warm window light, light fog and wet pavement',
+    prompt: {
+        label: 'Prompt',
         button: 'Create',
     },
     reference: {
-        label: 'From photo',
-        hint: 'Add a photo. The agent describes it and applies your wishes; the photo itself stays as it is.',
+        label: 'Recreate',
         placeholder: 'Optional: what to change, for example "the same scene at night in the rain"',
-        button: 'Create from photo',
-    },
-    variation: {
-        label: 'Variation',
-        hint: 'Add a photo. The agent describes it and the model repaints it; the noise sets how much changes.',
-        placeholder: 'Optional: what to change, for example "warmer evening light"',
-        button: 'Create variation',
+        button: 'Recreate',
     },
     edit: {
-        label: 'Edit photo',
-        hint: 'Say what to change. The editing adapter keeps the rest of your photo; a second photo is optional.',
+        label: 'Edit',
         placeholder: 'For example: change her sweater to a black satin camisole',
         button: 'Edit photo',
+    },
+};
+// Prompt mode's text depends on the starting photo and the AI checkbox.
+const PROMPT_COPY = {
+    own: {
+        placeholder: 'Your full prompt, for example: photo of a night café by the sea, warm window light, light fog, wet pavement',
+    },
+    ai: {
+        placeholder: 'For example: a night café by the sea, warm window light, light fog and wet pavement',
+    },
+    ownPhoto: {
+        placeholder: 'Your full prompt for the new image',
+        button: 'Create from photo',
+    },
+    aiPhoto: {
+        placeholder: 'Optional: what to change, for example "warmer evening light"',
+        button: 'Create from photo',
     },
 };
 // "Edit photo" once the optional second photo (a person, a garment or a tattoo) is added.
 const EDIT_REFERENCE_COPY = {
     label: 'Edit with reference',
-    hint: 'Say what to bring in from the reference; the photo to edit supplies the scene.',
     placeholder: 'For example: dress her in the red silk dress from the reference',
     button: 'Edit with reference',
 };
+// How the session and the prompt window name a run, by job mode.
+const RUN_LABELS = { text: 'Prompt', variation: 'Prompt + photo', reference: 'Recreate', edit: 'Edit' };
 
 // Titles of the reference blocks per mode; a mode without an entry hides that block.
 const REF_COPY = {
+    prompt: {
+        eyebrow: 'PHOTO',
+        main: ['Starting photo', 'The new image starts from it; remove it to create from the prompt alone'],
+    },
     reference: {
         eyebrow: 'PHOTO',
-        main: ['Reference photo', 'The agent describes it and applies your text'],
-    },
-    variation: {
-        eyebrow: 'PHOTO',
-        main: ['Photo to vary', 'The new image starts from this photo'],
+        main: ['Photo to recreate', 'The agent describes it and applies your text'],
     },
     edit: {
         eyebrow: 'PHOTOS',
@@ -54,7 +65,46 @@ const REF_COPY = {
         subject: ['Reference', 'Optional: a person, a garment or a tattoo to bring in'],
     },
 };
+
+/** The server mode of what the controls would run now. */
+function jobMode() {
+    if (state.mode !== 'prompt') return state.mode;
+    return state.photo ? 'variation' : 'text';
+}
+
+/** The switch position of a job mode (older sessions also stored "prompt"). */
+function uiMode(mode) {
+    return ['text', 'variation', 'prompt'].includes(mode) ? 'prompt' : mode;
+}
+
+/** A stored run's job mode; "prompt" runs from an earlier build were text runs. */
+function runMode(run) {
+    return run.mode === 'prompt' ? 'text' : run.mode;
+}
+
+/** Whether a run needs the agent to see the photo. */
+function needsVision(mode = jobMode(), agent = state.mode !== 'prompt' || state.enhance) {
+    return mode === 'reference' || (mode === 'variation' && agent);
+}
 const LAYOUT_EASING = 'cubic-bezier(.16,1,.3,1)';
+
+// The greeting above the cards: one at random per visit; it leaves when a generation starts.
+const HERO_PHRASES = [
+    'What are we creating?',
+    'What shall we dream up today?',
+    'Turn words into pictures',
+    'Your idea, rendered',
+    'Start with a single word',
+    'Paint the scene you imagine',
+    'Where does the story begin?',
+    'Describe it, and it appears',
+    'Bring a moment to life',
+    'What should the light look like?',
+    'Let’s make something beautiful',
+    'One prompt away',
+    'Something daring tonight?',
+    'Show me what you see',
+];
 
 // Variation noise: how much of the photo is repainted (0 keeps it, 1 ignores it).
 const DENOISE_DEFAULT = 0.65;
@@ -70,8 +120,6 @@ const DENOISE_ZONES = [
     { id: 'far', below: 1, label: 'Far from the photo', text: 'Little of the photo remains.' },
     { id: 'none', below: Infinity, label: 'Photo not used', text: 'The photo no longer takes part; only its proportions are kept.' },
 ];
-// Modes where the agent must see the photo to describe it.
-const VISION_MODES = new Set(['reference', 'variation']);
 const AGENT_HOSTS = { opencode: 'OpenCode', codex: 'Codex', claude: 'Claude Code', antigravity: 'Antigravity' };
 const AGENT_HOST_RE = /^(?:opencode|claude|codex|antigravity|api:[a-z0-9][a-z0-9_-]{0,47})$/;
 // The models Integrations › Models shows; Integrations stamps every change here.
@@ -87,7 +135,9 @@ const state = {
     backend: 'local',
     colab: null,
     colabPoll: null,
-    mode: 'text',
+    mode: 'prompt',
+    // Prompt mode: let the agent write the prompt from the user's words (and the photo).
+    enhance: false,
     ratio: '1:1',
     photoRatio: 'source',
     denoise: DENOISE_DEFAULT,
@@ -152,8 +202,9 @@ function catalog() {
 
 function restore() {
     try {
-        const mode = localStorage.getItem('mediastudio_create_mode');
+        const mode = uiMode(localStorage.getItem('mediastudio_create_mode'));
         if (MODE_COPY[mode]) state.mode = mode;
+        state.enhance = localStorage.getItem('mediastudio_create_enhance') === 'true';
         const choice = JSON.parse(localStorage.getItem('mediastudio_create_agent') || 'null');
         if (AGENT_HOST_RE.test(choice?.agentKind || '') && choice.model) state.agentChoice = choice;
         const ratio = localStorage.getItem('mediastudio_simple_ratio');
@@ -188,7 +239,24 @@ function restore() {
     } catch {}
 }
 
+/** A random greeting, typed in letter by letter. */
+function paintHero() {
+    const title = $('hero-phrase');
+    if (!title) return;
+    const phrase = HERO_PHRASES[Math.floor(Math.random() * HERO_PHRASES.length)];
+    title.setAttribute('aria-label', phrase);
+    title.replaceChildren(...[...phrase].map((char, index) => {
+        const letter = document.createElement('span');
+        letter.className = 'hero-letter';
+        letter.textContent = char;
+        letter.style.setProperty('--i', String(index));
+        letter.setAttribute('aria-hidden', 'true');
+        return letter;
+    }));
+}
+
 function init() {
+    paintHero();
     state.models = catalog();
     state.modelId = document.body.dataset.defaultModelId || state.models[0]?.id || '';
     restore();
@@ -224,7 +292,7 @@ async function openPhotoFromLink() {
     params.delete('mode');
     const query = params.toString();
     history.replaceState(history.state, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
-    setMode(['reference', 'variation', 'edit'].includes(mode) ? mode : 'variation');
+    setMode(['reference', 'edit'].includes(mode) ? mode : 'prompt');
     try {
         const response = await fetch(`/api/original/${assetId}`);
         if (!response.ok) throw new Error(`The image is unavailable (HTTP ${response.status}).`);
@@ -250,14 +318,24 @@ function setMode(mode, { keepRefine = false, quiet = false } = {}) {
     paintModeCopy();
     if (!keepRefine && state.refineFrom && state.refineFrom.mode !== mode) clearRefine();
     animateLayout(paintRefs);
+    paintJobControls();
+    if (changed && !quiet) hideError();
+    resizePrompt();
+}
+
+/** Everything that follows the job mode: frame or noise, the AI checkbox, the agent line. */
+function paintJobControls() {
+    const mode = jobMode();
     // A variation keeps the photo's proportions; the noise level takes the ratio's place.
     $('ratio-section').hidden = mode === 'variation';
     $('denoise-section').hidden = mode !== 'variation';
+    $('enhance-toggle').hidden = state.mode !== 'prompt';
+    $('enhance').checked = state.enhance;
+    $('attach-photo').hidden = state.mode !== 'prompt' || Boolean(state.photo);
+    paintModeCopy();
     syncRatio();
     paintAgentLine();
     if (state.health) paintHealth(state.health);
-    if (changed && !quiet) hideError();
-    resizePrompt();
 }
 
 /** Edit photo takes an optional second photo: a person, a garment or a tattoo to bring in. */
@@ -266,20 +344,23 @@ function takesSubject(mode = state.mode) {
 }
 
 function modeCopy(mode = state.mode) {
+    if (mode === 'prompt') {
+        const key = `${state.enhance ? 'ai' : 'own'}${state.photo ? 'Photo' : ''}`;
+        return { ...MODE_COPY.prompt, ...PROMPT_COPY[key] };
+    }
     return takesSubject(mode) && state.subject ? EDIT_REFERENCE_COPY : MODE_COPY[mode];
 }
 
-/** The hint, placeholder and button of the mode; an edit with a second photo has its own. */
+/** The placeholder and button of the mode; an edit with a second photo has its own. */
 function paintModeCopy() {
     const copy = modeCopy();
-    $('mode-hint').textContent = copy.hint;
     $('prompt').placeholder = copy.placeholder;
     $('create-label').textContent = copy.button;
 }
 
-function currentRatio() {
-    if (state.mode === 'variation') return 'source';
-    return state.mode === 'text' ? state.ratio : state.photoRatio;
+function currentRatio(mode = jobMode()) {
+    if (mode === 'variation') return 'source';
+    return mode === 'text' ? state.ratio : state.photoRatio;
 }
 
 // --- variation noise -----------------------------------------------------------------
@@ -350,7 +431,7 @@ function ratioValue() {
 function syncRatio() {
     const ratio = currentRatio();
     document.querySelectorAll('[data-ratio]').forEach(button => {
-        if (button.dataset.ratio === 'source') button.hidden = state.mode === 'text';
+        if (button.dataset.ratio === 'source') button.hidden = jobMode() === 'text';
         button.classList.toggle('active', button.dataset.ratio === ratio);
     });
     syncCanvasAspect();
@@ -405,9 +486,8 @@ async function setPhoto(slot, file) {
         return false;
     }
     hideError();
-    paintRefs();
-    paintModeCopy();
-    syncRatio();
+    animateLayout(paintRefs);
+    paintJobControls();
     return true;
 }
 
@@ -417,9 +497,8 @@ function clearPhoto(slot) {
     state[key] = null;
     const input = slot === 'subject' ? $('subject-input') : $('photo-input');
     if (input) input.value = '';
-    paintRefs();
-    paintModeCopy();
-    syncRatio();
+    animateLayout(paintRefs);
+    paintJobControls();
 }
 
 function paintRefBlock(slot, photo, copy) {
@@ -440,7 +519,8 @@ function paintRefBlock(slot, photo, copy) {
 /** The left panel: one block for the photo modes, two for edits (the photo and an optional reference). */
 function paintRefs() {
     const layout = $('studio-layout');
-    const copy = REF_COPY[state.mode];
+    // Prompt mode shows the panel only once a starting photo is added.
+    const copy = state.mode === 'prompt' && !state.photo ? null : REF_COPY[state.mode];
     layout.dataset.refs = String(Boolean(copy));
     $('refs-card').hidden = !copy;
     if (copy) {
@@ -491,11 +571,20 @@ function wirePhotoSlots() {
     document.querySelectorAll('[data-pick]').forEach(button => {
         button.onclick = () => (button.dataset.pick === 'subject' ? $('subject-input') : $('photo-input')).click();
     });
-    document.querySelectorAll('[data-paste]').forEach(button => {
-        button.onclick = () => pasteFromClipboard(button.dataset.paste);
+    // An empty block opens the file picker; a filled one stays inert so a click only
+    // focuses it for Ctrl+V (full screen lives in the block's header).
+    document.querySelectorAll('.ref-block .ref-drop').forEach(drop => {
+        const block = drop.closest('.ref-block');
+        drop.addEventListener('click', event => {
+            if (block.classList.contains('is-filled') || event.target.closest('.ref-url')) return;
+            (block.dataset.slot === 'subject' ? $('subject-input') : $('photo-input')).click();
+        });
     });
     document.querySelectorAll('[data-remove]').forEach(button => {
-        button.onclick = () => clearPhoto(button.dataset.remove);
+        button.onclick = event => {
+            event.stopPropagation();
+            clearPhoto(button.dataset.remove);
+        };
     });
     document.querySelectorAll('[data-view-ref]').forEach(button => {
         button.onclick = () => openViewer({ kind: 'ref', slot: button.dataset.viewRef });
@@ -545,7 +634,7 @@ function wirePhotoSlots() {
         }
         const typing = event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]');
         const text = event.clipboardData?.getData('text/plain')?.trim() || '';
-        if (!typing && state.mode !== 'text' && /^https?:\/\/\S+$/i.test(text)) {
+        if (!typing && /^https?:\/\/\S+$/i.test(text)) {
             event.preventDefault();
             importImageUrl(text, state.slotFocus);
         }
@@ -580,32 +669,8 @@ async function importImageUrl(url, slot) {
 }
 
 function acceptImage(file, slot) {
-    if (state.mode === 'text') {
-        setMode('reference');
-        showNote('The photo is used as a reference for a new picture. Choose "Edit photo" to change the photo itself.');
-    }
     const target = slot === 'subject' && takesSubject() ? 'subject' : 'main';
     return setPhoto(target, file);
-}
-
-async function pasteFromClipboard(slot) {
-    if (!navigator.clipboard?.read) {
-        error('Paste is not available here', 'Press Ctrl+V on the page instead.');
-        return;
-    }
-    try {
-        const items = await navigator.clipboard.read();
-        const item = items.find(entry => entry.types.some(value => value.startsWith('image/')));
-        if (!item) {
-            error('No image on the clipboard', 'Copy an image first, then press Paste.');
-            return;
-        }
-        const type = item.types.find(value => value.startsWith('image/'));
-        const blob = await item.getType(type);
-        await acceptImage(new File([blob], `pasted.${type.split('/')[1] || 'png'}`, { type }), slot);
-    } catch (err) {
-        error('Could not read the clipboard', err.message || 'The browser refused access.');
-    }
 }
 
 // --- agent ---------------------------------------------------------------------------
@@ -615,7 +680,7 @@ function currentAgent() {
     const choice = state.agentChoice;
     if (choice) return { label: agentLabel(choice), sees_images: choice.vision !== false, choice };
     if (!state.agentStatus) return null;
-    const agent = state.mode === 'text' ? state.agentStatus.text : state.agentStatus.photo;
+    const agent = jobMode() === 'text' ? state.agentStatus.text : state.agentStatus.photo;
     return agent ? { ...agent, label: agent.name || shortModel(agent.model) } : null;
 }
 
@@ -656,6 +721,8 @@ function paintAgentLine() {
     const text = $('agent-text');
     if (!line || !text) return;
     line.classList.remove('is-missing');
+    // Own prompt runs without an agent: the line gives way to a plain note.
+    $('prompt-box').classList.toggle('is-manual', state.mode === 'prompt' && !state.enhance);
     paintAgentReasoning();
     // An open menu follows the mode: models that cannot see photos dim in photo modes.
     if (!$('agent-menu').hidden) paintAgentMenu();
@@ -666,18 +733,18 @@ function paintAgentLine() {
     const agent = currentAgent();
     if (!agent) {
         line.classList.add('is-missing');
-        text.textContent = VISION_MODES.has(state.mode) ? 'Choose a model that sees photos' : 'No agent: your text goes to the model as is';
+        text.textContent = needsVision() ? 'Choose a model that sees photos' : 'No agent: your text goes to the model as is';
         line.title = 'Choose a model';
         return;
     }
-    if (VISION_MODES.has(state.mode) && !agent.sees_images) {
+    if (needsVision() && !agent.sees_images) {
         line.classList.add('is-missing');
         text.textContent = `${agent.label} · cannot see photos`;
         line.title = 'This mode needs a model that sees photos: choose one here';
         return;
     }
     text.textContent = agent.label;
-    line.title = state.mode !== 'text' && agent.sees_images ? 'Sees the photo · change the model' : 'Change the model';
+    line.title = jobMode() !== 'text' && agent.sees_images ? 'Sees the photo · change the model' : 'Change the model';
 }
 
 // --- agent menu --------------------------------------------------------------------------
@@ -832,7 +899,7 @@ function paintAgentMenu() {
     const focusData = focused && body.contains(focused) ? { ...focused.dataset } : null;
     const choice = state.agentChoice;
     const picked = choice ? findAgentModel(choice) : null;
-    const needsVision = VISION_MODES.has(state.mode);
+    const vision = needsVision();
     const parts = [];
     if (state.agentsError) parts.push(`<p class="agent-menu-note is-error">${esc(state.agentsError)} · Showing the saved model list.</p>`);
     for (const group of state.agents.groups || []) {
@@ -841,7 +908,7 @@ function paintAgentMenu() {
             .sort((a, b) => Number(b.vision === true) - Number(a.vision === true) || a.name.localeCompare(b.name))
             .map(model => {
                 const active = picked?.group.id === group.id && picked.model.id === model.id;
-                const blocked = needsVision && model.vision === false;
+                const blocked = vision && model.vision === false;
                 return `<button type="button" aria-pressed="${active}" class="agent-option${active ? ' active' : ''}${blocked ? ' is-blocked' : ''}" data-agent-group="${esc(group.id)}" data-agent-model="${esc(model.id)}" title="${esc(model.id)}"><span class="agent-option-name">${esc(model.name)}</span>${agentTags(model)}</button>`;
             }).join('');
         const reasoning = picked?.group.id === group.id ? agentReasoning(group, picked.model, choice) : '';
@@ -1034,7 +1101,7 @@ function paintHealth(health) {
     const install = $('model-install');
     const resources = health?.missing_resources || [];
     const nodes = health?.missing_nodes || [];
-    const modeBlocked = health?.status === 'ready' && health?.modes_ready?.[state.mode] === false;
+    const modeBlocked = health?.status === 'ready' && health?.modes_ready?.[jobMode()] === false;
     // Offline is a runtime state, not a setup problem: installed files are checked on disk.
     const offline = health?.comfyui_online === false;
     let className = 'is-checking';
@@ -1110,7 +1177,7 @@ function blocking() {
     }
     if (health.status === 'not_installed') return 'Download the missing components first.';
     if (health.status === 'workflow_pending') return 'The recipe is not prepared yet.';
-    if (health.status === 'ready' && health.modes_ready?.[state.mode] === false) {
+    if (health.status === 'ready' && health.modes_ready?.[jobMode()] === false) {
         return health.restart_required
             ? 'Restart ComfyUI so it loads the photo-edit nodes.'
             : 'Photo editing needs extra ComfyUI nodes: press "Download missing".';
@@ -1122,19 +1189,27 @@ function blocking() {
 
 async function create() {
     if (state.job) return;
-    const mode = state.mode;
+    const mode = jobMode();
     const request = $('prompt').value.trim();
-    if (mode !== 'text' && !state.photo) {
+    if (state.mode !== 'prompt' && !state.photo) {
         return error('Add a photo', 'This mode needs a photo: drop it here, choose a file or paste it with Ctrl+V.');
     }
     if (mode === 'edit' && !request) return error('Nothing to change', 'Describe what to change in the photo.');
+    const enhance = state.mode !== 'prompt' || state.enhance;
+    if (!enhance && !request) return error('Nothing to create', 'Write the prompt for the model.');
     if (mode === 'text' && !request) return error('Nothing to create', 'Describe the picture you want.');
     const why = blocking();
     if (why) return error('Not ready yet', why);
-    const agent = currentAgent();
-    const useAgent = Boolean(agent) && !(VISION_MODES.has(mode) && !agent.sees_images);
-    if (VISION_MODES.has(mode) && !useAgent) {
-        return error('This mode needs an agent that sees photos', 'Pick a model marked "Photos" in the agent menu under the prompt, or use "Edit photo".');
+    const agent = enhance ? currentAgent() : null;
+    const vision = needsVision(mode, enhance);
+    const useAgent = Boolean(agent) && !(vision && !agent.sees_images);
+    if (vision && !useAgent) {
+        return error('This needs an agent that sees photos', state.mode === 'prompt'
+            ? 'Pick a model marked "Photos" in the agent menu under the prompt, or turn off "Improve with AI" and write the prompt yourself.'
+            : 'Pick a model marked "Photos" in the agent menu under the prompt, or use "Edit".');
+    }
+    if (state.mode === 'prompt' && enhance && !useAgent) {
+        return error('No agent to improve the prompt', 'Pick a model in the agent menu under the prompt, or turn off "Improve with AI".');
     }
     hideError();
     hideNote();
@@ -1146,30 +1221,32 @@ async function create() {
     $('generation-stop').hidden = false;
     const photo = mode === 'text' ? null : state.photo;
     const subject = takesSubject(mode) ? state.subject : null;
-    const copy = REF_COPY[mode];
+    const copy = REF_COPY[state.mode];
     state.resultRefs = [
         photo && { label: copy.main[0], src: photo.dataUrl },
         subject && { label: copy.subject[0], src: subject.dataUrl },
     ].filter(Boolean);
-    const ratio = currentRatio();
+    const ratio = currentRatio(mode);
     await submitCreateTask({
         use_agent: useAgent, profile_id: state.modelId, mode, request,
+        prompt: useAgent ? null : request,
         previous_prompt: state.refineFrom?.mode === mode ? state.refineFrom.prompt : null,
-        ...agentRequestFields(), aspect_ratio: ratio, batch_size: state.batch,
+        ...(useAgent ? agentRequestFields() : {}), aspect_ratio: ratio, batch_size: state.batch,
         reference_image: photo?.dataUrl || null, subject_image: subject?.dataUrl || null,
         photo_name: photo?.name || null, subject_name: subject?.name || null,
         denoise: mode === 'variation' ? state.denoise : null,
-    }, { mode, photo, subject, ratio, userRequest: request, denoise: state.denoise }, job);
+    }, { mode, photo, subject, ratio, userRequest: request, denoise: state.denoise,
+        prompt: useAgent ? undefined : request }, job);
 }
 
 /** Reruns use the same background pipeline, with the prompt already prepared. */
 async function runGeneration(plan, job = { phase: 'queue', cancelled: false }) {
     await submitCreateTask({
-        use_agent: false, profile_id: state.modelId, mode: plan.mode,
+        use_agent: false, profile_id: state.modelId, mode: runMode(plan),
         request: plan.userRequest || '', prompt: plan.prompt,
-        negative_prompt: plan.mode === 'edit' ? plan.negative || '' : null,
-        edit_profile: plan.mode === 'edit' ? plan.editProfile || null : null,
-        denoise: plan.mode === 'variation' ? (plan.denoise ?? DENOISE_DEFAULT) : null,
+        negative_prompt: runMode(plan) === 'edit' ? plan.negative || '' : null,
+        edit_profile: runMode(plan) === 'edit' ? plan.editProfile || null : null,
+        denoise: runMode(plan) === 'variation' ? (plan.denoise ?? DENOISE_DEFAULT) : null,
         reference_image: plan.photo?.dataUrl || null, subject_image: plan.subject?.dataUrl || null,
         photo_name: plan.photo?.name || null, subject_name: plan.subject?.name || null,
         aspect_ratio: plan.ratio, batch_size: state.batch, agent_name: plan.agentName,
@@ -1260,16 +1337,18 @@ async function restoreCreateTask() {
         state.subject = subject;
         state.batch = req.batch_size;
         state.denoise = req.denoise ?? state.denoise;
-        if (req.mode === 'text') state.ratio = req.aspect_ratio;
-        else state.photoRatio = req.aspect_ratio;
+        const mode = req.mode;
+        if (mode === 'text') state.ratio = req.aspect_ratio;
+        else if (mode !== 'variation') state.photoRatio = req.aspect_ratio;
+        if (uiMode(mode) === 'prompt') state.enhance = Boolean(req.use_agent);
         $('prompt').value = req.request || '';
         $('prompt').dispatchEvent(new Event('input'));
-        setMode(req.mode);
+        setMode(uiMode(mode));
         syncBatch();
         paintDenoise();
-        job.plan = { mode: req.mode, photo, subject, ratio: req.aspect_ratio,
+        job.plan = { mode, photo, subject, ratio: req.aspect_ratio,
             userRequest: req.request, denoise: req.denoise };
-        const copy = REF_COPY[req.mode];
+        const copy = REF_COPY[uiMode(mode)];
         state.resultRefs = [
             photo && { label: copy.main[0], src: photo.dataUrl },
             subject && { label: copy.subject[0], src: subject.dataUrl },
@@ -1674,6 +1753,12 @@ function updateResultView() {
 
 function canvas(view) {
     const layout = $('studio-layout');
+    const hero = $('studio-hero');
+    if (hero) {
+        const gone = view !== 'idle';
+        if (!gone && hero.classList.contains('is-gone')) paintHero();
+        hero.classList.toggle('is-gone', gone);
+    }
     animateLayout(() => {
         layout.dataset.view = view;
         $('generating').hidden = view !== 'generating';
@@ -1754,22 +1839,34 @@ function hideNote() { $('note').hidden = true; }
 async function regenerate() {
     const run = state.lastRun;
     if (!run || state.job) return;
-    const photo = run.mode === 'text' ? null : (run.photo || state.photo);
-    if (run.mode !== 'text' && !photo) {
+    const mode = runMode(run);
+    const photo = mode === 'text' ? null : (run.photo || state.photo);
+    if (mode !== 'text' && !photo) {
         return error('Add the photo again', 'The photo of this run is no longer loaded. Add it, then press Regenerate.');
     }
-    if (state.mode !== run.mode) setMode(run.mode);
+    if (state.mode !== uiMode(mode)) setMode(uiMode(mode));
     const why = blocking();
     if (why) return error('Not ready yet', why);
     hideError();
     hideNote();
     await runGeneration({
         ...run,
+        mode,
         note: '',
         photo,
-        subject: run.mode === 'edit' ? (run.subject || state.subject) : null,
-        ratio: run.ratio || currentRatio(),
+        subject: mode === 'edit' ? (run.subject || state.subject) : null,
+        ...currentKnobs(run),
     });
+}
+
+/** A rerun takes the noise and the frame now set in the controls, not the ones of the old run. */
+function currentKnobs(run) {
+    const mode = runMode(run);
+    return {
+        // An edit keeps its frame: the agent wrote the command for it.
+        ratio: mode === 'edit' ? (run.ratio || currentRatio(mode)) : currentRatio(mode),
+        denoise: mode === 'variation' ? state.denoise : run.denoise,
+    };
 }
 
 async function editThis({ bringReference = false } = {}) {
@@ -1806,8 +1903,21 @@ async function editThis({ bringReference = false } = {}) {
 function refine() {
     const run = state.lastRun;
     if (!run || state.job) return;
-    if (state.mode !== run.mode) setMode(run.mode);
-    state.refineFrom = { prompt: run.prompt, mode: run.mode };
+    const mode = runMode(run);
+    if (state.mode !== uiMode(mode)) setMode(uiMode(mode));
+    if (!run.agentName && uiMode(mode) === 'prompt') {
+        // A prompt typed by hand: the prompt itself comes back for editing.
+        $('prompt').value = run.prompt || '';
+        $('prompt').dispatchEvent(new Event('input'));
+        $('prompt').focus();
+        return;
+    }
+    if (uiMode(mode) === 'prompt' && !state.enhance) {
+        state.enhance = true;
+        save('mediastudio_create_enhance', 'true');
+        paintJobControls();
+    }
+    state.refineFrom = { prompt: run.prompt, mode };
     $('refine-chip').hidden = false;
     $('prompt').value = '';
     $('prompt').dispatchEvent(new Event('input'));
@@ -1861,8 +1971,9 @@ async function rerunFromDialog() {
     const run = state.dialogRun;
     const prompt = $('prompt-dialog-text').value.trim();
     if (!run || !prompt || state.job) return;
-    const photo = run.mode === 'text' ? null : (run.photo || state.photo);
-    if (run.mode !== 'text' && !photo) {
+    const mode = runMode(run);
+    const photo = mode === 'text' ? null : (run.photo || state.photo);
+    if (mode !== 'text' && !photo) {
         closePromptDialog();
         return error('Add the photo again', 'The photo of this run is no longer loaded. Add it, then open Prompt again.');
     }
@@ -1871,23 +1982,25 @@ async function rerunFromDialog() {
     closePromptDialog();
     hideError();
     hideNote();
-    if (state.mode !== run.mode) setMode(run.mode);
+    if (state.mode !== uiMode(mode)) setMode(uiMode(mode));
     await runGeneration({
         ...run,
+        mode,
         prompt,
         negative: $('prompt-dialog-negative').value.trim(),
         agentName: null,
         note: '',
         photo,
         subject: run.mode === 'edit' ? (run.subject || state.subject) : null,
-        ratio: run.ratio || currentRatio(),
+        ...currentKnobs(run),
     });
 }
 
 // --- session log ---------------------------------------------------------------------
 
 function runLabel(run) {
-    return run.mode === 'edit' && (run.subject || run.withReference) ? EDIT_REFERENCE_COPY.label : MODE_COPY[run.mode]?.label;
+    const mode = runMode(run);
+    return mode === 'edit' && (run.subject || run.withReference) ? EDIT_REFERENCE_COPY.label : RUN_LABELS[mode];
 }
 
 function sessionRecord(run) {
@@ -2001,7 +2114,7 @@ function wire() {
     document.querySelectorAll('[data-ratio]').forEach(button => {
         button.onclick = () => {
             const ratio = button.dataset.ratio;
-            if (state.mode === 'text') {
+            if (jobMode() === 'text') {
                 state.ratio = ratio;
                 save('mediastudio_simple_ratio', ratio);
             } else {
@@ -2018,6 +2131,13 @@ function wire() {
             syncBatch();
         };
     });
+    $('enhance').onchange = () => {
+        state.enhance = $('enhance').checked;
+        save('mediastudio_create_enhance', String(state.enhance));
+        paintJobControls();
+        resizePrompt();
+    };
+    $('attach-photo').onclick = () => $('photo-input').click();
     wirePhotoSlots();
     wireDenoise();
     wireAgentMenu();
