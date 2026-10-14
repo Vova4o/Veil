@@ -1,5 +1,5 @@
 module.exports = {
-    appId: 'org.lotargo.veil', productName: 'VEIL',
+    appId: 'org.lotargo.mediastudio', productName: 'VEIL',
     directories: { output: 'dist/desktop' },
     files: ['.desktop-build/**', 'desktop/shell.html', 'desktop/shell.js', 'desktop/assets/**', 'package.json'],
     extraResources: [{ from: 'build/desktop-backend/mediastudio-backend', to: 'backend' }],
