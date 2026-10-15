@@ -692,6 +692,33 @@ class CLIDetectionTest(unittest.TestCase):
         self.assertNotIn("ide", result)
         self.assertIn("install", result)
 
+    def test_claude_sign_in_is_read_from_files_without_running_the_cli(self):
+        clean_env = {
+            key: value for key, value in os.environ.items()
+            if key not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_dir = Path(temp_dir)
+            env = {**clean_env, "CLAUDE_CONFIG_DIR": str(config_dir)}
+            with (
+                patch.dict(os.environ, env, clear=True),
+                patch("app.ai.cli.find_executable", return_value="C:/npm/claude.cmd"),
+                patch(
+                    "app.ai.cli.run_command",
+                    return_value=CommandResult(0, "2.1.39 (Claude Code)", "", 5),
+                ) as run,
+            ):
+                missing = probe_cli("claude")
+                (config_dir / ".credentials.json").write_text(
+                    json.dumps({"claudeAiOauth": {"accessToken": "token"}}), encoding="utf-8"
+                )
+                signed_in = probe_cli("claude")
+        self.assertEqual(missing["authentication"]["status"], "missing")
+        self.assertEqual(signed_in["authentication"]["status"], "available")
+        self.assertEqual(signed_in["version"], "2.1.39")
+        for call in run.call_args_list:
+            self.assertEqual(call.args[0][1:], ["--version"])
+
 
     def test_multimodal_probe_is_a_valid_one_pixel_png(self):
         image = Image.open(io.BytesIO(base64.b64decode(TEST_PNG_BASE64)))

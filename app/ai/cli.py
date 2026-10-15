@@ -38,7 +38,9 @@ CLI_SPECS: dict[str, dict[str, Any]] = {
         "label": "Claude Code",
         "commands": ("claude",),
         "version_args": ("--version",),
-        "auth_args": ("auth", "status"),
+        # Older builds have no `auth` command and treat `auth status` as a
+        # prompt, so sign-in is read from local files instead.
+        "auth_args": None,
         "models_args": None,
         # Images are copied into the run folder and read with the Read tool.
         "multimodal": True,
@@ -478,7 +480,49 @@ def _version_text(cli_type: str, result: CommandResult) -> str | None:
     return first_line[:200]
 
 
+CLAUDE_AUTH_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _claude_authentication_status() -> dict[str, Any]:
+    """Read Claude Code sign-in state from its files without starting the CLI."""
+    if any(os.environ.get(name) for name in CLAUDE_AUTH_ENV):
+        return {
+            "status": "available",
+            "message": "Claude Code uses credentials from the environment.",
+        }
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    claude_dir = Path(config_dir).expanduser() if config_dir else Path.home() / ".claude"
+    credentials = _read_json(claude_dir / ".credentials.json")
+    oauth = credentials.get("claudeAiOauth") if isinstance(credentials, dict) else None
+    if isinstance(oauth, dict) and (oauth.get("accessToken") or oauth.get("refreshToken")):
+        return {
+            "status": "available",
+            "message": "Claude Code reports a signed-in Claude account.",
+        }
+    # macOS keeps the token in the Keychain; the account record marks the sign-in.
+    state_file = (claude_dir if config_dir else Path.home()) / ".claude.json"
+    state = _read_json(state_file)
+    if isinstance(state, dict) and (state.get("oauthAccount") or state.get("primaryApiKey")):
+        return {
+            "status": "available",
+            "message": "Claude Code reports a signed-in Claude account.",
+        }
+    return {
+        "status": "missing",
+        "message": "Claude Code is installed but not signed in. Run 'claude' and use /login.",
+    }
+
+
 def _authentication_status(cli_type: str, executable: str) -> dict[str, Any]:
+    if cli_type == "claude":
+        return _claude_authentication_status()
     auth_args = CLI_SPECS[cli_type]["auth_args"]
     if auth_args is None:
         return {
