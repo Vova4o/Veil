@@ -41,16 +41,17 @@ main { display: grid; justify-items: center; text-align: center; padding: 32px; 
 @keyframes fade-in { from { opacity: 0; } }
 
 /* Loading: light runs along the satin creases into the valley, down the V and flares at its tip. */
-.crease, .edge { fill: none; stroke: #fff; stroke-linecap: round; stroke-dasharray: .18 2; stroke-dashoffset: .18; }
+.crease, .edge { fill: none; stroke: #fff; stroke-linecap: round; stroke-dasharray: .18 2; stroke-dashoffset: .20; }
 .crease { stroke-width: 2.8; animation: crease var(--cycle) var(--intro) cubic-bezier(.45, .05, .55, .95) infinite; }
 .edge { stroke-width: 2.4; animation: edge var(--cycle) var(--intro) cubic-bezier(.5, 0, .7, 1) infinite; }
 .flare { opacity: 0; transform-box: fill-box; transform-origin: center; animation: flare var(--cycle) var(--intro) ease-out infinite; }
-.sheen { animation: sheen var(--cycle) var(--intro) cubic-bezier(.4, 0, .4, 1) infinite; }
+.sheen { animation: sheen var(--cycle) var(--intro) cubic-bezier(.4, 0, .4, 1) infinite both; }
 .crease:nth-of-type(2) { animation-delay: calc(var(--intro) + .08s); }
 .crease:nth-of-type(3) { animation-delay: calc(var(--intro) + .16s); }
 .crease:nth-of-type(4) { animation-delay: calc(var(--intro) + .24s); }
-@keyframes crease { 0% { stroke-dashoffset: .18; } 42%, 100% { stroke-dashoffset: -1; } }
-@keyframes edge { 0%, 34% { stroke-dashoffset: .18; } 62%, 100% { stroke-dashoffset: -1; } }
+/* Clear the whole round cap at either endpoint instead of leaving a stationary dot. */
+@keyframes crease { 0% { stroke-dashoffset: .20; } 42%, 100% { stroke-dashoffset: -1.02; } }
+@keyframes edge { 0%, 34% { stroke-dashoffset: .20; } 62%, 100% { stroke-dashoffset: -1.02; } }
 @keyframes flare { 0%, 56% { opacity: 0; transform: scale(.4); } 64% { opacity: 1; transform: scale(1); } 86%, 100% { opacity: 0; transform: scale(1.5); } }
 @keyframes sheen { 0% { transform: translateX(-260px); } 55%, 100% { transform: translateX(260px); } }
 
