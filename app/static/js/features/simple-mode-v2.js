@@ -499,7 +499,8 @@ function modeCopy(mode = state.mode) {
 /** The placeholder and button of the mode; an edit with a second photo has its own. */
 function paintModeCopy() {
     const copy = modeCopy();
-    $('prompt').placeholder = copy.placeholder;
+    // The box takes a dropped or pasted photo too, which is easy to miss.
+    $('prompt').placeholder = copy.placeholder + (state.photo ? '' : '\n\nYou can drop a photo here or paste it with Ctrl+V');
     $('create-label').textContent = copy.button;
 }
 
@@ -860,35 +861,41 @@ async function loadAgentStatus() {
     paintAgentLine();
 }
 
+/** The "Models" button in the prompt box; the active model shows in the card header. */
 function paintAgentLine() {
     const line = $('agent-line');
-    const text = $('agent-text');
-    if (!line || !text) return;
+    const current = $('agent-current');
+    if (!line || !current) return;
     line.classList.remove('is-missing');
-    // Own prompt runs without an agent: the line gives way to a plain note.
-    $('prompt-box').classList.toggle('is-manual', state.mode === 'prompt' && !state.enhance);
+    current.classList.remove('is-missing');
+    // Own prompt runs without an agent: the button and the model name step aside.
+    const manual = state.mode === 'prompt' && !state.enhance;
+    $('prompt-box').classList.toggle('is-manual', manual);
+    current.hidden = manual;
     paintAgentReasoning();
     // An open menu follows the mode: models that cannot see photos dim in photo modes.
     if (!$('agent-menu').hidden) paintAgentMenu();
+    const show = (text, title, missing = false) => {
+        current.textContent = text;
+        current.title = title;
+        line.title = missing ? title : 'Choose the model';
+        line.classList.toggle('is-missing', missing);
+        current.classList.toggle('is-missing', missing);
+    };
     if (!state.agentStatus && !state.agentChoice) {
-        text.textContent = 'Checking the agent…';
+        show('Checking the model…', '');
         return;
     }
     const agent = currentAgent();
     if (!agent) {
-        line.classList.add('is-missing');
-        text.textContent = needsVision() ? 'Choose a model that sees photos' : 'No agent: your text goes to the model as is';
-        line.title = 'Choose a model';
+        show(needsVision() ? 'Choose a model that sees photos' : 'No model', 'Choose a model in Models', true);
         return;
     }
     if (needsVision() && !agent.sees_images) {
-        line.classList.add('is-missing');
-        text.textContent = `${agent.label} · cannot see photos`;
-        line.title = 'This mode needs a model that sees photos: choose one here';
+        show(`${agent.label} · cannot see photos`, 'This mode needs a model that sees photos: choose one in Models', true);
         return;
     }
-    text.textContent = agent.label;
-    line.title = jobMode() !== 'text' && agent.sees_images ? 'Sees the photo · change the model' : 'Change the model';
+    show(agent.label, jobMode() !== 'text' && agent.sees_images ? `${agent.label} · sees the photo` : agent.label);
 }
 
 // --- agent menu --------------------------------------------------------------------------
@@ -3295,13 +3302,6 @@ async function loadColabRuntime() {
     if (delay) state.colabPoll = setTimeout(loadColabRuntime, delay);
 }
 
-function paintRuntimeDot() {
-    const dot = $('runtime-settings-dot');
-    dot.className = 'runtime-settings-dot';
-    if (runtimeUp(state.runtimeStatus)) dot.classList.add('is-ready');
-    else if (state.runtimeConfig?.install_path) dot.classList.add('is-configured');
-}
-
 const RUNTIME_ACTIONS = {
     restart: { label: 'Restart ComfyUI', icon: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path>' },
     settings: { label: 'Set up ComfyUI', icon: '<path d="M12 15V3"></path><path d="m7 10 5 5 5-5"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' },
@@ -3358,7 +3358,6 @@ function paintRuntimePower() {
 function rememberRuntimeStatus(status) {
     state.runtimeStatus = status;
     setCachedJson('mediastudio_runtime_status', status, false);
-    paintRuntimeDot();
     paintRuntimePower();
 }
 
@@ -3453,7 +3452,6 @@ async function loadRuntimeSummary() {
     if (cachedConfig) state.runtimeConfig = cachedConfig;
     if (cachedStatus) {
         state.runtimeStatus = cachedStatus;
-        paintRuntimeDot();
     }
     const [configResult, statusResult] = await Promise.allSettled([
         json('/api/comfyui/config'),
@@ -3467,7 +3465,6 @@ async function loadRuntimeSummary() {
         state.runtimeStatus = statusResult.value;
         setCachedJson('mediastudio_runtime_status', statusResult.value, false);
     }
-    paintRuntimeDot();
     paintRuntimePower();
     if (state.health) paintHealth(state.health);
 }

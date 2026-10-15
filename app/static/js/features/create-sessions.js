@@ -250,10 +250,6 @@ function hideHint() {
 // --- painting ------------------------------------------------------------------------
 
 function paint() {
-    const count = state.runs.length;
-    const badge = $('session-count');
-    badge.hidden = !count;
-    badge.textContent = String(count);
     if (!isOpen()) return;
     const list = state.view === 'list';
     $('session-back').innerHTML = list ? ICONS.back : ICONS.list;

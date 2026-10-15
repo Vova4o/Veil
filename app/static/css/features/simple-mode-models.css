@@ -279,9 +279,6 @@
 /* Settings Modal */
 .simple-runtime-button{position:relative}
 .simple-runtime-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
-.runtime-settings-dot{position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-radius:50%;background:var(--text-muted,#657088);box-shadow:0 0 0 2px var(--surface,#121722)}
-.runtime-settings-dot.is-configured{background:#d5a45e}
-.runtime-settings-dot.is-ready{background:#63c28f}
 
 .simple-modal-backdrop{position:fixed;inset:0;z-index:90;background:rgba(3,5,9,.62);backdrop-filter:blur(8px)}
 .simple-settings-dialog{
