@@ -1,7 +1,8 @@
 const $ = id => document.getElementById(id);
+// The Session panel (create-sessions.js), loaded on start; tests run this file as a script.
+let sessions = null;
 const MAX_PHOTO = 20 * 1024 * 1024;
 const TXT2IMG_SECONDS = 50;
-const SESSION_LIMIT = 40;
 const RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
 
 // Three modes in the switch. "prompt" runs text-to-image, or image-to-image once a starting
@@ -196,7 +197,6 @@ const state = {
     resultRequest: 0,
     lastRun: null,
     dialogRun: null,
-    session: [],
     downloads: [],
     downloadPoll: null,
     runtimeConfig: null,
@@ -247,8 +247,6 @@ function restore() {
 
         const savedPrompt = localStorage.getItem('mediastudio_simple_prompt');
         if (savedPrompt !== null) $('prompt').value = savedPrompt;
-        const session = JSON.parse(localStorage.getItem('mediastudio_create_session') || '[]');
-        if (Array.isArray(session)) state.session = session.slice(0, SESSION_LIMIT);
         const lastRun = JSON.parse(localStorage.getItem('mediastudio_create_last_run') || 'null');
         if (lastRun && typeof lastRun.prompt === 'string') state.lastRun = lastRun;
     } catch {}
@@ -414,7 +412,10 @@ function init() {
     resizePrompt();
     $('prompt-clear').hidden = !$('prompt').value.trim();
     const restored = savedCreateTask() ? restoreCreateTask() : restoreLastResult();
-    paintSession();
+    import('./create-sessions.js').then(module => {
+        sessions = module;
+        return module.initSessions({ onOpenPrompt: openSessionPrompt });
+    }).catch(err => console.error('Session panel failed to load', err));
     paintHealth({ status: 'checking' });
     loadHealth();
     loadDownloads();
@@ -857,7 +858,6 @@ async function loadAgentStatus() {
         state.agentStatus = { available: false, text: null, photo: null, instruction_files: [] };
     }
     paintAgentLine();
-    paintInstructionFiles();
 }
 
 function paintAgentLine() {
@@ -1159,25 +1159,6 @@ function wireAgentMenu() {
     window.addEventListener('resize', () => { if (!$('agent-menu').hidden) placeAgentMenu(); });
 }
 
-function paintInstructionFiles() {
-    const list = $('session-instruction-files');
-    if (!list) return;
-    const files = state.agentStatus?.instruction_files || [];
-    list.innerHTML = files.map(path => {
-        const name = String(path).split(/[\\/]/).pop();
-        return `<li><button type="button" class="instruction-file" data-path="${esc(path)}" title="${esc(path)} — click to copy the path">${esc(name)}</button></li>`;
-    }).join('');
-    list.querySelectorAll('[data-path]').forEach(button => {
-        button.onclick = async () => {
-            try {
-                await navigator.clipboard.writeText(button.dataset.path);
-                button.classList.add('is-copied');
-                setTimeout(() => button.classList.remove('is-copied'), 1200);
-            } catch {}
-        };
-    });
-}
-
 const AGENT_PHASES = {
     started: 'The agent is reading the task…',
     thinking: 'The agent is thinking…',
@@ -1418,8 +1399,9 @@ async function submitCreateTask(payload, plan, job) {
     try {
         const data = await json('/api/simple/tasks', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...payload, task_id: job.taskId }),
+            body: JSON.stringify({ ...payload, task_id: job.taskId, session_id: sessions?.currentSessionId() || null }),
         });
+        sessions?.sessionRunStarted();
         if (state.job !== job) return;
         await applyTaskSnapshot(job, data);
         if (state.job === job) pollRuns(job);
@@ -1603,6 +1585,7 @@ async function applyTaskSnapshot(job, data) {
         paintResultProgress(['Image ' + current + ' of ' + total, progress.stage, progress.eta].filter(Boolean).join(' · '));
     } else if (data.is_complete) {
         abortJob();
+        sessions?.refreshSessions();
         if (data.status === 'cancelled') showNote('Generation was stopped.');
         else handleGenerateError({ data: data.error, status: data.error?.status, message: data.error?.error || 'The task failed.' });
     }
@@ -1712,11 +1695,11 @@ function finishRuns(job, outputs) {
     paintResultProgress('');
     if (outputs.length) {
         renderResult(outputs, true);
-        const durations = job.runIds.map(id => job.live.get(id)?.duration_seconds).filter(value => value > 0);
-        updateSessionOutputs(job.runIds, outputs, durations);
+        sessions?.refreshSessions();
         if (job.failed.length) showNote(`${job.failed.length} of ${job.total} images failed. ${runErrorText(job.failed[0])}`);
         return;
     }
+    sessions?.refreshSessions();
     canvas(state.lastOutputs.length ? 'result' : 'idle');
     const failed = job.failed[0];
     if (job.cancelled || failed?.status === 'cancelled') {
@@ -2169,85 +2152,32 @@ function sessionRecord(run) {
     };
 }
 
-/** Record an agent answer before queueing, including when startup later fails. */
+/** The agent's prompt is on the server; show it in the session log right away. */
 function recordTaskPlan(job, data) {
     const signature = JSON.stringify([data.plan, data.run_ids, data.status]);
     if (job.sessionSignature === signature) return;
     job.sessionSignature = signature;
-    const record = sessionRecord({ ...job.plan, taskId: job.taskId, runIds: data.run_ids,
-        time: job.startedAt, status: data.status });
-    const existing = state.session.find(entry => entry.taskId === job.taskId || entry.key === record.key);
-    if (existing) Object.assign(existing, record, { outputs: existing.outputs || [] });
-    else {
-        state.session.unshift(record);
-        state.session = state.session.slice(0, SESSION_LIMIT);
-    }
-    saveSession();
-    paintSession();
+    sessions?.refreshSessions();
 }
 
 function persistLastRun() {
     try { localStorage.setItem('mediastudio_create_last_run', JSON.stringify(sessionRecord(state.lastRun))); } catch {}
 }
 
-function saveSession() {
-    try { localStorage.setItem('mediastudio_create_session', JSON.stringify(state.session.slice(0, SESSION_LIMIT))); } catch {}
-}
-
-function updateSessionOutputs(runIds, outputs, durations = []) {
-    const entry = state.session.find(item => item.key === runIds.join(','));
-    if (!entry) return;
-    entry.outputs = outputs.map(item => ({ id: item.id, thumbnail_url: item.thumbnail_url }));
-    // ComfyUI execution time per image, from execution start to the saved file.
-    if (durations.length) entry.seconds = Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
-    saveSession();
-    paintSession();
-}
-
-function paintSession() {
-    const count = $('session-count');
-    count.hidden = !state.session.length;
-    count.textContent = String(state.session.length);
-    const list = $('session-list');
-    if (!state.session.length) {
-        list.innerHTML = '<div class="assistant-message assistant-message-system"><strong>Nothing yet</strong><p>Each run shows up here with the request, the prompt the agent wrote and its notes.</p></div>';
-        return;
-    }
-    list.innerHTML = state.session.map((entry, index) => {
-        const time = new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const took = entry.seconds ? `${formatDuration(entry.seconds)} per image` : '';
-        const noise = entry.mode === 'variation' && entry.denoise != null ? `noise ${Number(entry.denoise).toFixed(2)}` : '';
-        const status = entry.status === 'failed' ? 'Generation failed · prompt saved'
-            : entry.status === 'cancelled' ? 'Stopped · prompt saved' : entry.status === 'queued' ? 'Prompt ready' : '';
-        const meta = [runLabel(entry), entry.agentName || 'no agent', entry.editProfileLabel, noise, took, status].filter(Boolean).join(' · ');
-        const thumbs = (entry.outputs || []).map(item => `<img src="${esc(item.thumbnail_url || `/api/thumbnail/${item.id}`)}" alt="" loading="lazy">`).join('');
-        return `<article class="session-entry">
-            <header><strong>${esc(time)}</strong><span>${esc(meta)}</span></header>
-            ${entry.userRequest ? `<p class="session-request">${esc(entry.userRequest)}</p>` : ''}
-            <details${['queued', 'failed', 'cancelled'].includes(entry.status) ? ' open' : ''}><summary>${entry.mode === 'edit' ? 'Edit command' : 'Prompt'}</summary><p class="session-prompt">${esc(entry.prompt)}</p>${entry.negative ? `<p class="session-negative">Remove: ${esc(entry.negative)}</p>` : ''}</details>
-            ${entry.note ? `<p class="session-note">${esc(entry.note)}</p>` : ''}
-            ${thumbs ? `<div class="session-thumbs">${thumbs}</div>` : ''}
-            <div class="session-actions"><button type="button" class="download-mini-btn" data-session-open="${index}">Open prompt</button></div>
-        </article>`;
-    }).join('');
-    list.querySelectorAll('[data-session-open]').forEach(button => {
-        button.onclick = () => {
-            const entry = state.session[Number(button.dataset.sessionOpen)];
-            if (!entry) return;
-            closeSession();
-            openPromptDialog({ ...entry, runIds: [] });
-        };
+/** A run from the session log, in the prompt window. */
+function openSessionPrompt(run) {
+    openPromptDialog({
+        mode: run.mode,
+        prompt: run.prompt,
+        negative: run.negative_prompt || '',
+        userRequest: run.request || '',
+        agentName: run.use_agent ? run.agent_name : null,
+        editProfileLabel: run.edit_profile_label || '',
+        withReference: run.with_reference,
+        denoise: run.denoise,
+        ratio: run.aspect_ratio,
+        runIds: [],
     });
-}
-
-function openSession() {
-    $('session-backdrop').hidden = false;
-    $('session').hidden = false;
-}
-
-function closeSession() {
-    $('session-backdrop').hidden = true;
-    $('session').hidden = true;
 }
 
 // --- wiring --------------------------------------------------------------------------
@@ -2319,14 +2249,6 @@ function wire() {
         try { await navigator.clipboard.writeText($('prompt-dialog-text').value); } catch {}
     };
 
-    $('session-open').onclick = openSession;
-    $('session-close').onclick = closeSession;
-    $('session-backdrop').onclick = closeSession;
-    $('session-clear').onclick = () => {
-        state.session = [];
-        saveSession();
-        paintSession();
-    };
 
     $('model-install').onclick = installModel;
     $('model-recheck').onclick = async () => {
@@ -2368,7 +2290,7 @@ function wire() {
         }
         if (event.key === 'Escape') {
             closePromptDialog();
-            closeSession();
+            sessions?.closeSessions();
             closeRuntimeSettings();
             closeContextMenu();
         }
