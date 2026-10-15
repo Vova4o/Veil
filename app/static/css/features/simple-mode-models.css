@@ -346,11 +346,21 @@ a.runtime-primary-btn{display:inline-flex;align-items:center;justify-content:cen
 .runtime-folder.is-custom .runtime-folder-path{color:var(--accent,#2dd4bf)}
 .runtime-folder-actions{flex:none;display:flex;gap:6px}
 .runtime-folder-actions .runtime-secondary-btn{min-height:30px;padding:0 10px;font-size:10px}
-.runtime-detection-card{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--border-subtle,rgba(255,255,255,.09));border-radius:11px;background:color-mix(in srgb,var(--surface2,#19202f) 35%,transparent)}
-.runtime-detection-dot{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:var(--text-muted,#657088)}
-.runtime-detection-card.is-good .runtime-detection-dot{background:#63c28f}
-.runtime-detection-card.is-warning .runtime-detection-dot{background:#d5a45e}
-.runtime-detection-card.is-error .runtime-detection-dot{background:#d87575}
+/* ComfyUI status: a pulse badge in the theme accent (amber / red for problems) instead of a traffic light. */
+.runtime-detection-card{--status-tone:var(--text-muted,#657088);display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border-subtle,rgba(255,255,255,.09));border-radius:12px;background:color-mix(in srgb,var(--surface2,#19202f) 35%,transparent);transition:border-color .3s ease,background .3s ease}
+.runtime-detection-card.is-good{--status-tone:var(--accent,#2dd4bf)}
+.runtime-detection-card.is-warning{--status-tone:#d5a45e}
+.runtime-detection-card.is-error{--status-tone:#d87575}
+.runtime-detection-card:is(.is-good,.is-warning,.is-error){
+    border-color:color-mix(in srgb,var(--status-tone) 26%,transparent);
+    background:linear-gradient(100deg,color-mix(in srgb,var(--status-tone) 9%,transparent),transparent 65%),color-mix(in srgb,var(--surface2,#19202f) 35%,transparent);
+}
+.runtime-detection-icon{position:relative;flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:color-mix(in srgb,var(--status-tone) 15%,transparent);color:var(--status-tone);transition:color .3s ease,background .3s ease}
+.runtime-detection-icon svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+/* Running: a soft ring breathes out of the badge. */
+.runtime-detection-card.is-good .runtime-detection-icon::after{content:'';position:absolute;inset:0;border-radius:50%;border:1px solid color-mix(in srgb,var(--status-tone) 55%,transparent);animation:runtime-breathe 2.8s ease-out infinite}
+@keyframes runtime-breathe{from{transform:scale(1);opacity:.9}to{transform:scale(1.55);opacity:0}}
+@media(prefers-reduced-motion:reduce){.runtime-detection-card.is-good .runtime-detection-icon::after{animation:none;opacity:.5}}
 .runtime-detection-card strong{display:block;font-size:10.5px;color:var(--text,#f0f2f7)}
 .runtime-detection-card p{margin:3px 0 0;font-size:9.5px;line-height:1.4;color:var(--text-muted,#657088)}
 .simple-settings-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:3px}
