@@ -172,7 +172,7 @@ class VirtualOrganizationTest(LibraryTestCase):
         library.add_assets_to_album(album["id"], [image_id])
         library.update_asset(image_id, favorite=True)
 
-        db.update_source_state(result.folder_id, "unavailable", "Drive offline")
+        db.update_source_state(result.folder_id, "unavailable", "Disk offline")
 
         unavailable = library.get_assets(collection="unavailable")
         self.assertEqual(unavailable["total"], 1)

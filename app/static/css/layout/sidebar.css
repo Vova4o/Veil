@@ -459,12 +459,14 @@
 
 .folder-item:hover {
     background: var(--surface2);
-    border-color: var(--border);
 }
 
 .folder-item.active {
-    background: var(--accent-dim);
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.album-list:not(.view-list) .folder-item.active {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .folder-item-content {
@@ -491,7 +493,7 @@
 }
 
 .folder-item.active .folder-item-name {
-    color: var(--accent-hover);
+    color: var(--text);
 }
 
 .folder-item-count,
@@ -502,52 +504,47 @@
     white-space: nowrap;
 }
 
-/* Sources: navigation and management are separate native controls. */
+/* Sources: one quiet row per folder, like the Library quick views above. */
 .source-folder-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 32px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 4px;
-    padding: 4px;
 }
 
 .source-folder-item .folder-item-content {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
     align-items: center;
     column-gap: 8px;
-    min-height: 48px;
-    padding: 4px;
+    min-height: 32px;
+    padding: 6px 4px 6px 10px;
+}
+
+.source-folder-item .folder-item-name {
+    font-weight: 500;
+    color: var(--text-dim);
+}
+
+.source-folder-item:hover .folder-item-name,
+.source-folder-item.active .folder-item-name {
+    color: var(--text);
 }
 
 .folder-item-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 16px;
+    height: 16px;
     color: var(--text-muted);
 }
 
 .source-folder-item.active .folder-item-icon {
-    color: var(--accent-hover);
-}
-
-.source-badges {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 16px;
-    margin-top: 2px;
-    min-width: 0;
-}
-
-.source-badges:empty {
-    display: none;
+    color: var(--accent);
 }
 
 .source-status {
-    display: inline-block;
+    display: block;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -555,22 +552,6 @@
     font-size: 10px;
     line-height: 1.4;
     color: var(--text-muted);
-}
-
-.source-status::before {
-    content: '';
-    width: 5px;
-    height: 5px;
-    flex-shrink: 0;
-    border-radius: 50%;
-    background: currentColor;
-    display: inline-block;
-    margin-right: 5px;
-    vertical-align: middle;
-}
-
-.source-status-available {
-    color: var(--green);
 }
 
 .source-status-partially_available,
@@ -583,14 +564,8 @@
     color: var(--red);
 }
 
-.source-recursive-badge {
-    display: inline-flex;
-    color: var(--text-muted);
-    flex-shrink: 0;
-}
-
 .source-disabled .folder-item-content {
-    opacity: 0.65;
+    opacity: 0.6;
 }
 
 .folder-item-meta {
@@ -624,13 +599,22 @@
 }
 
 .source-menu-toggle {
-    width: 32px;
-    height: 32px;
+    width: 24px;
+    height: 24px;
+    margin-right: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
+    opacity: 0;
+    transition: opacity var(--transition-fast), background-color var(--transition-fast);
+}
+
+.source-folder-item:hover .source-menu-toggle,
+.source-folder-item:focus-within .source-menu-toggle,
+.source-menu-toggle[aria-expanded='true'] {
+    opacity: 1;
 }
 
 .source-menu-toggle:hover,
@@ -858,13 +842,15 @@
 }
 
 @media (pointer: coarse), (max-width: 768px) {
-    .source-folder-item {
-        grid-template-columns: minmax(0, 1fr) 44px;
+    .source-folder-item .folder-item-content {
+        min-height: 44px;
     }
 
     .source-menu-toggle {
         width: 44px;
         height: 44px;
+        margin-right: 0;
+        opacity: 1;
     }
 
     .source-action-btn {

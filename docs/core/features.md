@@ -106,7 +106,7 @@ The old manifest-driven editor, its template registry/import/compiler, Civitai b
 
 **Main route:** `POST /api/scan`
 
-Source monitoring indexes images in-place. Original files are not copied during a scan; the database stores metadata and references to their normalized absolute local paths. Cache and database files remain in application-owned directories rather than the selected source folder. This works with ordinary folders and directories synchronized by desktop clients such as OneDrive, Google Drive, Dropbox, Syncthing, or Яндекс Диск.
+Source monitoring indexes images in-place. Original files are not copied during a scan; the database stores metadata and references to their normalized absolute local paths. Cache and database files remain in application-owned directories rather than the selected source folder. This works with ordinary folders and directories synchronized by desktop clients such as OneDrive, Dropbox, Syncthing, or Яндекс Диск.
 
 ### Behavior
 

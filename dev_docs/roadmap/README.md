@@ -15,7 +15,7 @@
   Механизмы сброса индекса (Reset Index) и полного сброса настроек (Factory Reset) с сохранением пользовательских исходных медиафайлов.
 
 - [ ] **[02. Source monitoring and cloud directories](core/02_SOURCE_MONITORING_AND_CLOUD_DIRECTORIES.md)**  
-  Наблюдение за файловыми изменениями (watcher + periodic reconcile), обработка облачных папок (Яндекс.Диск, Google Drive, OneDrive) и устойчивость к отключению дисков.
+  Наблюдение за файловыми изменениями (watcher + periodic reconcile), обработка облачных папок (Яндекс.Диск, OneDrive, Dropbox) и устойчивость к отключению дисков.
 
 ---
 

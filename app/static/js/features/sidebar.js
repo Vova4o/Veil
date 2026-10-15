@@ -279,6 +279,8 @@ export async function renderFoldersList(folderList = null) {
         const item = document.createElement('div');
         const isSource = !String(folder.path || '').startsWith('__uploads');
         const { status: sourceStatus, label: statusLabel, processing, percent } = sourcePresentation(folder);
+        // A healthy source needs no badge; only problems earn a note under the name.
+        const showStatus = isSource && !processing && sourceStatus !== 'available';
         const active = currentCollection.type === 'folder' && folder.id === currentFolderId;
         item.className = [
             'folder-item',
@@ -316,10 +318,10 @@ export async function renderFoldersList(folderList = null) {
         item.innerHTML = `
             <button class="folder-item-content" type="button" aria-label="Open source ${escapeHtml(folder.name)}, ${countLabel}"
                 ${active ? 'aria-current="true"' : ''}>
-                <span class="folder-item-icon" aria-hidden="true">${collectionIcon('folder-open', 20)}</span>
+                <span class="folder-item-icon" aria-hidden="true">${collectionIcon(active ? 'folder-open' : 'folder', 16)}</span>
                 <span class="folder-item-details">
                     <span class="folder-item-name" title="${escapeHtml(folder.path || folder.name)}">${escapeHtml(folder.name)}</span>
-                    <span class="source-badges">${isSource && !processing ? `<span class="source-status source-status-${sourceStatus}"${errorTitle}>${statusLabel}</span>` : ''}${folder.recursive && isSource ? `<span class="source-recursive-badge" title="Includes subfolders" aria-label="Includes subfolders">${collectionIcon('git-branch', 12)}</span>` : ''}</span>
+                    ${showStatus ? `<span class="source-status source-status-${sourceStatus}"${errorTitle}>${statusLabel}</span>` : ''}
                     ${progressHtml}
                 </span>
                 <span class="folder-item-meta" title="${countDescription}"><span class="folder-item-count">${countLabel}</span></span>
