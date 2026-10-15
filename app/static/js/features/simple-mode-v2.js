@@ -655,6 +655,7 @@ function paintRefBlock(slot, photo, copy) {
     block.querySelector('.ref-title').textContent = copy[0];
     block.querySelector('.ref-hint').textContent = photo ? `${photo.name} · ${photo.width}×${photo.height}` : copy[1];
     block.classList.toggle('is-filled', Boolean(photo));
+    block.title = photo ? 'Paste (Ctrl+V) or drop another picture to replace this one' : '';
     block.querySelector('.ref-empty').hidden = Boolean(photo);
     block.querySelector('.ref-tools').hidden = !photo;
     const preview = block.querySelector('.ref-preview');
@@ -714,9 +715,6 @@ function wirePhotoSlots() {
     $('subject-input').onchange = event => {
         if (event.target.files?.[0]) setPhoto('subject', event.target.files[0]);
     };
-    document.querySelectorAll('[data-pick]').forEach(button => {
-        button.onclick = () => (button.dataset.pick === 'subject' ? $('subject-input') : $('photo-input')).click();
-    });
     // An empty block opens the file picker; a filled one stays inert so a click only
     // focuses it for Ctrl+V (full screen lives in the block's header).
     document.querySelectorAll('.ref-block .ref-drop').forEach(drop => {
@@ -768,22 +766,29 @@ function wirePhotoSlots() {
             else importImageUrl(link.trim(), slot);
         });
     }
-    // Images on the clipboard go to the focused slot; text pastes are left alone, except an
-    // image link pasted outside the text fields.
+    // An image on the clipboard goes to the focused slot and replaces the photo already
+    // there, so pictures copied one after another from a browser simply swap in. Text pastes
+    // are left alone, except an image link (or a link pasted outside the text fields).
     document.addEventListener('paste', event => {
-        const item = [...(event.clipboardData?.items || [])].find(entry => entry.kind === 'file' && entry.type.startsWith('image/'));
-        const file = item?.getAsFile();
+        const data = event.clipboardData;
+        const item = [...(data?.items || [])].find(entry => entry.kind === 'file' && entry.type.startsWith('image/'));
+        const file = item?.getAsFile() || [...(data?.files || [])].find(entry => entry.type.startsWith('image/'));
         if (file) {
             event.preventDefault();
             acceptImage(file, state.slotFocus);
             return;
         }
+        const text = data?.getData('text/plain')?.trim() || '';
+        // "Copy image" in some browsers puts only the <img> markup on the clipboard.
+        const htmlImage = !text && /<img[^>]+src=["'](https?:\/\/[^"']+)["']/i.exec(data?.getData('text/html') || '')?.[1];
+        const link = htmlImage || (/^https?:\/\/\S+$/i.test(text) ? text : '');
+        if (!link) return;
         const typing = event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]');
-        const text = event.clipboardData?.getData('text/plain')?.trim() || '';
-        if (!typing && /^https?:\/\/\S+$/i.test(text)) {
-            event.preventDefault();
-            importImageUrl(text, state.slotFocus);
-        }
+        const imageLink = htmlImage || /\.(?:png|jpe?g|webp|gif|avif|bmp)(?:[?#]\S*)?$/i.test(link);
+        // A link field of a photo block handles its own paste.
+        if (typing && (!imageLink || event.target.closest('[data-url]'))) return;
+        event.preventDefault();
+        importImageUrl(link.replace(/&amp;/g, '&'), state.slotFocus);
     });
 }
 
