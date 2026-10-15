@@ -8,6 +8,7 @@ import logging
 import os
 import queue
 import random
+import re
 import shutil
 import subprocess
 import threading
@@ -28,6 +29,7 @@ from app.ai.execution import ExecutionRouter
 from app.ai.providers import AIProviderStore
 from app.config_store import ConfigStore
 
+from . import create_sessions
 from .backends import BackendKind, ComfyUIJobClient, InferenceBackend
 from .client import ComfyUIClient, ComfyUIClientError
 from .create_agent import (
@@ -36,6 +38,7 @@ from .create_agent import (
     instruction_paths,
     run_create_agent,
 )
+from .create_sessions import SESSION_ID_PATTERN
 from .detector import detect_comfyui
 from .node_packs import (
     NodePackInstallError,
@@ -635,6 +638,8 @@ class SimpleCreateRequest(SimpleAgentRequest):
     seed: int = -1
     photo_name: str | None = None
     subject_name: str | None = None
+    # The Create session this run belongs to; created with the first run.
+    session_id: str | None = Field(default=None, pattern=SESSION_ID_PATTERN)
 
 
 def _create_task_service():
@@ -682,6 +687,49 @@ def simple_cancel_task(task_id: str):
         return jsonify(_create_task_service().cancel(task_id))
     except KeyError:
         return jsonify({"error": "Create task was not found.", "code": "task_not_found"}), 404
+
+
+class SessionRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+def _valid_session_id(session_id: str) -> bool:
+    return re.fullmatch(SESSION_ID_PATTERN, session_id) is not None
+
+
+@simple_blueprint.route("/api/simple/sessions", methods=["GET"])
+def simple_list_sessions():
+    return jsonify({"sessions": create_sessions.list_sessions(), "suggest_new_after": create_sessions.HISTORY_RUNS})
+
+
+@simple_blueprint.route("/api/simple/sessions/<session_id>", methods=["GET"])
+def simple_get_session(session_id: str):
+    if not _valid_session_id(session_id):
+        return jsonify({"error": "Invalid session id.", "code": "session_invalid"}), 400
+    session = create_sessions.get_session(session_id)
+    if session is None:
+        return jsonify({"error": "Session was not found.", "code": "session_not_found"}), 404
+    return jsonify({"session": session, "runs": create_sessions.session_runs(session_id),
+                    "suggest_new_after": create_sessions.HISTORY_RUNS})
+
+
+@simple_blueprint.route("/api/simple/sessions/<session_id>", methods=["PATCH"])
+def simple_rename_session(session_id: str):
+    try:
+        req = SessionRenameRequest.model_validate(request.get_json(silent=True) or {})
+        session = create_sessions.rename_session(session_id, req.title)
+    except ValueError as exc:
+        return jsonify({"error": str(exc), "code": "session_title_invalid"}), 400
+    if session is None:
+        return jsonify({"error": "Session was not found.", "code": "session_not_found"}), 404
+    return jsonify({"session": session})
+
+
+@simple_blueprint.route("/api/simple/sessions/<session_id>", methods=["DELETE"])
+def simple_delete_session(session_id: str):
+    if not create_sessions.delete_session(session_id):
+        return jsonify({"error": "Session was not found.", "code": "session_not_found"}), 404
+    return jsonify({"deleted": session_id})
 
 
 MAX_SOURCE_IMAGE_BYTES = 40 * 1024 * 1024

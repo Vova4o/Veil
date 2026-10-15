@@ -312,9 +312,27 @@ def build_user_input(
     image_state: str,
     dimensions: tuple[int, int] | None,
     source_size: tuple[int, int] | None = None,
+    session_history: list[dict[str, str]] | None = None,
 ) -> str:
-    """The per-run part of the task; ``source_size`` (photo 1) lets an edit see a frame change."""
+    """The per-run part of the task; ``source_size`` (photo 1) lets an edit see a frame change.
+
+    ``session_history`` lists earlier runs of the same Create session (mode, request and the
+    prompt that was written), oldest first, so the agent can follow the thread.
+    """
     parts = [f"MODE: {mode}"]
+    if session_history:
+        lines = []
+        for index, item in enumerate(session_history, start=1):
+            request_line = (item.get("request") or "").strip() or "(no text)"
+            lines.append(
+                f"{index}. [{item.get('mode') or 'text'}] request: {request_line}\n"
+                f"   prompt written: {(item.get('prompt') or '').strip()}"
+            )
+        parts.append(
+            "SESSION SO FAR (earlier runs in this session, oldest first; context only. Their photos are "
+            "not attached. Use it to resolve references like \"the same girl\", \"again but at night\" or "
+            "\"like before\"; the current USER REQUEST and PHOTOS decide what to write):\n" + "\n".join(lines)
+        )
     cleaned = request.strip()[:MAX_REQUEST_CHARS]
     if cleaned:
         parts.append(f"USER REQUEST (any language, translate it):\n{cleaned}")
@@ -514,6 +532,7 @@ def run_create_agent(
     agent_variant: str | None = None,
     agent_host: str | None = None,
     on_progress: ProgressSink | None = None,
+    session_history: list[dict[str, str]] | None = None,
 ) -> CreateAgentResult:
     """Write the prompt for one Create run with the model picked in Create (or the default).
 
@@ -554,7 +573,9 @@ def run_create_agent(
         profile,
         mode,
         references=references,
-        intimate=mode == "reference" or wants_intimate_module(request, previous_prompt),
+        intimate=mode == "reference" or wants_intimate_module(
+            request, previous_prompt, *[item.get("request") for item in session_history or []]
+        ),
         original=wants_original_module(request),
     )
     user_input = build_user_input(
@@ -564,6 +585,7 @@ def run_create_agent(
         image_state=_image_state(mode, has_image=image is not None, has_subject=subject is not None, sees=sees),
         dimensions=dimensions,
         source_size=image_size(image) if mode == "edit" else None,
+        session_history=session_history,
     )
     execution_profile = dict(agent)
     execution_profile["timeout_seconds"] = max(

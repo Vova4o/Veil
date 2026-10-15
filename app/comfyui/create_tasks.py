@@ -16,6 +16,7 @@ from app import database as db
 
 from .create_agent import CreateAgentError
 from .create_outputs import ensure_output_source
+from .create_sessions import agent_history, touch_session
 from .manager import COMFYUI_STARTUP_TIMEOUT_SECONDS
 from .workflow_execution import WorkflowExecutionService
 from .workflow_store import WorkflowStore
@@ -52,11 +53,17 @@ class CreateTaskService:
                     raise ValueError("This task ID already belongs to another request.")
                 return self.snapshot(task_id)
             backend = routes._backend().kind
+            session_id = payload.get("session_id")
+            selections = {"create_task_id": task_id, "request": payload, "backend": backend}
+            if session_id:
+                selections["session_id"] = session_id
             self.store.create_draft(
                 template_id="create-task", template_version="1.0.0",
-                resource_selections={"create_task_id": task_id, "request": payload, "backend": backend},
+                resource_selections=selections,
                 values={"phase": "agent" if payload["use_agent"] else "queue", "run_ids": [], "runs": []},
             )
+            if session_id:
+                touch_session(session_id, request=payload.get("request") or "", mode=payload.get("mode"))
             self._update(task_id, status="queued")
             self._spawn(task_id, self._execute)
             return self.snapshot(task_id)
@@ -116,6 +123,8 @@ class CreateTaskService:
             # Local startup and prompt preparation are independent. The prompt survives
             # a startup failure; an agent failure is reported without waiting for startup.
             readiness = self._prepare_local_runtime(task_id, backend) if backend.kind == "local" else None
+            # Earlier runs of the same session give the agent the thread of the conversation.
+            kwargs["session_history"] = agent_history(draft.resource_selections.get("session_id"), before_task=task_id)
             result = routes.run_create_agent(**kwargs, on_progress=lambda event: self._progress(task_id, event))
             plan = finish(result)
         else:

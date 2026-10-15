@@ -502,6 +502,18 @@ _INITIAL_SCHEMA_SQL = """
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Create sessions: a named thread of Create tasks. The tasks themselves stay in
+    -- workflow_drafts (template 'create-task') with $.session_id in resource_selections.
+    -- title_state: pending (no name yet), fallback (cut from the first request),
+    -- agent (named by the free OpenCode model) or manual (renamed by the user).
+    CREATE TABLE IF NOT EXISTS create_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        title_state TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_images_folder ON images(folder_id);
     CREATE INDEX IF NOT EXISTS idx_images_folder_mtime ON images(folder_id, file_mtime);
     CREATE INDEX IF NOT EXISTS idx_images_mtime_id ON images(file_mtime DESC, id DESC);
@@ -523,6 +535,9 @@ _INITIAL_SCHEMA_SQL = """
     CREATE INDEX IF NOT EXISTS idx_workflow_drafts_source ON workflow_drafts(source_asset_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_create_task_id
         ON workflow_drafts(json_extract(resource_selections_json, '$.create_task_id'))
+        WHERE template_id = 'create-task';
+    CREATE INDEX IF NOT EXISTS idx_create_task_session
+        ON workflow_drafts(json_extract(resource_selections_json, '$.session_id'), id)
         WHERE template_id = 'create-task';
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_draft ON workflow_runs(draft_id, id);
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
