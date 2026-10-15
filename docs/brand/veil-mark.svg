@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>VEIL</title>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="58%" r="70%">
+      <stop offset="0" stop-color="#16161a"/>
+      <stop offset="1" stop-color="#000"/>
+    </radialGradient>
+    <radialGradient id="floor" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/>
+      <stop offset=".45" stop-color="#fff" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- V facets -->
+    <linearGradient id="lOut" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e9e9ec"/>
+      <stop offset="1" stop-color="#b9b9bf"/>
+    </linearGradient>
+    <linearGradient id="lIn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e4e4e8"/>
+    </linearGradient>
+    <linearGradient id="lBev" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8d8d94"/>
+      <stop offset="1" stop-color="#5a5a60"/>
+    </linearGradient>
+    <linearGradient id="rIn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f4f6"/>
+      <stop offset="1" stop-color="#cfcfd4"/>
+    </linearGradient>
+    <linearGradient id="rOut" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a9a9b0"/>
+      <stop offset="1" stop-color="#7d7d84"/>
+    </linearGradient>
+    <linearGradient id="rBev" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d6d6da"/>
+      <stop offset="1" stop-color="#a2a2a8"/>
+    </linearGradient>
+    <!-- silk -->
+    <linearGradient id="silk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".55" stop-color="#ececf0"/>
+      <stop offset="1" stop-color="#c4c4ca"/>
+    </linearGradient>
+    <linearGradient id="silkSide" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity=".18"/>
+      <stop offset=".3" stop-color="#000" stop-opacity="0"/>
+      <stop offset=".75" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".25"/>
+    </linearGradient>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="2.2"/>
+    </filter>
+    <filter id="softer" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="160%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <clipPath id="veilClip">
+      <path id="veilShape" d="M46 148
+        C96 122 154 130 198 166
+        C226 188 242 204 258 203
+        C276 202 294 182 324 156
+        C366 122 422 114 468 132
+        C438 146 412 170 406 200
+        C402 222 410 236 404 246
+        C396 254 380 240 360 248
+        C338 258 332 264 306 294
+        C288 314 272 324 257 324
+        C240 324 224 314 206 294
+        C186 268 174 258 152 248
+        C132 240 116 254 108 246
+        C102 236 110 222 106 200
+        C100 170 76 154 46 148 Z"/>
+    </clipPath>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <ellipse cx="256" cy="452" rx="150" ry="26" fill="url(#floor)"/>
+
+  <!-- faceted V -->
+  <g stroke-linejoin="round">
+    <!-- left arm -->
+    <polygon points="116,228 162,228 256,424 256,454" fill="url(#lOut)"/>
+    <polygon points="162,228 198,228 256,386 256,424" fill="url(#lIn)"/>
+    <polygon points="198,228 220,228 256,340 256,386" fill="url(#lBev)"/>
+    <!-- right arm -->
+    <polygon points="396,228 350,228 256,424 256,454" fill="url(#rOut)"/>
+    <polygon points="350,228 314,228 256,386 256,424" fill="url(#rIn)"/>
+    <polygon points="314,228 292,228 256,340 256,386" fill="url(#rBev)"/>
+    <!-- crisp edge highlights -->
+    <g fill="none" stroke="#fff" stroke-width="1.2" opacity=".7">
+      <line x1="162" y1="228" x2="256" y2="424"/>
+      <line x1="198" y1="228" x2="256" y2="386"/>
+      <line x1="350" y1="228" x2="256" y2="424"/>
+    </g>
+  </g>
+
+  <!-- shadow of the veil onto the V -->
+  <path d="M112 236 C160 240 210 306 257 326 C304 306 352 240 400 236 L400 272 C346 278 302 336 257 350 C212 336 168 278 112 272 Z"
+        fill="#000" opacity=".45" filter="url(#drop)"/>
+
+  <!-- silk veil -->
+  <use href="#veilShape" fill="url(#silk)"/>
+  <g clip-path="url(#veilClip)">
+    <use href="#veilShape" fill="url(#silkSide)"/>
+    <g fill="none" stroke="#74747c" stroke-linecap="round" filter="url(#softer)" opacity=".55">
+      <path d="M58 156 C110 148 162 168 204 202 C232 226 246 242 258 244 C272 242 290 222 322 194 C358 162 408 144 462 138" stroke-width="10"/>
+      <path d="M96 176 C150 184 188 214 218 252 C238 276 248 288 258 290 C270 288 284 272 304 246 C334 208 376 176 430 158" stroke-width="12"/>
+      <path d="M118 214 C160 222 196 256 222 288 C238 306 250 314 258 314 C268 314 280 304 296 286 C322 256 356 222 398 216" stroke-width="9"/>
+    </g>
+    <g fill="none" stroke="#8a8a92" stroke-linecap="round" filter="url(#soft)" opacity=".6">
+      <path d="M66 150 C118 140 168 158 206 190 C230 210 244 224 258 226 C274 224 292 204 322 176 C360 144 410 130 462 134" stroke-width="3"/>
+      <path d="M80 166 C134 164 178 190 212 226 C234 250 248 264 258 266 C272 264 288 246 312 216 C342 182 388 158 446 146" stroke-width="3.5"/>
+      <path d="M110 196 C154 202 192 232 220 270 C236 292 248 302 258 302 C268 302 282 290 298 268 C324 236 360 206 410 190" stroke-width="3"/>
+      <path d="M150 176 C182 190 206 208 228 234" stroke-width="2"/>
+      <path d="M288 226 C310 202 336 180 370 164" stroke-width="2"/>
+      <path d="M122 232 C160 240 190 266 214 296" stroke-width="2"/>
+      <path d="M300 296 C324 268 352 246 392 236" stroke-width="2"/>
+    </g>
+    <g fill="none" stroke="#fff" stroke-linecap="round" filter="url(#soft)" opacity=".95">
+      <path d="M60 152 C112 144 164 162 204 196 C230 218 244 234 258 236 C274 234 292 212 322 184 C360 152 410 136 464 135" stroke-width="5"/>
+      <path d="M88 172 C142 174 184 202 214 238 C236 264 248 278 258 280 C270 278 286 260 308 230 C338 194 382 168 438 152" stroke-width="5"/>
+      <path d="M116 206 C158 212 194 244 220 278 C236 298 250 308 258 308 C268 308 282 296 298 276 C324 244 358 214 404 202" stroke-width="3.5"/>
+      <path d="M108 168 C116 184 118 200 116 216" stroke-width="3"/>
+      <path d="M404 166 C396 184 394 200 398 222" stroke-width="3"/>
+    </g>
+    <path d="M112 242 C150 238 180 264 206 294 C224 314 240 324 257 324 C272 324 288 314 306 294 C332 264 362 238 400 242
+             L400 228 C360 226 330 252 304 280 C286 300 272 310 257 310 C240 310 226 300 208 280 C182 252 152 226 112 228 Z"
+          fill="#5d5d64" opacity=".55" filter="url(#soft)"/>
+  </g>
+  <!-- wing tips -->
+  <path d="M46 148 C66 140 86 138 104 141" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".9"/>
+  <path d="M468 132 C448 127 426 126 406 129" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".9"/>
+</svg>
