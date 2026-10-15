@@ -519,8 +519,8 @@ class CLIDetectionTest(unittest.TestCase):
             result = list_cli_models("opencode", provider="deepseek")
         args = command.call_args_list[0].args[0]
         self.assertEqual(args[0], "C:/OpenCode/opencode-cli.exe")
-        self.assertEqual(args[1:4], ["api", "GET", "/api/model"])
-        self.assertTrue(args[-1].startswith("location[directory]="))
+        self.assertEqual(args[1:], ["api", "--standalone", "GET", "/api/model"])
+        self.assertIn("XDG_CONFIG_HOME", command.call_args_list[0].kwargs["env_overrides"])
         self.assertEqual(result["providers"], ["deepseek"])
         self.assertEqual(result["requested_provider"], "deepseek")
         self.assertEqual(len(result["models"]), 2)
@@ -548,7 +548,7 @@ class CLIDetectionTest(unittest.TestCase):
         self.assertEqual((models["opencode/big-pickle"].vision, models["opencode/big-pickle"].free), (False, True))
         self.assertEqual((models["opencode/claude-opus-5"].vision, models["opencode/claude-opus-5"].free), (True, False))
 
-    def test_opencode_desktop_models_come_from_the_service_api(self):
+    def test_opencode_desktop_models_come_from_a_private_isolated_server(self):
         payload = {"data": [
             {"id": "muse-free", "providerID": "opencode", "name": "Muse Free",
              "capabilities": {"input": ["text", "image"]}, "cost": [{"input": 0, "output": 0}],
@@ -562,8 +562,8 @@ class CLIDetectionTest(unittest.TestCase):
         with patch("app.ai.cli.run_command", return_value=result) as command:
             models = list_opencode_models("C:/OpenCode/opencode-cli.exe", generation=2, provider="opencode")
         args = command.call_args.args[0]
-        self.assertEqual(args[1:4], ["api", "GET", "/api/model"])
-        self.assertTrue(args[-1].startswith("location[directory]="))
+        self.assertEqual(args[1:], ["api", "--standalone", "GET", "/api/model"])
+        self.assertIn("XDG_CONFIG_HOME", command.call_args.kwargs["env_overrides"])
         self.assertEqual(
             [(item.id, item.vision, item.free) for item in models],
             [("opencode/muse-free", True, True), ("opencode/pickle", False, True)],

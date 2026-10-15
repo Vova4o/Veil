@@ -13,7 +13,7 @@ custom agents, skills) never reaches a MediaStudio task; credentials live in the
 directory and still apply. This matters in practice: a global plugin such as Forma
 hooks every prompt (it appends its own preferences and offers ComfyUI tools), and
 the desktop background service always runs with it loaded. MediaStudio runs therefore never
-use the background service (``--standalone``); only the read-only model listing does.
+use the background service (``--standalone``), and neither does the model listing.
 """
 
 from __future__ import annotations
@@ -428,10 +428,20 @@ def list_models(
 
 
 def _list_api_models(executable: str) -> list[OpenCodeModel]:
-    with tempfile.TemporaryDirectory(prefix="mediastudio-opencode-models-", ignore_cleanup_errors=True) as location:
-        args = [executable, "api", "GET", "/api/model", "--param", f"location[directory]={location}"]
+    # A private server with an empty config, like the runs: the background service
+    # answers 503 "Location plugins did not finish activating" while the user's global
+    # plugins start, and its plugins and MCP servers can open console windows.
+    with tempfile.TemporaryDirectory(prefix="mediastudio-opencode-models-", ignore_cleanup_errors=True) as work:
+        location = Path(work) / "location"
+        config_home = Path(work) / "config"
+        location.mkdir()
+        config_home.mkdir()
+        args = [executable, "api", "--standalone", "GET", "/api/model"]
         for attempt in range(2):
-            result = cli.run_command(args, timeout=60, output_limit=MODEL_LIST_OUTPUT_LIMIT)
+            result = cli.run_command(
+                args, timeout=60, cwd=location, env_overrides=isolated_env(config_home),
+                output_limit=MODEL_LIST_OUTPUT_LIMIT,
+            )
             if result.returncode != 0:
                 raise _listing_error(result)
             try:

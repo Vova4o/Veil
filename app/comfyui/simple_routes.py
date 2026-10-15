@@ -523,6 +523,8 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         timeout=180,
         env=env,
         check=False,
+        # -WindowStyle Hidden alone still flashes a console before PowerShell hides it.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "Не удалось открыть выбор папки.").strip()
