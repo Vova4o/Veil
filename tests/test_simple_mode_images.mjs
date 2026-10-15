@@ -117,6 +117,16 @@ test('restoration retains available results and removes missing batch entries', 
     assert.equal(JSON.parse(h.context.localStorage.getItem('mediastudio_simple_last_result')).data.outputs.length, 1);
 });
 
+test('a result deleted in the library is not restored from the browser cache', async () => {
+    const h = harness(['/deleted', '/kept']);
+    h.context.fetch = async url => ({ status: url.endsWith('/7') ? 404 : 200 });
+    h.cache([{ id: 7, preview_url: '/deleted' }, { id: 8, preview_url: '/kept' }]);
+    await h.run('restoreLastResult()');
+    assert.equal(h.run('state.lastOutputs.length'), 1);
+    assert.equal(h.run('state.last.id'), 8);
+    assert.equal(h.requests.includes('/deleted'), false);
+});
+
 test('a late restored result cannot replace a new generation', async () => {
     const h = harness(['/slow'], ['/slow']);
     h.cache([{ preview_url: '/slow' }]);

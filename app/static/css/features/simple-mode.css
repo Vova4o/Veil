@@ -636,11 +636,13 @@
 .generating-text{margin:0;color:var(--text,#f0f2f7);font-size:13px;font-weight:700}
 .generating-subtitle{color:var(--text-muted,#657088);font-size:10.5px}
 /* Live agent progress: journal lines, then the prompt the agent wrote. */
-.agent-stream{width:min(560px,100%);display:flex;flex-direction:column;gap:8px;text-align:left}
+.canvas-generating-state > :not(.agent-stream){flex:none}
+/* The written prompt takes the card's free height and scrolls only past it. */
+.agent-stream{width:100%;min-height:0;flex:0 1 auto;display:flex;flex-direction:column;gap:8px;text-align:left}
 .agent-stream-log{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px;color:var(--text-muted,#657088);font:10.5px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
 .agent-stream-log li{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .agent-stream-log li:last-child{color:var(--text-dim,#9aa4b8)}
-.agent-stream-text{margin:0;max-height:180px;overflow:auto;padding:10px 12px;border:1px solid var(--border-subtle,rgba(255,255,255,.07));border-radius:10px;background:color-mix(in srgb,var(--bg,#0c0e14) 60%,transparent);color:var(--text-dim,#9aa4b8);font-size:11px;line-height:1.55;white-space:pre-wrap}
+.agent-stream-text{margin:0;flex:0 1 auto;min-height:72px;overflow:auto;padding:10px 12px;border:1px solid var(--border-subtle,rgba(255,255,255,.07));border-radius:10px;background:color-mix(in srgb,var(--bg,#0c0e14) 60%,transparent);color:var(--text-dim,#9aa4b8);font-size:11px;line-height:1.55;white-space:pre-wrap}
 .canvas-result-state{display:flex;flex:1 1 auto;flex-direction:column;justify-content:space-between;width:100%;min-height:0;overflow:hidden}
 .canvas-artwork-wrap{
     width:100%;
@@ -850,6 +852,11 @@ body.assistant-open{overflow:hidden}
     grid-template-columns:var(--studio-side-width) var(--studio-side-width) minmax(0,var(--canvas-column-width,520px));
 }
 .studio-layout[data-refs="true"] .studio-controls-card{max-height:min(960px,calc(100vh - var(--header-height,58px) - 2 * var(--workspace-pad) - var(--hero-space)))}
+/* The result card shares the side cards' height limit, so all three bottoms line up. */
+.studio-layout[data-refs="true"] .studio-canvas-card{max-height:min(960px,calc(100vh - var(--header-height,58px) - 2 * var(--workspace-pad) - var(--hero-space)))}
+.studio-layout[data-refs="true"] .canvas-surface{max-height:none}
+/* While generating, the side cards set the row height: the streamed prompt must not grow it. */
+.studio-layout[data-view="generating"] .studio-canvas-card{contain:size}
 .studio-layout[data-refs="true"][data-view="idle"] .studio-controls-card{min-height:min(860px,calc(100vh - var(--header-height,58px) - 2 * var(--workspace-pad) - var(--hero-space)))}
 .studio-refs-card{
     /* The controls card sets the row height; the panel only fills it. */
@@ -1202,6 +1209,8 @@ body.assistant-open{overflow:hidden}
     .studio-layout[data-refs="true"],.studio-layout[data-refs="true"][data-view="generating"],.studio-layout[data-refs="true"][data-view="result"]{grid-template-columns:minmax(0,1fr)}
     /* Stacked: the panel sizes itself from its blocks. */
     .studio-refs-card{contain:none;height:auto;min-height:0}
+    .studio-layout[data-refs="true"] .studio-canvas-card{max-height:none}
+    .studio-layout[data-view="generating"] .studio-canvas-card{contain:none}
     .ref-blocks{flex:none}
     .ref-block{flex:none;min-height:300px}
     .ref-drop{flex:1 1 auto;min-height:220px}

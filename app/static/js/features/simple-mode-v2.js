@@ -1816,10 +1816,40 @@ function paintResultProgress(text) {
 
 // --- results -------------------------------------------------------------------------
 
-function restoreLastResult() {
+async function restoreLastResult() {
     const cached = getCachedJson('mediastudio_simple_last_result');
     const outputs = Array.isArray(cached?.outputs) ? cached.outputs : (cached ? [cached] : []);
-    return renderResult(outputs, false);
+    // Image URLs are cached as immutable, so a picture deleted in the Viewer or Library would
+    // still load from the browser cache: ask the library which results still exist.
+    const request = state.resultRequest;
+    const alive = await Promise.all(outputs.map(assetExists));
+    if (request !== state.resultRequest) return; // A new generation or result owns the canvas.
+    return renderResult(outputs.filter((_, i) => alive[i]), false);
+}
+
+async function assetExists(output) {
+    const id = Number(output?.id);
+    if (!Number.isInteger(id)) return true;
+    try {
+        const response = await fetch(`/api/assets/${id}`, { cache: 'no-store' });
+        return response.status !== 404;
+    } catch {
+        return true;
+    }
+}
+
+/** A result deleted elsewhere on this page (the session lightbox) leaves the canvas too. */
+function dropDeletedResult(assetId) {
+    const outputs = state.lastOutputs || [];
+    if (!outputs.some(output => Number(output.id) === Number(assetId))) return;
+    const rest = outputs.filter(output => Number(output.id) !== Number(assetId));
+    if (rest.length) {
+        state.selectedResultIndex = Math.min(state.selectedResultIndex, rest.length - 1);
+        renderResult(rest, false);
+    } else {
+        clearLastResult();
+        if (!state.job) canvas('idle');
+    }
 }
 
 function clearLastResult() {
@@ -2322,6 +2352,8 @@ function wire() {
         resizePrompt();
         syncCanvasRowHeight();
     });
+    document.addEventListener('lightbox:asset-deleted', event => dropDeletedResult(event.detail?.assetId));
+    watchControlsHeight();
     document.addEventListener('contextmenu', openStudioContextMenu);
     document.addEventListener('click', event => {
         if (!event.target.closest('.image-context-menu')) closeContextMenu();
@@ -3028,6 +3060,31 @@ function resizePrompt() {
         if (Number.isFinite(limit)) maxH = Math.min(maxH, textarea.clientHeight + Math.max(0, limit - card.scrollHeight));
     }
     textarea.style.minHeight = `${Math.max(minH, Math.min(content, maxH))}px`;
+}
+
+/**
+ * The prompt's height depends on everything else in the card: an error or note banner, the
+ * refine chip, the status line or a layout switch. Re-measure whenever one of them appears,
+ * disappears or changes its text, not only on window resize.
+ */
+function watchControlsHeight() {
+    const card = document.querySelector('.studio-controls-card');
+    const layout = $('studio-layout');
+    if (!card || !layout || typeof MutationObserver !== 'function') return;
+    // Observer callbacks already arrive batched once per task.
+    const schedule = () => {
+        resizePrompt();
+        syncCanvasRowHeight();
+    };
+    // The Create button's progress text changes every tick without changing its height.
+    const ignored = node => {
+        const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+        return !element || element === $('prompt') || Boolean(element.closest('#create'));
+    };
+    new MutationObserver(records => {
+        if (records.some(record => !ignored(record.target))) schedule();
+    }).observe(card, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
+    new MutationObserver(schedule).observe(layout, { attributes: true, attributeFilter: ['data-view', 'data-refs', 'data-blocks'] });
 }
 
 function playSuccessChime() {
