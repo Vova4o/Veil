@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
+from app import startup_checks
 from app.config_store import ConfigStore
 from app.model_sources.tokens import ModelSourceError, civitai_token, save_civitai_token
 
@@ -18,9 +20,10 @@ from .desktop import (
 )
 from .detector import detect_comfyui
 from .launcher import generate_launcher_script
-from .manager import ComfyUIMode, comfy_manager
+from .manager import ComfyUIMode, comfy_manager, ensure_comfyui_online
 from .workflow_inventory import invalidate_runtime_inventory
 
+logger = logging.getLogger(__name__)
 comfyui_blueprint = Blueprint("comfyui", __name__)
 
 
@@ -117,13 +120,46 @@ def comfyui_detect():
     return jsonify(result)
 
 
-@comfyui_blueprint.route("/api/comfyui/installations", methods=["GET"])
-def comfyui_installations():
-    return jsonify({
+# Desktop installations (with their ComfyUI versions) and folders; read at startup and on "Check again".
+_installations: dict | None = None
+
+
+def _installations_payload(*, refresh: bool) -> dict:
+    global _installations
+    if not refresh:
+        startup_checks.wait("comfyui")
+        if _installations is not None:
+            return _installations
+    _installations = {
         "installations": [item.to_dict() for item in find_desktop_installations()],
         "folders": desktop_folders(),
         "download_url": DESKTOP_DOWNLOAD_URL,
-    })
+    }
+    return _installations
+
+
+def warm_comfyui() -> None:
+    """Startup check: Desktop installations and versions, then whether a ComfyUI already answers."""
+    _installations_payload(refresh=True)
+    cfg = _config_store().comfyui_settings()
+    comfy_manager.check_external_or_status(host=cfg.get("host") or "127.0.0.1", port=int(cfg.get("port") or 8188))
+
+
+def launch_local_comfyui() -> None:
+    """Startup check (background): start the local ComfyUI unless one already answers.
+
+    It runs whichever backend Create uses, so switching to This PC later finds it warm.
+    """
+    startup_checks.wait("comfyui")
+    if not _installations_payload(refresh=False)["installations"]:
+        return
+    if not ensure_comfyui_online(_config_store()):
+        logger.info("ComfyUI did not start in the background: %s", comfy_manager.get_info().get("last_error"))
+
+
+@comfyui_blueprint.route("/api/comfyui/installations", methods=["GET"])
+def comfyui_installations():
+    return jsonify(_installations_payload(refresh=request.args.get("refresh") == "1"))
 
 
 @comfyui_blueprint.route("/api/comfyui/status", methods=["GET"])

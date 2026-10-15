@@ -199,6 +199,7 @@ def test_remote_settings_are_normalized_and_validated(tmp_path):
 def remote_client(tmp_path, monkeypatch):
     store = ConfigStore(tmp_path / "config.json")
     monkeypatch.setitem(app.config, "CONFIG_STORE", store)
+    monkeypatch.setattr(routes, "_status_cache", None)
     return app.test_client()
 
 
@@ -225,6 +226,24 @@ def test_status_reports_the_signed_in_account(remote_client, monkeypatch):
     data = remote_client.get("/api/remote/colab/status").get_json()
     assert data["cli"] == {"installed": True, "version": "0.7.4"}
     assert data["account"]["email"] == "someone@example.com"
+
+
+def test_status_is_cached_until_a_refresh(remote_client, monkeypatch):
+    calls = []
+
+    def status():
+        calls.append(1)
+        return wsl.WslStatus(False, None, "WSL is not installed.")
+
+    monkeypatch.setattr(wsl, "status", status)
+    remote_client.get("/api/remote/colab/status")
+    remote_client.get("/api/remote/colab/status")
+    assert len(calls) == 1
+    remote_client.get("/api/remote/colab/status?refresh=1")
+    assert len(calls) == 2
+    routes._forget_status()
+    remote_client.get("/api/remote/colab/status")
+    assert len(calls) == 3
 
 
 def test_code_without_a_pending_sign_in_is_refused(remote_client, monkeypatch):

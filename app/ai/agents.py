@@ -311,7 +311,8 @@ def provider_models(store: AIProviderStore, provider: dict[str, Any], *, refresh
     ids: list[str] | None = None
     error = None
     cached = _provider_models_cache.get(cache_key)
-    if cached and not refresh and time.time() - cached["saved_at"] < catalog_cache.TTL_SECONDS:
+    # Only this process fills this cache, so a listing stays valid until a refresh.
+    if cached and not refresh:
         ids = cached["ids"]
     else:
         try:

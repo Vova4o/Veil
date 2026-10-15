@@ -27,6 +27,7 @@ def _write(path, data):
 @pytest.fixture
 def desktop_env(tmp_path, monkeypatch):
     """A Comfy Desktop app data folder with two local installations, a cloud entry and a broken one."""
+    monkeypatch.setattr(routes, "_installations", None)
     data = tmp_path / "Comfy Desktop"
     shared = tmp_path / "Shared"
     installs = tmp_path / "Installs"
@@ -222,6 +223,14 @@ def test_config_route_saves_installation_and_folders(desktop_env, store, tmp_pat
     assert bad.status_code == 400 and bad.get_json()["field"] == "input_dir"
     missing = client.post("/api/comfyui/config", json={"desktop_installation_id": "inst-9"})
     assert missing.status_code == 400 and missing.get_json()["code"] == "installation_not_found"
+
+
+def test_installations_are_cached_until_a_refresh(desktop_env, monkeypatch):
+    client = app.test_client()
+    assert len(client.get("/api/comfyui/installations").get_json()["installations"]) == 2
+    monkeypatch.setattr(routes, "find_desktop_installations", list)
+    assert len(client.get("/api/comfyui/installations").get_json()["installations"]) == 2
+    assert client.get("/api/comfyui/installations?refresh=1").get_json()["installations"] == []
 
 
 def test_installations_route_lists_desktop_folders(desktop_env):

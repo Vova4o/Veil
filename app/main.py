@@ -821,6 +821,14 @@ def api_repair_library_status():
     return jsonify({'repair': get_repair()})
 
 
+@app.route("/api/startup", methods=["GET"])
+def api_startup():
+    """The startup checks still running (models, AI tools, Colab, ComfyUI)."""
+    from . import startup_checks
+
+    return jsonify(startup_checks.snapshot())
+
+
 @app.route("/api/diagnostics", methods=["GET"])
 def api_diagnostics():
     thumb_dir = storage_path("THUMBNAIL_FOLDER")

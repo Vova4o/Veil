@@ -917,14 +917,25 @@ function restoreAgentCatalog() {
     try {
         const saved = JSON.parse(localStorage.getItem(AGENT_CATALOG_KEY) || 'null');
         if (saved?.version !== 2 || !Array.isArray(saved.payload?.groups)) return;
-        state.agents = saved.payload;
+        state.agents = withoutHostErrors(saved.payload);
         state.agentsSavedAt = Number(saved.savedAt) || 0;
     } catch {}
 }
 
+/**
+ * The saved catalog keeps only models: a host error (OpenCode still starting, a CLI offline) belongs to
+ * that answer, and showing it again on the next visit would look like a fresh failure until the new list arrives.
+ */
+function withoutHostErrors(payload) {
+    const groups = payload.groups
+        .filter(group => group.models?.length)
+        .map(group => ({ ...group, error: null }));
+    return { ...payload, groups };
+}
+
 function saveAgentCatalog(payload) {
     const savedAt = Date.now();
-    try { localStorage.setItem(AGENT_CATALOG_KEY, JSON.stringify({ version: 2, savedAt, payload })); } catch {}
+    try { localStorage.setItem(AGENT_CATALOG_KEY, JSON.stringify({ version: 2, savedAt, payload: withoutHostErrors(payload) })); } catch {}
     state.agentsSavedAt = savedAt;
 }
 
@@ -3499,9 +3510,9 @@ async function openRuntimeSettings() {
     paintRuntimeCard();
 }
 
-async function loadDesktop() {
+async function loadDesktop(refresh = false) {
     try {
-        state.desktop = await json('/api/comfyui/installations');
+        state.desktop = await json(`/api/comfyui/installations${refresh ? '?refresh=1' : ''}`);
     } catch {
         state.desktop = { installations: [], folders: {} };
     }
@@ -3594,7 +3605,7 @@ async function rescanDesktop() {
     const button = $('runtime-rescan');
     button.disabled = true;
     try {
-        await loadDesktop();
+        await loadDesktop(true);
         state.runtimeDraft.installationId ||= state.desktop.installations[0]?.id || null;
         paintDesktopChoice();
         paintRuntimeCard();

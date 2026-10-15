@@ -1,4 +1,8 @@
-"""Profile-local model cards, reusable after a backend restart; no credentials."""
+"""Profile-local model cards, reusable after a backend restart; no credentials.
+
+Cards listed by this process stay valid until it ends or someone asks for a refresh;
+TTL_SECONDS only bounds cards a previous run left on disk.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -14,6 +18,7 @@ from app.paths import build_runtime_paths
 logger = logging.getLogger(__name__)
 TTL_SECONDS = 600
 memory: dict[str, dict[str, Any]] = {}
+_listed_here: set[str] = set()
 
 
 def cache_directory() -> Path:
@@ -39,7 +44,9 @@ def load(host: str, executable: str) -> list[dict[str, Any]] | None:
     key = _key(identity)
     location = cache_directory() / f"{key}.json"
     record = memory.get(str(location))
+    listed_here = record is not None and str(location) in _listed_here
     if record is None:
+        _listed_here.discard(str(location))
         try:
             if location.stat().st_size > 4_000_000:
                 return None
@@ -49,7 +56,9 @@ def load(host: str, executable: str) -> list[dict[str, Any]] | None:
     if not isinstance(record, dict) or record.get("schema") != 1 or record.get("identity") != identity:
         return None
     saved_at = record.get("saved_at")
-    if not isinstance(saved_at, (float, int)) or not 0 <= time.time() - saved_at < TTL_SECONDS:
+    if not listed_here and (
+        not isinstance(saved_at, (float, int)) or not 0 <= time.time() - saved_at < TTL_SECONDS
+    ):
         return None
     models = record.get("models")
     if not isinstance(models, list) or not models or any(
@@ -73,6 +82,7 @@ def save(host: str, executable: str, models: list[dict[str, Any]]) -> None:
     location = cache_directory() / f"{_key(identity)}.json"
     record = {"schema": 1, "identity": identity, "saved_at": time.time(), "models": models}
     memory[str(location)] = record
+    _listed_here.add(str(location))
     temporary = location.with_suffix(f".{uuid.uuid4().hex}.tmp")
     try:
         location.parent.mkdir(parents=True, exist_ok=True)

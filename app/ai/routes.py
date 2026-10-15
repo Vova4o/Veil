@@ -18,7 +18,7 @@ from flask import (
 )
 from pydantic import ValidationError
 
-from app import database
+from app import database, startup_checks
 
 from . import agents, opencode_host, provider_catalog
 from .adaptation import PromptAdaptationError, PromptAdaptationService
@@ -65,6 +65,9 @@ from .transport import AIProviderRequestError
 
 ai_blueprint = Blueprint("ai", __name__)
 MAX_RECONSTRUCTION_IMAGE_BYTES = 20 * 1024 * 1024
+# Installation, version and sign-in of each local CLI; probed at startup and on "Check again".
+_cli_probes: dict[str, dict[str, Any]] = {}
+_cli_probes_lock = threading.Lock()
 
 
 def _store() -> AIProviderStore:
@@ -310,12 +313,43 @@ def ai_local_tool(tool: str):
     return jsonify({"local_tools": _local_tools(store)})
 
 
+def warm_models() -> None:
+    """Startup check: list every connected provider's models and the free OpenCode fallback."""
+    agents.catalog(_store(), refresh=True)
+    installations = opencode_host.find_installations()
+    if installations:
+        agents.default_free_model(installations[0].executable)
+
+
+def warm_cli_integrations() -> None:
+    """Startup check: installation, version and sign-in of every local CLI."""
+    found = discover_cli_integrations()
+    with _cli_probes_lock:
+        _cli_probes.update({item["type"]: item for item in found})
+
+
+def _cli_probe(cli_type: str, *, refresh: bool) -> dict[str, Any]:
+    if not refresh:
+        startup_checks.wait("cli")
+        with _cli_probes_lock:
+            cached = _cli_probes.get(cli_type)
+        if cached is not None:
+            return cached
+    probe = probe_cli(cli_type)
+    with _cli_probes_lock:
+        _cli_probes[cli_type] = probe
+    return probe
+
+
 @ai_blueprint.route("/api/ai/models", methods=["GET"])
 def ai_models():
     """Every model of the connected providers; ``visible=1`` keeps the ones pickers show."""
+    refresh = request.args.get("refresh") == "1"
+    if not refresh:
+        startup_checks.wait("models")
     return jsonify(agents.catalog(
         _store(),
-        refresh=request.args.get("refresh") == "1",
+        refresh=refresh,
         visible_only=request.args.get("visible") == "1",
     ))
 
@@ -344,7 +378,15 @@ def ai_default_model():
 def ai_cli_integrations():
     if request.args.get("probe", "").lower() in {"0", "false", "no"}:
         return jsonify({"integrations": cli_catalog()})
-    return jsonify({"integrations": discover_cli_integrations()})
+    if request.args.get("refresh") != "1":
+        startup_checks.wait("cli")
+        with _cli_probes_lock:
+            cached = [_cli_probes.get(cli_type) for cli_type in CLI_SPECS]
+        if all(cached):
+            return jsonify({"integrations": cached})
+    warm_cli_integrations()
+    with _cli_probes_lock:
+        return jsonify({"integrations": [_cli_probes[cli_type] for cli_type in CLI_SPECS if cli_type in _cli_probes]})
 
 
 @ai_blueprint.route("/api/ai/cli-integrations/<cli_type>", methods=["GET"])
@@ -353,7 +395,7 @@ def ai_cli_integration(cli_type: str):
         raise CLIIntegrationError(
             "Unsupported CLI integration.", code="cli_unavailable"
         )
-    return jsonify({"integration": probe_cli(cli_type)})
+    return jsonify({"integration": _cli_probe(cli_type, refresh=request.args.get("refresh") == "1")})
 
 
 @ai_blueprint.route("/api/ai/jobs/<int:job_id>", methods=["GET"])

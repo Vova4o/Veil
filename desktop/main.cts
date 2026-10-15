@@ -37,6 +37,11 @@ let failure = '';
 // The splash's intro (the V rising, the veils opening) plays out before the library replaces it.
 const SPLASH_INTRO_MS = 1600;
 let splashUntil = 0;
+// The splash also waits for the backend's startup checks, so pages open with every status known.
+const STARTUP_CHECKS_MAX_MS = 120_000;
+const STARTUP_POLL_MS = 250;
+// Only these hold the splash; Colab and ComfyUI (with its launch) keep going in the background.
+const STARTUP_CHECK_LABELS: Record<string, string> = { models: 'AI models', cli: 'AI tools' };
 const projectRoot = path.resolve(__dirname, '..');
 
 function isAppUrl(value: string): boolean {
@@ -86,6 +91,33 @@ function shellPage(): Response {
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'" } });
 }
 
+function startupStatus(running: string[]): string {
+    const names = running.map(name => STARTUP_CHECK_LABELS[name] || name);
+    if (!names.length) return 'Starting your library…';
+    const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+    return `Checking ${list}…`;
+}
+
+/** Wait until the backend's startup checks finish (or the cap passes), showing which still run. */
+async function waitForStartupChecks(owner: DesktopBackend): Promise<void> {
+    const deadline = Date.now() + STARTUP_CHECKS_MAX_MS;
+    while (!stopping && Date.now() < deadline) {
+        try {
+            const response = await net.fetch(`${owner.origin}/api/startup`, {
+                headers: { 'X-MediaStudio-Desktop-Token': owner.token },
+            });
+            const state = await response.json() as { done?: boolean; running?: string[] };
+            if (state.done) return;
+            if (window && !window.isDestroyed()) window.webContents.send('mediastudio:startup-status', startupStatus(state.running || []));
+        } catch (error) {
+            owner.log(`Startup checks: ${String(error)}`);
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, STARTUP_POLL_MS));
+    }
+    if (!stopping) owner.log('Startup checks still running after the splash limit; opening the app.');
+}
+
 async function startBackend(): Promise<void> {
     if (stopping) return;
     if (starting) return starting;
@@ -100,6 +132,7 @@ async function startBackend(): Promise<void> {
             } });
         try {
             await backend.start();
+            await waitForStartupChecks(backend);
             const intro = splashUntil - Date.now();
             if (intro > 0) await new Promise(resolve => setTimeout(resolve, intro));
             if (!stopping) await window?.loadURL(`${APP_URL}/`);

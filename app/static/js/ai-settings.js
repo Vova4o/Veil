@@ -655,14 +655,14 @@ function authenticationLabel(authentication) {
     return labels[authentication?.status] || 'Status unknown';
 }
 
-async function probeTool() {
+async function probeTool(refresh = false) {
     const tool = toolTarget;
     if (!tool) return;
     const body = $('tool-body');
     body.replaceChildren(el('p', 'tool-status-line', 'Checking the installation and sign-in…'));
     $('tool-recheck').disabled = true;
     try {
-        const { integration } = await requestJson(`/api/ai/cli-integrations/${tool.type}`);
+        const { integration } = await requestJson(`/api/ai/cli-integrations/${tool.type}${refresh ? '?refresh=1' : ''}`);
         if (toolTarget !== tool) return;
         body.replaceChildren();
         $('tool-path').textContent = integration.executable || 'Not found on this computer';
@@ -957,7 +957,7 @@ function wireDialogs() {
     $('custom-form').addEventListener('submit', submitCustom);
     $('custom-add-model').addEventListener('click', () => addCustomModelRow());
     $('all-providers-search').addEventListener('input', renderAllProviders);
-    $('tool-recheck').addEventListener('click', probeTool);
+    $('tool-recheck').addEventListener('click', () => probeTool(true));
     $('tool-dialog').addEventListener('close', () => { toolTarget = null; });
 }
 

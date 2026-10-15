@@ -87,12 +87,12 @@ function actions(...buttons) {
 
 /* ---------- data ---------- */
 
-async function loadStatus() {
+async function loadStatus(refresh = false) {
     if (loading) return;
     loading = true;
     render();
     try {
-        status = await requestJson('/api/remote/colab/status');
+        status = await requestJson(`/api/remote/colab/status${refresh ? '?refresh=1' : ''}`);
         if (status.install?.state === 'running') pollInstall();
     } catch (error) {
         toast(error.message, true);
@@ -300,7 +300,7 @@ function setupCard() {
     } else {
         buttons.push(button('Check for update', checkUpdate));
     }
-    const recheck = button(loading ? 'Checking…' : 'Re-check', () => loadStatus());
+    const recheck = button(loading ? 'Checking…' : 'Re-check', () => loadStatus(true));
     recheck.disabled = loading;
     buttons.push(recheck);
     node.append(actions(...buttons));

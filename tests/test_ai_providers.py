@@ -15,6 +15,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app.ai import agents
+from app.ai import routes as ai_routes
 from app.ai.cli import (
     VISION_TEST_IMAGE,
     CLIIntegrationError,
@@ -255,6 +256,8 @@ class AIRoutesTest(unittest.TestCase):
         self.client = app.test_client()
         agents._provider_models_cache.clear()
         self.addCleanup(agents._provider_models_cache.clear)
+        ai_routes._cli_probes.clear()
+        self.addCleanup(ai_routes._cli_probes.clear)
 
     def _restore_config(self):
         app.config.clear()
@@ -423,6 +426,15 @@ class AIRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["integration"], probed)
         probe.assert_called_once_with("claude")
+
+    def test_cli_probe_is_cached_until_a_refresh(self):
+        probed = {"type": "codex", "label": "Codex", "installed": False, "executable": None}
+        with patch("app.ai.routes.probe_cli", return_value=probed) as probe:
+            self.client.get("/api/ai/cli-integrations/codex")
+            self.client.get("/api/ai/cli-integrations/codex")
+            self.assertEqual(probe.call_count, 1)
+            self.client.get("/api/ai/cli-integrations/codex?refresh=1")
+            self.assertEqual(probe.call_count, 2)
 
     def test_single_cli_probe_route_rejects_unknown_type(self):
         response = self.client.get("/api/ai/cli-integrations/not-a-cli")
