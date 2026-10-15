@@ -277,6 +277,15 @@
 }
 .studio-hero.is-gone{grid-template-rows:0fr;margin-bottom:0;opacity:0;pointer-events:none}
 .studio-hero-inner{min-height:0;overflow:hidden;text-align:center}
+/* Falling letters leave the hero box and drop behind the glass cards. */
+.studio-hero{position:relative;z-index:0}
+.studio-container{position:relative;z-index:1}
+.studio-hero:not(.is-gone) .studio-hero-inner{overflow:visible}
+.studio-hero-title.is-revealed{animation:hero-reveal 2.4s ease-in-out infinite alternate}
+@keyframes hero-reveal{
+    from{text-shadow:0 2px 28px rgba(0,0,0,.38),0 0 0 transparent}
+    to{text-shadow:0 2px 28px rgba(0,0,0,.38),0 0 22px color-mix(in srgb,var(--accent,#2dd4bf) 55%,transparent)}
+}
 .studio-hero-title{
     margin:0;padding:.08em 0 .14em;
     color:var(--text,#f0f2f7);

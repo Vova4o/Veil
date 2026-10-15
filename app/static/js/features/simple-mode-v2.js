@@ -89,22 +89,37 @@ function needsVision(mode = jobMode(), agent = state.mode !== 'prompt' || state.
 const LAYOUT_EASING = 'cubic-bezier(.16,1,.3,1)';
 
 // The greeting above the cards: one at random per visit; it leaves when a generation starts.
+// Now and then its letters come loose and fall, and the ones left standing gather into what
+// was hidden under the veil. Each reveal reads left to right through the phrase's letters.
 const HERO_PHRASES = [
-    'What are we creating?',
-    'What shall we dream up today?',
-    'Turn words into pictures',
-    'Your idea, rendered',
-    'Start with a single word',
-    'Paint the scene you imagine',
-    'Where does the story begin?',
-    'Describe it, and it appears',
-    'Bring a moment to life',
-    'What should the light look like?',
-    'Let’s make something beautiful',
-    'One prompt away',
-    'Something daring tonight?',
-    'Show me what you see',
+    { text: 'What are we creating?', reveals: ['wet', 'heat'] },
+    { text: 'Show me what you see', reveals: ['so wet', 'sweaty', 'show me you'] },
+    { text: 'Something daring tonight?', reveals: ['so tight', 'sit on it', 'sin tonight', 'thong'] },
+    { text: 'Paint the scene you imagine', reveals: ['pin me', 'paint me', 'pin you'] },
+    { text: 'Where does the story begin?', reveals: ['wet story', 'hot sin', 'whore', 'wet sin'] },
+    { text: 'Start with a single word', reveals: ['tits lewd', 'satin', 'hard'] },
+    { text: 'What shall we dream up today?', reveals: ['sweaty', 'slut', 'hard'] },
+    { text: 'Describe it, and it appears', reveals: ['deeper', 'ride', 'drip', 'bite'] },
+    { text: 'Turn words into pictures', reveals: ['undo it', 'on top', 'turn on', 'oops'] },
+    { text: 'Your idea, rendered', reveals: ['yandere', 'i dare', 'ride'] },
+    { text: 'Touch the light, make it move', reveals: ['touch me', 'touch it', 'take me', 'eat me'] },
+    { text: 'Under the veil, anything is possible', reveals: ['undress', 'tease', 'heels'] },
+    { text: 'Soft light, deep shadows, your rules', reveals: ['so tight', 'oh yes', 'so deep', 'tease'] },
+    { text: 'Let the story take its time', reveals: ['take it', 'eat me', 'the tits', 'tease'] },
+    { text: 'Your next favourite picture starts here', reveals: ['on top', 'your tits', 'tease', 'oops'] },
+    { text: 'Find the shot nobody has taken', reveals: ['in heat', 'hot body', 'tease'] },
+    { text: 'Shape the light, then the story', reveals: ['thighs', 'sheer', 'heels', 'satin'] },
+    { text: 'Take your time, the light is soft', reveals: ['take it', 'your thighs', 'take your tits', 'take it soft'] },
+    { text: 'Pick a mood and let it unfold', reveals: ['pick me', 'moan', 'pound'] },
+    { text: 'Tell me what you want to see', reveals: ['tell me you want', 'tease', 'moan'] },
+    { text: 'Tonight, anything goes', reveals: ['oh yes', 'tight'] },
+    { text: 'Make it moody, make it yours', reveals: ['make me yours', 'take it'] },
+    { text: 'One prompt away', reveals: [] },
 ];
+// How often a greeting comes apart, and how long a reveal stays before the next greeting.
+const HERO_BREAK_CHANCE = 0.45;
+const HERO_REST_MS = [3000, 8000];
+const HERO_REVEAL_MS = [7000, 23000];
 
 // Variation noise: how much of the photo is repainted (0 keeps it, 1 ignores it).
 const DENOISE_DEFAULT = 0.65;
@@ -239,20 +254,149 @@ function restore() {
     } catch {}
 }
 
-/** A random greeting, typed in letter by letter. */
+const hero = { run: 0, timers: [], text: '' };
+
+function between([low, high]) {
+    return low + Math.random() * (high - low);
+}
+
+/** A timer that does nothing once the greeting has moved on. */
+function heroLater(run, ms, fn) {
+    hero.timers.push(setTimeout(() => { if (run === hero.run) fn(); }, ms));
+}
+
+function stopHero() {
+    hero.run += 1;
+    hero.timers.forEach(clearTimeout);
+    hero.timers = [];
+}
+
+/** Indices of the phrase's letters that spell ``reveal`` in order, or null. */
+function revealIndices(text, reveal) {
+    const lower = text.toLowerCase();
+    const indices = [];
+    let from = 0;
+    for (const char of reveal.toLowerCase()) {
+        if (char === ' ') continue;
+        const at = lower.indexOf(char, from);
+        if (at < 0) return null;
+        indices.push(at);
+        from = at + 1;
+    }
+    return indices;
+}
+
+function heroLetter(char, index) {
+    const letter = document.createElement('span');
+    letter.className = 'hero-letter';
+    letter.textContent = char;
+    letter.style.setProperty('--i', String(index));
+    letter.setAttribute('aria-hidden', 'true');
+    return letter;
+}
+
+/** A random greeting, typed in letter by letter; it may come apart a few seconds later. */
 function paintHero() {
     const title = $('hero-phrase');
     if (!title) return;
-    const phrase = HERO_PHRASES[Math.floor(Math.random() * HERO_PHRASES.length)];
-    title.setAttribute('aria-label', phrase);
-    title.replaceChildren(...[...phrase].map((char, index) => {
-        const letter = document.createElement('span');
-        letter.className = 'hero-letter';
-        letter.textContent = char;
-        letter.style.setProperty('--i', String(index));
-        letter.setAttribute('aria-hidden', 'true');
-        return letter;
+    stopHero();
+    const run = hero.run;
+    const choices = HERO_PHRASES.filter(item => item.text !== hero.text);
+    const phrase = choices[Math.floor(Math.random() * choices.length)];
+    hero.text = phrase.text;
+    title.classList.remove('is-revealed');
+    title.setAttribute('aria-label', phrase.text);
+    title.replaceChildren(...[...phrase.text].map(heroLetter));
+    if (!phrase.reveals.length || Math.random() >= HERO_BREAK_CHANCE) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const reveal = phrase.reveals[Math.floor(Math.random() * phrase.reveals.length)];
+    const typed = phrase.text.length * 32 + 1100;
+    heroLater(run, typed + between(HERO_REST_MS), () => breakHero(run, reveal));
+}
+
+/** Loose letters wobble and fall one by one or a few at once, out of step. */
+function breakHero(run, reveal) {
+    const title = $('hero-phrase');
+    const letters = [...title.children];
+    const keep = new Set(revealIndices(hero.text, reveal) || []);
+    if (!keep.size) return;
+    letters.forEach(letter => { letter.style.animation = 'none'; });
+    const loose = letters.filter((letter, index) => !keep.has(index) && letter.textContent.trim());
+    for (let i = loose.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [loose[i], loose[j]] = [loose[j], loose[i]];
+    }
+    let at = 0;
+    let end = 0;
+    while (loose.length) {
+        // Mostly one letter at a time, sometimes two or three together.
+        const burst = loose.splice(0, Math.random() < 0.35 ? 2 + Math.floor(Math.random() * 2) : 1);
+        for (const letter of burst) {
+            const start = at + between([0, 700]);
+            const wobble = between([1100, 2600]);
+            const fall = between([800, 1300]);
+            heroLater(run, start, () => dropLetter(run, letter, wobble, fall));
+            end = Math.max(end, start + wobble + fall);
+        }
+        at += between([350, 1600]);
+    }
+    heroLater(run, end + 450, () => gatherHero(run, reveal, keep));
+}
+
+function dropLetter(run, letter, wobble, fall) {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const tilt = between([5, 10]) * side;
+    // It hangs on one bottom corner, as if a single nail still held it.
+    letter.style.transformOrigin = side < 0 ? '0% 100%' : '100% 100%';
+    const swing = letter.animate([
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${tilt * 0.35}deg)` },
+        { transform: `rotate(${-tilt * 0.2}deg)` },
+        { transform: `rotate(${tilt * 0.7}deg)` },
+        { transform: `rotate(${-tilt * 0.25}deg)` },
+        { transform: `rotate(${tilt}deg)` },
+    ], { duration: wobble, easing: 'ease-in-out', fill: 'forwards' });
+    swing.finished.then(() => {
+        if (run !== hero.run) return;
+        letter.animate([
+            { transform: `rotate(${tilt}deg)`, opacity: 1 },
+            { transform: `translate(${side * between([8, 40])}px, ${between([150, 260])}px) rotate(${side * between([40, 120])}deg)`, opacity: 0 },
+        ], { duration: fall, easing: 'cubic-bezier(.55,0,1,.45)', fill: 'forwards' });
+    }).catch(() => {});
+}
+
+/** The letters left standing slide together into the reveal, then give way to a new greeting. */
+function gatherHero(run, reveal, keep) {
+    const title = $('hero-phrase');
+    const kept = [...title.children].filter((letter, index) => keep.has(index));
+    const before = new Map(kept.map(letter => [letter, letter.getBoundingClientRect()]));
+    const queue = [...kept];
+    title.replaceChildren(...[...reveal].map(char => {
+        if (char !== ' ') return queue.shift();
+        const space = heroLetter(' ', 0);
+        space.style.animation = 'none';
+        return space;
     }));
+    title.setAttribute('aria-label', reveal);
+    kept.forEach((letter, index) => {
+        const old = before.get(letter);
+        const now = letter.getBoundingClientRect();
+        letter.animate([
+            { transform: `translate(${old.left - now.left}px, ${old.top - now.top}px)` },
+            { transform: 'none' },
+        ], { duration: 900, delay: index * 22, easing: LAYOUT_EASING, fill: 'backwards' });
+    });
+    heroLater(run, 900 + kept.length * 22, () => title.classList.add('is-revealed'));
+    heroLater(run, between(HERO_REVEAL_MS), () => leaveHero(run));
+}
+
+function leaveHero(run) {
+    const letters = [...$('hero-phrase').children];
+    letters.forEach((letter, index) => letter.animate([
+        { opacity: 1, filter: 'blur(0)', transform: 'none' },
+        { opacity: 0, filter: 'blur(8px)', transform: 'translateY(-.3em)' },
+    ], { duration: 600, delay: index * 30, easing: 'ease-in', fill: 'forwards' }));
+    heroLater(run, 600 + letters.length * 30, paintHero);
 }
 
 function init() {
@@ -1753,11 +1897,12 @@ function updateResultView() {
 
 function canvas(view) {
     const layout = $('studio-layout');
-    const hero = $('studio-hero');
-    if (hero) {
+    const heroBox = $('studio-hero');
+    if (heroBox) {
         const gone = view !== 'idle';
-        if (!gone && hero.classList.contains('is-gone')) paintHero();
-        hero.classList.toggle('is-gone', gone);
+        if (!gone && heroBox.classList.contains('is-gone')) paintHero();
+        else if (gone && !heroBox.classList.contains('is-gone')) stopHero();
+        heroBox.classList.toggle('is-gone', gone);
     }
     animateLayout(() => {
         layout.dataset.view = view;
